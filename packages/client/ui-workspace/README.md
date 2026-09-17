@@ -25,7 +25,7 @@ This package lets users browse grouped or flat Session lists, choose a Workspace
 <a id="use-this-package"></a>
 ## Use this package
 
-Use the sidebar to browse Workspaces and their Sessions, reorder them, and start new ones; use the picker in the Session Intent hero to choose a Workspace for a new session. An open Workspace shows five non-blank Sessions by default and keeps the selected blank **New Session** as one provisional extra row until its first prompt. **Show more** reveals the hidden remainder; closing and reopening the Workspace restores this folded projection.
+Use the sidebar to browse Workspaces and their Sessions, reorder them, and start new ones; use the picker in the Session Intent hero to choose a Workspace for a new session. An open Workspace shows five non-blank Sessions by default and keeps the selected blank **New Session** as one provisional extra row until its first prompt. **Show more** reveals the hidden remainder; closing and reopening the Workspace restores this folded projection. Opening a Session reopens the Workspace that owns it, including from a URL that names one, and folding that Workspace again is preserved; a folded Workspace holding the open Session keeps the business-color folder plus a 2px leading bar so its row stays identifiable.
 
 ### Reordering and view options
 

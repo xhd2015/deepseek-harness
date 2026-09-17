@@ -113,4 +113,11 @@ describe('WorkspaceBrowser.module.css list', () => {
     expect(declarations('.rail .iconButton')?.get('width')).toBe('36px')
     expect(declarations('.rail .search')?.get('width')).toBe('36px')
   })
+
+  it('accents a folded project that holds the open Session', () => {
+    expect(rowDeclarations('.projectRowCurrent')?.get('box-shadow'))
+      .toBe('inset 2px 0 0 var(--dsw-alias-state-business-primary)')
+    expect(rowDeclarations('.folderActive')?.get('color'))
+      .toBe('var(--dsw-alias-state-business-primary)')
+  })
 })
