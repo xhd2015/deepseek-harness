@@ -201,17 +201,22 @@ function ProjectRow({
   const row = group
   // The ungrouped bucket has no workspace title: its label is dictionary copy.
   const label = row.workspaceId === undefined ? t('group.ungrouped') : row.label
-  const active = containsCurrentDescendant || (group.expanded && group.containsCurrent)
+  // Holding the open Session outlives the fold: a folded row keeps the folder
+  // tint and adds the location accent, since its Session rows are not rendered.
+  const containsCurrent = group.containsCurrent
+  const foldedCurrent = containsCurrent && !group.expanded
+  const active = containsCurrentDescendant || containsCurrent
   const menuOpen = useContextMenuTarget(target => target?.kind === 'workspace' && target.value.workspaceId === row.workspaceId)
   const dragPreview = useRowDragPreview(css.dragPreview as string, DRAG_PREVIEW_PROPERTIES)
   const workspaceMenuTarget = row.workspaceId !== undefined && row.cwd !== undefined
     ? { workspaceId: row.workspaceId, path: row.cwd } : undefined
   const ownRow = (
     <div
-      className={clsx(css.projectRow, menuOpen && css.menuOpen)}
+      className={clsx(css.projectRow, menuOpen && css.menuOpen, foldedCurrent && css.projectRowCurrent)}
       data-row-key={`workspace:${group.key}`}
       role="treeitem"
       aria-expanded={row.expanded}
+      aria-current={containsCurrent ? 'true' : undefined}
       onClick={onToggle}
       {...getTriggerProps(workspaceMenuTarget === undefined ? undefined : { kind: 'workspace', value: { ...workspaceMenuTarget, displayTitle: label } })}
       draggable={drag !== undefined}
