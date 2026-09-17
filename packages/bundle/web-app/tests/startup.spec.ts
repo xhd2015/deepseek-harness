@@ -105,13 +105,20 @@ describe('web command-line provider', () => {
       '--tls-key', 'private-key.pem',
     ])
     expect(values).toEqual({
+      mode: 'serve',
       host: '127.0.0.1',
       openBrowser: false,
       port: 8080,
       trustedHosts: ['lab.internal', 'lab-2.internal', '10.0.0.9'],
       tls: { certFile: 'fullchain.pem', keyFile: 'private-key.pem' },
     })
-    expect(observed.readerConfig).toEqual(values)
+    expect(observed.readerConfig).toEqual({
+      host: '127.0.0.1',
+      openBrowser: false,
+      port: 8080,
+      trustedHosts: ['lab.internal', 'lab-2.internal', '10.0.0.9'],
+      tls: { certFile: 'fullchain.pem', keyFile: 'private-key.pem' },
+    })
     expect(observed.exits).toEqual([])
   })
 
@@ -127,12 +134,34 @@ describe('web command-line provider', () => {
 
   it('leaves deployment values to each consumer when flags omit them', async () => {
     const { values, observed } = await bootProvider([])
-    expect(values).toEqual({ openBrowser: true, trustedHosts: [] })
+    expect(values).toEqual({ mode: 'serve', openBrowser: true, trustedHosts: [] })
     expect(observed.readerConfig).toEqual({
       host: '127.0.0.1',
       openBrowser: true,
       port: 3080,
       trustedHosts: [],
+    })
+  })
+
+  it('publishes a named browser on serve', async () => {
+    const { values } = await bootProvider(['--browser', 'brave'])
+    expect(values).toMatchObject({ mode: 'serve', browser: 'brave', openBrowser: true })
+  })
+
+  it('rejects an unknown --browser spelling', async () => {
+    const { values, observed } = await bootProvider(['--browser', 'lynx'])
+    expect(observed.out).toContain('--browser must be one of')
+    expect(values).toBeUndefined()
+    expect(observed.exits).toEqual([1])
+  })
+
+  it('publishes open mode for a directory', async () => {
+    const { values } = await bootProvider(['open', '/tmp/proj', '--browser', 'brave'])
+    expect(values).toMatchObject({
+      mode: 'open',
+      openBrowser: true,
+      browser: 'brave',
+      directory: expect.stringContaining('proj'),
     })
   })
 
@@ -161,6 +190,7 @@ describe('web command-line provider', () => {
       '--trusted-host', 'lab.internal',
     ])
     expect(values).toEqual({
+      mode: 'serve',
       openBrowser: true,
       publicUrl: 'https://web.example/ui',
       trustedHosts: ['lab.internal'],

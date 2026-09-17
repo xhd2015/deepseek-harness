@@ -35,7 +35,7 @@ The shipped apps own these command lines:
 
 | Profile | Arguments |
 |---|---|
-| `web` | `--host`, `--port`, `--tls-cert`, `--tls-key`, `--public-url`, repeatable `--trusted-host`, `--no-open` |
+| `web` | `--host`, `--port`, `--tls-cert`, `--tls-key`, `--public-url`, repeatable `--trusted-host`, `--no-open`, `--browser`, `open [dir]` |
 | `headless` | the task text, as the positional argument |
 | `sdk` | no options; stdio carries the JSON-RPC protocol |
 | `sdk-minimal` | no options; stdio carries the same JSON-RPC protocol |
@@ -106,7 +106,7 @@ Git-hosted plugins that ship sources build during install through their `prepare
 
 ## Web profile
 
-`dsh web` uses the profile shorthand. Launcher flags are parsed first; the remaining flags belong to the web app, whose ordinary bundle provider parses them. `--host` and `--port` override the composed listener values, and `--tls-cert`/`--tls-key` set the listener's `tls` pair. The host must name one concrete local address, not a wildcard (`--host 0.0.0.0` exits with a usage error); `hostname -i` may list several, so pass one. Repeatable `--trusted-host` values are collected in `ctx.webStartup.trustedHosts`; a deployment expression may add its own authorities. `--no-open` disables the default-browser handoff for this invocation. The client-plugin HMR receiver is always mounted and stays idle until `pnpm run dev:web` rebuilds client bundles; that command builds once, starts this same launcher, and keeps client bundles rebuilt, or with `--no-serve` runs only the watchers beside a `dsh web` started elsewhere.
+`dsh web` uses the profile shorthand. Launcher flags are parsed first; the remaining flags belong to the web app, whose ordinary bundle provider parses them. `--host` and `--port` override the composed listener values, and `--tls-cert`/`--tls-key` set the listener's `tls` pair. The host must name one concrete local address, not a wildcard (`--host 0.0.0.0` exits with a usage error); `hostname -i` may list several, so pass one. Repeatable `--trusted-host` values are collected in `ctx.webStartup.trustedHosts`; a deployment expression may add its own authorities. `--browser` names the handoff browser (`brave`, `chrome`, `firefox`, `edge`, `safari`). `--no-open` disables the browser handoff for this invocation. `dsh web open [dir]` creates a new Session for that directory (default: cwd) on the already-running GUI. The client-plugin HMR receiver is always mounted and stays idle until `pnpm run dev:web` rebuilds client bundles; that command builds once, starts this same launcher, and keeps client bundles rebuilt, or with `--no-serve` runs only the watchers beside a `dsh web` started elsewhere.
 
 `--public-url <url>` advertises one HTTP(S) application root — with an optional forwarding prefix — in place of the listener's bind-address URL (loopback for a loopback bind). It grants no trust, so the browser-visible authority still has to be named with `--trusted-host`; [Publish the Web UI behind a reverse proxy](../../../docs/user/guide/public-deployments.md) lists what the proxy in front must provide.
 
@@ -117,6 +117,9 @@ dsh web
 dsh web --host "$(hostname -i | awk '{print $1}')" --public-url https://app.example/ --trusted-host app.example
 dsh web --tls-cert ./server-chain.pem --tls-key ./server-key.pem
 dsh web --no-open
+dsh web --browser brave
+dsh web open
+dsh web open ~/proj --browser brave
 dsh web --patch ./extra.cordis.yml
 dsh web --dump-config
 dsh web --help

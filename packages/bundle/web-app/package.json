@@ -22,6 +22,10 @@
       "types": "./lib/types/startup.d.ts",
       "default": "./lib/startup.js"
     },
+    "./open": {
+      "types": "./lib/types/open.d.ts",
+      "default": "./lib/open.js"
+    },
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./presets/*.patch.yml": "./presets/*.patch.yml",
     "./src/*": "./src/*",
@@ -34,6 +38,7 @@
     "locale/startup/*.json",
     "lib/index.js",
     "lib/startup.js",
+    "lib/open.js",
     "cordis.patch.yml",
     "presets/standard.patch.yml",
     "presets/ptc.patch.yml",
@@ -131,6 +136,7 @@
     "@deepseek-ai/dsh-cordis-host-runner": "workspace:*",
     "@deepseek-ai/dsh-file-reference": "workspace:*",
     "@deepseek-ai/dsh-file-reference-local": "workspace:*",
+    "@deepseek-ai/dsh-home-paths": "workspace:*",
     "@deepseek-ai/dsh-host-directory-picker-auto": "workspace:*",
     "@deepseek-ai/dsh-host-directory-picker-browse": "workspace:*",
     "@deepseek-ai/dsh-host-directory-picker-native": "workspace:*",

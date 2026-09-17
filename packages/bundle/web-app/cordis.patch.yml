@@ -176,9 +176,14 @@
     # browser-facing asset paths do not depend on the advertised URL, which the
     # web-runtime row owns; Connection reads trust authorities from webStartup.
     # This row rejects wildcard binds.
+    - id: web-open
+      name: '@deepseek-ai/dsh-web-app/open'
+      inject: [webStartup]
+
     - id: webserver
       name: '@deepseek-ai/dsh-host-webserver'
       inject: [webStartup]
+      disabled: !!js process.env.DSH_WEB_OPEN === '1'
       config:
         host: !!js ctx.webStartup.host ?? '127.0.0.1'
         port: !!js ctx.webStartup.port ?? 3080
@@ -197,6 +202,7 @@
     - id: web-runtime
       name: '@deepseek-ai/dsh-web-app'
       inject: [webStartup]
+      disabled: !!js process.env.DSH_WEB_OPEN === '1'
       config:
         openBrowser: !!js ctx.webStartup.openBrowser
         printUrl: true
@@ -226,6 +232,7 @@
     # entry by the kernel, never fetched).
     - id: modules
       name: '@deepseek-ai/dsh-client-modules'
+      disabled: !!js process.env.DSH_WEB_OPEN === '1'
 
     # Owns both ends of the web transport: node half binds the gateway to the
     # webserver under /api; browser half is the fetch/SSE client. Every API
@@ -234,6 +241,7 @@
     - id: connection
       name: '@deepseek-ai/dsh-client-connection'
       inject: [webStartup]
+      disabled: !!js process.env.DSH_WEB_OPEN === '1'
       config:
         # Keep invocation authorities (each --trusted-host value) when adding
         # deployment values, for example: ['app.internal', ...ctx.webStartup.trustedHosts].
