@@ -236,10 +236,6 @@ function SessionTree({
   const currentGroup = current === undefined || !workspaceReady
     ? undefined
     : owningGroupKey(workspaces, current)
-  useEffect(() => {
-    if (current === undefined || currentGroup === undefined || Object.hasOwn(groupExpansion, currentGroup)) return
-    setGroupExpanded(currentGroup, true)
-  }, [current, currentGroup, setGroupExpanded, groupExpansion])
   const parents = useMemo(() => {
     if (!nestWorkspaces) return new Map<string, WorkspaceId | undefined>()
     const keysByPath = new Map(workspaces.map(workspace => [workspace.path, workspace.workspaceId]))
@@ -789,6 +785,7 @@ export function WorkspaceBrowser({
   const home = useHostInfo(info => info.home)
   // Ordering remains live while the rail or search replaces the list body.
   const list = useSessions(state => state)
+  const panelActive = usePanelInfo(info => info.activePanelId !== null)
   const workspaces = useWorkspaces(state => state.items)
   const workspacePhase = useWorkspaces(state => state.phase)
   const workspaceStreamState = useWorkspaces(state => state.state)
@@ -930,6 +927,29 @@ export function WorkspaceBrowser({
   useEffect(() => {
     if (normalizedQuery !== '') setRevealSessionId(undefined)
   }, [normalizedQuery])
+
+  // Opening a Session reveals the Workspace that owns it: the group opens even
+  // when an earlier fold stored an explicit closed record, so the reader sees
+  // which project the open Session belongs to. One-shot per Session change, so
+  // folding the current group afterwards is not undone on the next render.
+  const revealedSession = useRef<SessionId | undefined>(undefined)
+  useEffect(() => {
+    if (groupBy !== 'workspace' || normalizedQuery !== '' || !workspaceReady || panelActive) return
+    const opened = mainSessionId
+    if (opened === undefined || revealedSession.current === opened) return
+    revealedSession.current = opened
+    const groupKey = owningGroupKey(workspaces, opened)
+    if (groupExpansion[groupKey] !== true) actions.setGroupExpanded(groupKey, true)
+  }, [
+    actions.setGroupExpanded,
+    groupBy,
+    groupExpansion,
+    mainSessionId,
+    normalizedQuery,
+    panelActive,
+    workspaceReady,
+    workspaces,
+  ])
 
   // Rail search = expand + land in the search box: the flag arms before the
   // expand request; once the shell flips wide the input mounts and takes focus.

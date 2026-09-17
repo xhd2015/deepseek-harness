@@ -773,6 +773,56 @@ describe('WorkspaceBrowser', () => {
     expect(screen.queryByText('b')).toBeNull()
   })
 
+  it('reopens the folded project of a Session the user opens', () => {
+    const folded = sessionState([summary('alpha-s', 1)])
+    const b = mount({
+      useSessions: hook(folded),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['alpha-s'])])),
+    })
+    fireEvent.click(screen.getByText('alpha'))
+    fireEvent.click(screen.getByText('alpha'))
+    expect(b.store.getSnapshot().groupExpansion).toEqual({ alpha: false })
+    expect(screen.queryByText('alpha-s')).toBeNull()
+
+    // Opening the Session overrides the stored fold and shows its row.
+    rerender(b, { useSessions: hook(sessionState([summary('alpha-s', 1)], { main: sid('alpha-s') })) })
+    expect(b.store.getSnapshot().groupExpansion).toEqual({ alpha: true })
+    expect(screen.getByText('alpha-s')).toBeTruthy()
+    const projectRow = screen.getByText('alpha').closest('[role="treeitem"]') as HTMLElement
+    expect(projectRow.getAttribute('aria-current')).toBe('true')
+    expect(projectRow.className).not.toContain('projectRowCurrent')
+  })
+
+  it('leaves the open Session\'s project folded once the user folds it, and marks it', () => {
+    const sessions = sessionState(
+      [summary('alpha-s', 2), summary('beta-s', 1)],
+      { main: sid('alpha-s') },
+    )
+    const b = mount({
+      useSessions: hook(sessions),
+      useWorkspaces: hook(workspaceState([
+        workspace('alpha', ['alpha-s']), workspace('beta', ['beta-s']),
+      ])),
+    })
+    expect(screen.getByText('alpha-s')).toBeTruthy()
+
+    fireEvent.click(screen.getByText('alpha'))
+    expect(b.store.getSnapshot().groupExpansion).toEqual({ alpha: false })
+    expect(screen.queryByText('alpha-s')).toBeNull()
+    const alphaRow = screen.getByText('alpha').closest('[role="treeitem"]') as HTMLElement
+    const betaRow = screen.getByText('beta').closest('[role="treeitem"]') as HTMLElement
+    expect(alphaRow.getAttribute('aria-current')).toBe('true')
+    expect(alphaRow.className).toContain('projectRowCurrent')
+    expect(alphaRow.querySelector('[class*="folderActive"]')).not.toBeNull()
+    expect(betaRow.getAttribute('aria-current')).toBeNull()
+    expect(betaRow.className).not.toContain('projectRowCurrent')
+
+    // A later render with the same open Session does not undo the fold.
+    rerender(b, { useSessions: hook({ ...sessions }) })
+    expect(b.store.getSnapshot().groupExpansion).toEqual({ alpha: false })
+    expect(screen.queryByText('alpha-s')).toBeNull()
+  })
+
   it('shows only the current blank session as the localized New Session, excluded from search', () => {
     const currentBlank = summary('alpha-blank', 9, { blank: true })
     const staleBlank = summary('beta-blank', 8, { blank: true })
