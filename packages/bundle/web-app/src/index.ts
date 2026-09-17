@@ -11,7 +11,6 @@
  * @module @deepseek-ai/dsh-web-app
  */
 
-import { spawn, type ChildProcess } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { networkInterfaces } from 'node:os'
@@ -20,9 +19,11 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { addHarnessSourceSection, auditStartupEntries } from '@deepseek-ai/dsh-app-boot'
 import type {} from '@deepseek-ai/dsh-client-connection'
+import { WEB_STARTUP_SERVICE, type WebStartupValues } from './startup.ts'
+import { clearWebListenFile, writeWebListenFile } from './listen-file.ts'
 import * as FrontendStatic from '@deepseek-ai/dsh-host-frontend-static'
 import { launchedThroughSsh, launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
-import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
+import { openerInternals } from './opener.ts'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-shell-env'
@@ -81,37 +82,6 @@ const LOOPBACK_HOST = '127.0.0.1'
 /** The webserver schema's all-interfaces bind literal. */
 const ALL_INTERFACES_HOST = '0.0.0.0'
 
-const BROWSER_OPENER_MODULE = import.meta.resolve('open')
-
-const BROWSER_OPENER_PROGRAM = `
-try {
-  const { default: open } = await import(${JSON.stringify(BROWSER_OPENER_MODULE)})
-  const launcher = await open(process.argv[1])
-  if (process.platform === 'win32') {
-    // open resolves at PowerShell spawn; keep it referenced until that launcher hands the URL to Windows.
-    const code = launcher.exitCode ?? await new Promise((resolve, reject) => {
-      function onError(error) {
-        launcher.off('close', onClose)
-        reject(error)
-      }
-      function onClose(code) {
-        launcher.off('error', onError)
-        resolve(code)
-      }
-      launcher.ref()
-      launcher.once('error', onError)
-      launcher.once('close', onClose)
-    })
-    if (code !== 0) throw new Error('browser operating-system launcher exited with code ' + String(code))
-  }
-  process.exitCode = 0
-} catch (error) {
-  // The parent turns this exit into the manual-URL warning.
-  console.error(error)
-  process.exitCode = 1
-}
-`
-
 /**
  * Resolve one LAN-trust snapshot from the active server bind.
  *
@@ -169,52 +139,30 @@ function resolveDistIndex(): string {
   }
 }
 
-/** Start the maintained platform opener without forwarding Harness credentials. */
-function spawnBrowserLauncher(url: string): ChildProcess {
-  return spawn(process.execPath, [
-    '--input-type=module',
-    '--eval', BROWSER_OPENER_PROGRAM,
-    '--', url,
-  ], {
-    env: scrubbedParentEnv(),
-    stdio: ['ignore', 'inherit', 'pipe'],
-  })
-}
-
-/** Hand one URL to the operating system's default browser. */
-async function openBrowser(url: string): Promise<void> {
-  const launcher = spawnBrowserLauncher(url)
-  let launcherStderr = ''
-  launcher.stderr?.setEncoding('utf8')
-  launcher.stderr?.on('data', (chunk: string) => { launcherStderr += chunk })
-  await new Promise<void>((resolve, reject) => {
-    function onError(error: Error): void {
-      launcher.off('close', onClose)
-      reject(error)
-    }
-    function onClose(code: number | null): void {
-      launcher.off('error', onError)
-      if (code !== 0) {
-        const firstLine = launcherStderr.trim().split(/\r?\n/u)[0]
-        const reason = firstLine === undefined || firstLine === ''
-          ? `browser launcher exited with code ${String(code)}`
-          : firstLine.replace(/^(?:[A-Za-z]*Error):\s*/u, '')
-        reject(new Error(reason))
-        return
-      }
-      if (launcherStderr !== '') process.stderr.write(launcherStderr)
-      resolve()
-    }
-    launcher.once('error', onError)
-    launcher.once('close', onClose)
-  })
-}
-
 /** Test hooks for the built dist and native browser handoff; production never mutates them. */
 export const internals: {
   resolveDistIndex: () => string
-  openBrowser: (url: string) => Promise<void>
-} = { resolveDistIndex, openBrowser }
+  openBrowser: (url: string, browser?: string) => Promise<void>
+} = {
+  resolveDistIndex,
+  get openBrowser() { return openerInternals.openBrowser },
+  set openBrowser(value) { openerInternals.openBrowser = value },
+}
+
+/**
+ * Record this process's origin and launch token for `dsh web open`.
+ * @param authenticatedUrl - URL that includes the process token query.
+ */
+function publishListenRecord(authenticatedUrl: string): void {
+  const parsed = new URL(authenticatedUrl)
+  const token = parsed.searchParams.get('token')
+  if (token === null) return
+  writeWebListenFile({
+    pid: process.pid,
+    origin: `${parsed.protocol}//${parsed.host}`,
+    token,
+  })
+}
 
 /**
  * Mount the Web runtime: dist serving, surface prompt, the bash runtime
@@ -224,6 +172,7 @@ export const internals: {
  */
 export function apply(ctx: Context, config: Config): void {
   const runtime = resolveLanTrust(ctx.webServer.host, config.trustedHosts)
+  ctx.effect(() => () => { clearWebListenFile(process.pid) }, 'web-app: listen file')
   // The loopback URL belongs to this host. Under SSH, the operator reaches it
   // through a local forwarding address that this process cannot derive.
   const handoffBrowser = config.openBrowser && !launchedThroughSsh(launchEnvironmentOf(ctx))
@@ -249,53 +198,55 @@ export function apply(ctx: Context, config: Config): void {
       })
     })
   }
-  if (config.printUrl || handoffBrowser) {
-    ctx.inject(['connection'], (connectionCtx) => {
-      // The URL line and browser handoff are readiness signals: supervisors RPC
-      // as soon as they observe the line, while a browser requests the page as
-      // soon as it opens. Neither may run while sibling rows such as the /api
-      // route owner are still mounting. Await Loader settlement first; a
-      // hand-built tree without a Loader is already the complete tree.
-      const announceReady = (): void => {
-        if (ANNOUNCED_ROOTS.has(connectionCtx.root)) return
-        const webUrl = localWebUrl(connectionCtx)
-        const authenticatedUrl = connectionCtx.connection.authenticatedUrl(webUrl)
-        // Reuse the exact LAN snapshot provided to the /api trust fence.
-        const lanCandidate = runtime.lanAddresses[0]
-        const port = connectionCtx.webServer.port
-        const lanUrl = lanCandidate === undefined
-          ? undefined
-          : connectionCtx.connection.authenticatedUrl(`http://${lanCandidate}:${String(port)}`)
-        ANNOUNCED_ROOTS.add(connectionCtx.root)
-        if (config.printUrl) {
-          console.log(`dsh web: ${authenticatedUrl}${lanUrl === undefined ? '' : ` (LAN: ${lanUrl})`}`)
-        }
-        if (handoffBrowser) {
-          console.log('dsh web: opening the default browser; pass --no-open to disable')
-          void internals.openBrowser(authenticatedUrl).catch((error: unknown) => {
-            const reason = error instanceof Error ? error.message : String(error)
-            console.error(`web-app: could not open the default browser because ${reason}; use the dsh web URL printed at startup`)
-          })
-        }
+  ctx.inject(['connection'], (connectionCtx) => {
+    // The URL line and browser handoff are readiness signals: supervisors RPC
+    // as soon as they observe the line, while a browser requests the page as
+    // soon as it opens. Neither may run while sibling rows such as the /api
+    // route owner are still mounting. Await Loader settlement first; a
+    // hand-built tree without a Loader is already the complete tree.
+    const announceReady = (): void => {
+      if (ANNOUNCED_ROOTS.has(connectionCtx.root)) return
+      const webUrl = localWebUrl(connectionCtx)
+      const authenticatedUrl = connectionCtx.connection.authenticatedUrl(webUrl)
+      // Reuse the exact LAN snapshot provided to the /api trust fence.
+      const lanCandidate = runtime.lanAddresses[0]
+      const port = connectionCtx.webServer.port
+      const lanUrl = lanCandidate === undefined
+        ? undefined
+        : connectionCtx.connection.authenticatedUrl(`http://${lanCandidate}:${String(port)}`)
+      ANNOUNCED_ROOTS.add(connectionCtx.root)
+      if (config.printUrl) {
+        console.log(`dsh web: ${authenticatedUrl}${lanUrl === undefined ? '' : ` (LAN: ${lanUrl})`}`)
       }
-      // This row's own activation can precede a sibling failure. The app owns
-      // readiness by waiting for its Loader tree, or announces at once in a
-      // hand-built tree without Loader.
-      const settled = connectionCtx.get('loader')?.await()
-      if (settled === undefined) announceReady()
-      else {
-        void settled.then(async () => {
-          await auditStartupEntries(connectionCtx.root, 'dsh web', () => {})
-          // The tree can be disposed while the boot was in flight (early
-          // SIGTERM); a URL line or browser tab for a dead server would only
-          // mislead, and reading torn-down services would turn a clean shutdown
-          // into a crash.
-          if (connectionCtx.get('webServer') !== undefined
-            && connectionCtx.get('connection') !== undefined) announceReady()
-        }).catch(() => {
-          // Boot owns the failure diagnostic; readiness remains unpublished.
+      if (handoffBrowser) {
+        const browser = (connectionCtx.get(WEB_STARTUP_SERVICE) as WebStartupValues | undefined)?.browser
+        console.log(browser === undefined
+          ? 'dsh web: opening a new window in the default browser; pass --no-open to disable'
+          : `dsh web: opening a new ${browser} window; pass --no-open to disable`)
+        void internals.openBrowser(authenticatedUrl, browser).catch((error: unknown) => {
+          const reason = error instanceof Error ? error.message : String(error)
+          console.error(`web-app: could not open the browser because ${reason}; use the dsh web URL printed at startup`)
         })
       }
-    })
-  }
+      publishListenRecord(authenticatedUrl)
+    }
+    // This row's own activation can precede a sibling failure. The app owns
+    // readiness by waiting for its Loader tree, or announces at once in a
+    // hand-built tree without Loader.
+    const settled = connectionCtx.get('loader')?.await()
+    if (settled === undefined) announceReady()
+    else {
+      void settled.then(async () => {
+        await auditStartupEntries(connectionCtx.root, 'dsh web', () => {})
+        // The tree can be disposed while the boot was in flight (early
+        // SIGTERM); a URL line or browser tab for a dead server would only
+        // mislead, and reading torn-down services would turn a clean shutdown
+        // into a crash.
+        if (connectionCtx.get('webServer') !== undefined
+            && connectionCtx.get('connection') !== undefined) announceReady()
+      }).catch(() => {
+        // Boot owns the failure diagnostic; readiness remains unpublished.
+      })
+    }
+  })
 }

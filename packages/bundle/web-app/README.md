@@ -32,9 +32,14 @@ Start the GUI, open your browser, and start talking to the agent. The flags fine
 ```sh
 dsh --profile web
 dsh --profile web --no-open --port 8080
+dsh --profile web --browser brave
+dsh --profile web open
+dsh --profile web open ~/proj --browser brave
 ```
 
-After startup you see a `dsh web:` line whose root URL carries a fresh process token. Unless `--no-open` or an SSH session suppresses it, the default browser opens that URL, receives a signed cookie, and redirects to the clean root page. You know it worked when the page loads and you can chat with the agent. Two failures to expect: if the frontend is not built, startup stops with a build hint (`pnpm run build` in a checkout); if the browser cannot be opened, a credential-free diagnostic prints to stderr while the server keeps running — open the printed startup URL yourself.
+After startup you see a `dsh web:` line whose root URL carries a fresh process token. Unless `--no-open` or an SSH session suppresses it, the chosen browser (`--browser brave|chrome|firefox|edge|safari`, or the OS default) opens that URL, receives a signed cookie, and redirects to the clean root page. You know it worked when the page loads and you can chat with the agent. Two failures to expect: if the frontend is not built, startup stops with a build hint (`pnpm run build` in a checkout); if the browser cannot be opened, a credential-free diagnostic prints to stderr while the server keeps running — open the printed startup URL yourself.
+
+`dsh web open [dir]` talks to that already-running GUI: it registers the directory as a Workspace (reusing the existing one for the same path), creates a new Session, and opens it. The directory defaults to the invoking cwd. If no GUI is serving, the command exits nonzero and tells you to start `dsh web`. `--no-open` on this subcommand still creates the Session.
 
 **Settings → Models** displays **DeepSeek**, using `DEEPSEEK_API_KEY`. The default is `deepseek-official` / `deepseek-flash` (DeepSeek-V41-Flash). The [DeepSeek plugin](../../llm/llm-deepseek/README.md#choose-a-protocol) defaults to Messages; set `protocol: chat-completions` in Cordis YAML to select Chat Completions. Web has no protocol selector.
 
@@ -92,7 +97,8 @@ The URL line and browser handoff are readiness signals: supervisors RPC as soon 
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | The `web-app` glue plugin: dist resolution, LAN trust sampling, prompt sections, bash variable, URL line, browser handoff |
-| [`src/startup.ts`](src/startup.ts) | The `web-startup` provider: `--host`, `--port`, `--trusted-host`, `--no-open`, `--help` |
+| [`src/startup.ts`](src/startup.ts) | The `web-startup` provider: `--host`, `--port`, `--trusted-host`, `--no-open`, `--browser`, `open [dir]`, `--help` |
+| [`src/open.ts`](src/open.ts) | `dsh web open` client against the running GUI |
 | [`cordis.patch.yml`](cordis.patch.yml) | The web patch: restated base values, web host rows, browser roster, agent plane behind presets |
 | — | No runtime invariant companion is published; every contribution (frontend-static child plugin, prompt section, bashEnv registration) is registry-disposed with the fiber, and each owning registry's package carries that relation's invariant; the package holds no mutable state of its own to audit. |
 | [`tests/web-app.spec.ts`](tests/web-app.spec.ts) | Dist resolution, fallback seat, prompt sections, readiness |
