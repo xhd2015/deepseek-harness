@@ -139,6 +139,11 @@ describe('web command-line provider', () => {
     expect(observed.exits).toEqual([1])
   })
 
+  it('accepts --browser=brave on open', async () => {
+    const { values } = await bootProvider(['open', '--browser=brave'])
+    expect(values).toMatchObject({ mode: 'open', browser: 'brave', openBrowser: true })
+  })
+
   it('publishes open mode for a directory', async () => {
     const { values } = await bootProvider(['open', '/tmp/proj', '--browser', 'brave'])
     expect(values).toMatchObject({
