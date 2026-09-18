@@ -80,6 +80,14 @@ export function apply(ctx: Context): void {
   const uiWorkspace = new UiWorkspaceService(
     ctx, ctx.remote.directoryPicker, workspaces, sessions)
   const unknownSession = createSnapshotStore(false)
+  // A document opened on a well-formed `?session=` starts focused: collapsing
+  // here, while this entry activates and before the frame's first render, is
+  // what keeps the reader from watching the sidebar animate away once the Host
+  // list settles. Whether the id is listed is not known yet; an unusable link
+  // still raises its notice, over that rail.
+  if (parseSessionQuery(globalThis.location?.search ?? '').kind === 'id') {
+    ctx.layout.collapseSidebar()
+  }
   ctx.effect(
     () => bindSessionUrl(uiWorkspace, sessions, unknownSession),
     'ui-workspace: session query',

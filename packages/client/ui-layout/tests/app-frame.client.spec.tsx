@@ -230,6 +230,15 @@ describe('AppFrame', () => {
     expect(frame.querySelector('[data-side="sidebar"]')).toBeNull()
   })
 
+  it('reaches the same rail through a collapse request alone', () => {
+    const { frame, instance, sidebarOwner, getByTestId } = mountFrame()
+    act(() => { instance.actions.collapseSidebar() })
+    expect(tracks(frame)).toEqual([56, 0])
+    expect(sidebarOwner()).toEqual({ collapsed: true, width: 56 })
+    expect(frame.getAttribute('data-sidebar-collapsed')).toBe('true')
+    expect(getByTestId('sidebar-content')).toBeTruthy()
+  })
+
   it('switches only the keyed main outlet when the active panel changes', () => {
     selectedSessionTitle = 'Session title'
     const { instance, frame, slotCalls, getByTestId } = mountFrame()

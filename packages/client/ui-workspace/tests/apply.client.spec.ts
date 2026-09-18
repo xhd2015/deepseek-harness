@@ -9,7 +9,7 @@ import { WorkspaceBrowser } from '../src/client/rows/WorkspaceBrowser.tsx'
 import { WorkspacePicker } from '../src/client/WorkspacePicker.tsx'
 import { apply as hostApply } from '../src/index.ts'
 
-async function bench() {
+async function bench(listed?: { ids: readonly string[]; current?: string }) {
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
   const create = vi.fn(async (input: { name: string } | { path: string }) => ({
@@ -21,7 +21,8 @@ async function bench() {
   const open = vi.fn()
   const clear = vi.fn()
   const selectPanel = vi.fn()
-  ctx.provide('layout', { selectPanel, beginNavigation: () => new AbortController().signal })
+  const collapseSidebar = vi.fn()
+  ctx.provide('layout', { selectPanel, collapseSidebar, beginNavigation: () => new AbortController().signal })
   const search = vi.fn(async () => ({
     ok: true as const,
     value: { items: [{ sessionId: 'session' as never, snippet: 'match' }], hasMore: false },
@@ -47,7 +48,7 @@ async function bench() {
   ctx.provide('sessions', {
     list: {
       getSnapshot: () => ({
-        ids: [], byId: {}, current: undefined, phase: 'ready',
+        ids: listed?.ids ?? [], byId: {}, current: listed?.current as never, phase: 'ready',
         subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined,
       }),
       subscribe,
@@ -72,7 +73,7 @@ async function bench() {
   ctx.provide('locale', locale)
   return {
     ctx, slots: ctx.get('slots') as SlotRegistry, locale, create, rename,
-    open, clear, selectPanel, search, renameSession, binding, fork, pickDirectory,
+    open, clear, selectPanel, collapseSidebar, search, renameSession, binding, fork, pickDirectory,
   }
 }
 
@@ -82,6 +83,24 @@ type HoleName = 'sidebar.workspaces' | 'conversation.hero.workspace' | 'conversa
 function declare(slots: SlotRegistry, ...names: HoleName[]): () => void {
   const children = Object.fromEntries(names.map(name => [name, { kind: 'single', scope: 'root' }]))
   return slots.register({ name: 'root', children } as never, () => null)
+}
+
+/**
+ * Apply the plugin with `search` as the document URL: the deep link settles
+ * during apply against the supplied listed Session ids.
+ * @param search - `window.location.search` for this document.
+ * @param listed - Session ids the ready list contains, plus its current selection.
+ * @returns the bench, with the URL restored to its absent state.
+ */
+async function deepLink(search: string, listed?: { ids: readonly string[]; current?: string }) {
+  vi.stubGlobal('location', { search })
+  try {
+    const b = await bench(listed)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    return b
+  } finally {
+    vi.unstubAllGlobals()
+  }
 }
 
 describe('ui-workspace apply', () => {
@@ -200,5 +219,46 @@ describe('ui-workspace apply', () => {
     expect(b.slots.entries('sidebar.workspaces')).toHaveLength(0)
     expect(b.slots.entries('conversation.hero.workspace')).toHaveLength(0)
     // expect(b.slots.entries('conversation.empty.workspace')).toHaveLength(0)
+  })
+})
+
+describe('ui-workspace session deep link', () => {
+  it('collapses the sidebar before the first render when the URL names a Session', async () => {
+    const b = await deepLink('?session=linked')
+    expect(b.collapseSidebar).toHaveBeenCalledTimes(1)
+  })
+
+  it('collapses for a well-formed id the Host list does not contain', async () => {
+    // The sidebar is decided before the list settles, so an unusable link shows
+    // its notice over the same rail instead of animating the frame afterwards.
+    const b = await deepLink('?session=missing', { ids: ['other'] })
+    expect(b.collapseSidebar).toHaveBeenCalledTimes(1)
+    expect(b.open).not.toHaveBeenCalled()
+  })
+
+  it('leaves the sidebar alone without a Session in the URL or on in-app selection', async () => {
+    const b = await deepLink('')
+    expect(b.collapseSidebar).not.toHaveBeenCalled()
+    b.ctx.uiWorkspace.openSession('picked' as never)
+    expect(b.open).toHaveBeenCalledWith('picked')
+    expect(b.collapseSidebar).not.toHaveBeenCalled()
+  })
+
+  it('leaves the sidebar alone for a malformed id', async () => {
+    const malformed = await deepLink('?session=a&session=b')
+    expect(malformed.collapseSidebar).not.toHaveBeenCalled()
+    const unsafe = await deepLink('?session=../etc/passwd')
+    expect(unsafe.collapseSidebar).not.toHaveBeenCalled()
+  })
+
+  it('still opens and mirrors a listed Session', async () => {
+    const b = await deepLink('?session=linked', { ids: ['linked'] })
+    expect(b.open).toHaveBeenCalledWith('linked')
+  })
+
+  it('reuses the current selection for a listed Session it already opened', async () => {
+    const b = await deepLink('?session=linked', { ids: ['linked'], current: 'linked' })
+    expect(b.open).not.toHaveBeenCalled()
+    expect(b.collapseSidebar).toHaveBeenCalledTimes(1)
   })
 })
