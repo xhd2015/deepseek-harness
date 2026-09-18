@@ -4,7 +4,7 @@ import { createServer } from 'node:net'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { Browser, Locator, Page } from 'playwright'
+import type { Browser, BrowserContext, Locator, Page } from 'playwright'
 import { expect, vi, type MockInstance } from 'vitest'
 
 /** The built page under test; `pnpm run test:web` rebuilds it before running. */
@@ -104,18 +104,30 @@ export async function pinBrowserClock(page: Page): Promise<void> {
 }
 
 /**
- * Open the standard browser-test page advertising English before client boot.
+ * Open the standard browser-test context advertising English before client
+ * boot. Scenarios that need several pages sharing one browser session (they
+ * must, for a cookie established by the token exchange) open each page here.
  * This keeps role locators and goldens deterministic while leaving the Host
  * settings document free to override the provisional browser-derived locale;
  * scenarios asserting the Chinese surface advertise
  * {@link ZH_BROWSER_LOCALE} instead. The context uses Asia/Shanghai to preserve
  * the recorded Web user-source timezone independently of the host timezone.
+ * @param browser - Playwright browser owning the context.
+ * @param height - Viewport height; width is fixed to the lane baseline.
+ * @returns the initialized context.
+ */
+export async function newEnglishContext(browser: Browser, height = 1000): Promise<BrowserContext> {
+  return await browser.newContext({ viewport: { width: 1680, height }, locale: 'en-US', timezoneId: 'Asia/Shanghai' })
+}
+
+/**
+ * Open the standard browser-test page (see {@link newEnglishContext}).
  * @param browser - Playwright browser owning the page.
  * @param height - Viewport height; width is fixed to the lane baseline.
  * @returns the initialized page.
  */
 export async function newEnglishPage(browser: Browser, height = 1000): Promise<Page> {
-  return await browser.newPage({ viewport: { width: 1680, height }, locale: 'en-US', timezoneId: 'Asia/Shanghai' })
+  return await (await newEnglishContext(browser, height)).newPage()
 }
 
 /**
