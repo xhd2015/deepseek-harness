@@ -32,6 +32,8 @@ interface ModelRowProps {
   onChange: (model: DeepSeekModelDraft) => void
   onToggle: () => void
   onRemove: () => void
+  /** Why the adapter refuses this model, shown under the row when present. */
+  refusal?: string | undefined
 }
 
 /**
@@ -81,6 +83,11 @@ export function ModelRow(props: ModelRowProps): ReactNode {
           <IconTrashOutline16 size={14} />
         </button>
       </div>
+      {props.refusal !== undefined && (
+        <p role="alert" className={styles['modelRefusal']}>
+          {`${t('modelRefusal')}: ${props.refusal}`}
+        </p>
+      )}
       {props.expanded
         ? (
           <div className={styles['modelAdvanced']}>

@@ -66,15 +66,28 @@ function optionsOf(directory: ModelDirectoryState, t: TranslateNS<'model'>): Sel
   const rows: SelectOption[] = []
   for (const group of directory.groups) {
     for (const model of group.models) {
+      const active = directory.current !== null
+        && directory.current.provider === group.id
+        && directory.current.model === model.id
+      // A refused model keeps its row so the diagnostic is readable here too,
+      // marked rather than silently pickable: the reason replaces the
+      // provider/description line, which is what the user needs to act on.
+      if (model.unavailable !== undefined) {
+        rows.push({
+          id: rowId(group.id, model.id),
+          label: model.name,
+          badge: t('option.unavailableBadge'),
+          detail: model.unavailable,
+          ...active ? { active: true } : {},
+        })
+        continue
+      }
       const description = descriptionOf(group.id, model, t)
       rows.push({
         id: rowId(group.id, model.id),
         label: model.name,
         detail: description !== undefined ? `${group.name} · ${description}` : group.name,
-        ...(directory.current !== null
-          && directory.current.provider === group.id
-          && directory.current.model === model.id
-          ? { active: true } : {}),
+        ...active ? { active: true } : {},
       })
     }
   }
@@ -88,25 +101,32 @@ function optionsOf(directory: ModelDirectoryState, t: TranslateNS<'model'>): Sel
   return rows
 }
 
+/** One picked popup row resolved against the loaded groups. */
+type PickedRow = { selection: ModelSelection } | { refusal: string }
+
 /**
  * Resolve a picked row back to its model selection by matching against the loaded
  * groups (the same data the rows were built from — ids stay opaque).
  * @param state - the session's directory snapshot.
  * @param id - the picked row id.
- * @returns the row's model selection, or undefined for failure rows / stale ids.
+ * @returns the row's selection, the adapter's refusal when it names one, or
+ * undefined for failure rows / stale ids.
  */
-function selectionOf(state: ModelDirectoryState, id: string): ModelSelection | undefined {
+function pickedRowOf(state: ModelDirectoryState, id: string): PickedRow | undefined {
   for (const group of state.groups) {
     for (const model of group.models) {
       if (rowId(group.id, model.id) !== id) continue
+      if (model.unavailable !== undefined) return { refusal: model.unavailable }
       const sameRoute = state.current?.provider === group.id && state.current.model === model.id
       const reasoningEffort = sameRoute
         ? state.current?.reasoningEffort ?? model.reasoning?.defaultEffort
         : model.reasoning?.defaultEffort
       return {
-        provider: group.id,
-        model: model.id,
-        ...reasoningEffort === undefined ? {} : { reasoningEffort },
+        selection: {
+          provider: group.id,
+          model: model.id,
+          ...reasoningEffort === undefined ? {} : { reasoningEffort },
+        },
       }
     }
   }
@@ -160,11 +180,12 @@ export function apply(ctx: ClientContext): void {
             throw new Error('model selection is unavailable for addressed subagent sessions')
           }
           const directory = models.directoryFor(session.sessionId)
-          const selection = selectionOf(directory.store.getSnapshot(), option.id)
-          if (selection === undefined) {
+          const picked = pickedRowOf(directory.store.getSnapshot(), option.id)
+          if (picked === undefined) {
             throw new Error('this provider\'s catalog failed to load — pick a model from a loaded group')
           }
-          const result = await directory.select(selection)
+          if ('refusal' in picked) throw new Error(picked.refusal)
+          const result = await directory.select(picked.selection)
           if (!result.ok) {
             if (result.error.code === 'session/writer-held') throw new Error(t('error.sessionInUse'))
             throw result.error

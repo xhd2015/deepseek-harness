@@ -86,6 +86,12 @@ export interface ModelListEditorProps {
   probeBlocked?: keyof typeof en | undefined
   /** The Host operations whose interrogation answers the fetch action. */
   operations: ModelsOperations
+  /**
+   * Why the adapter refuses each model, keyed by model id. The row stays
+   * editable — the refused field is usually the one the message names — and the
+   * text sits under it so the refusal is readable where the fix goes.
+   */
+  modelErrors?: Record<string, string>
   /** Section copy. */
   t: (key: keyof typeof en) => string
   /** Disable every control (read-only deployment or a pending write). */
@@ -139,7 +145,7 @@ function adopt(candidate: LlmDiscoveredModel): ModelDraft {
  * @returns the model-list editor.
  */
 export function ModelListEditor(props: ModelListEditorProps): ReactNode {
-  const { models, onChange, probe, operations, t, disabled } = props
+  const { models, onChange, probe, operations, t, disabled, modelErrors } = props
   const { catalogProvider } = props
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | undefined>(undefined)
@@ -357,6 +363,7 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
             expanded={expanded.has(index)}
             disabled={disabled}
             t={t}
+            refusal={modelErrors?.[textOf(model, 'id')]}
             contextWindow={{
               value: capacityText(model, index, 'contextWindow'),
               placeholder: CAPACITY_HINT.contextWindow,

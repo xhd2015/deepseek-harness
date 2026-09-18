@@ -85,14 +85,17 @@ export class ModelDirectoryResolver extends Service {
     live.directories.set(binding, directory)
     // The composer cannot read this plugin (the dependency runs one way), so
     // the block is pushed: the Host says whether an adapter serves the
-    // session's route, and only a definite `false` makes the input inert.
-    // `null` — before the first load, or after one failed — must not, or a
-    // slow or unreachable Host would lock a working composer.
+    // session's route and whether it refused the selected model, and only a
+    // definite `false` makes the input inert — carrying that model's own
+    // refusal text when it is the reason. `null` — before the first load, or
+    // after one failed — must not, or a slow or unreachable Host would lock a
+    // working composer.
     const conversation = this.ctx.get('conversation')
     if (conversation !== undefined) {
       const publish = (): void => {
-        conversation.blocks.set(sessionId, directory.store.getSnapshot().routable === false
-          ? { reason: this.blockReason() }
+        const snapshot = directory.store.getSnapshot()
+        conversation.blocks.set(sessionId, snapshot.routable === false
+          ? { reason: snapshot.unavailableReason ?? this.blockReason() }
           : undefined)
       }
       publish()

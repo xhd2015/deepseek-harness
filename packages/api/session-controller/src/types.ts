@@ -124,6 +124,12 @@ export interface ModelCatalogModel {
   readonly name: string
   readonly description?: string
   readonly reasoning?: ModelReasoning
+  /**
+   * Why the adapter refuses this model, when it lists one its configuration
+   * names but cannot serve. Present means the entry is shown for repair and is
+   * not selectable; absent means the adapter raised no objection.
+   */
+  readonly unavailable?: string
 }
 
 /** One provider and its successfully loaded model catalog. */

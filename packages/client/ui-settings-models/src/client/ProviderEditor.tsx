@@ -60,6 +60,12 @@ export interface ProviderEditorProps {
    * override every one of them and the card does not offer it.
    */
   declared?: boolean
+  /**
+   * Why this route's adapter refuses each named model, keyed by model id.
+   * Shown on the matching model row: the row survives a refusal so the field
+   * the message names is the one in front of the user.
+   */
+  modelErrors?: Record<string, string>
   /** The owning namespace view (schema, layers, secrets). */
   namespace: SettingsNamespaceView
   /** Settings-owned synchronous schema and immutable path operations. */
@@ -471,6 +477,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
                   probe={probe}
                   probeBlocked={keyFailure}
                   operations={operations}
+                  {...props.modelErrors === undefined ? {} : { modelErrors: props.modelErrors }}
                 />
               )}
           </div>

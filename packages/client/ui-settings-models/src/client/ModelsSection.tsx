@@ -76,6 +76,8 @@ interface EditorTarget extends ProviderIdentity {
   credentialRef?: string
   /** The adapter reports this route as one it does not ship (see {@link ProviderEditorProps.declared}). */
   declared?: boolean
+  /** Adapter refusals by model id, shown on the matching model row (see {@link ProviderEditorProps.modelErrors}). */
+  modelErrors?: Record<string, string>
 }
 
 /** Values that vary around the shared provider-editor rendering. */
@@ -94,6 +96,7 @@ function renderProviderEditor({ target, ...props }: ProviderEditorRenderProps): 
       displayName={target.displayName}
       settingsPath={target.settingsPath}
       {...target.declared === true ? { declared: true } : {}}
+      {...target.modelErrors === undefined ? {} : { modelErrors: target.modelErrors }}
       {...props}
     />
   )
@@ -172,6 +175,7 @@ function targetOf(row: ProviderRow): EditorTarget {
     ...credentialRef === undefined ? {} : { credentialRef },
     // Only declared routes may expose route-owned fields.
     ...row.entry.declared === true ? { declared: true } : {},
+    ...row.modelErrors === undefined ? {} : { modelErrors: row.modelErrors },
   }
 }
 

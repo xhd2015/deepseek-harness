@@ -100,6 +100,8 @@ function scriptedFace(options: {
   baseProviders?: Record<string, JsonValue>
   /** Routes the adapter reports as hand-declared; the rest come back as shipped. */
   declaredRoutes?: readonly string[]
+  /** Refusals the adapter reports per route, keyed by model id. */
+  modelErrors?: Record<string, Record<string, string>>
   discover?: ReturnType<typeof vi.fn>
   mutate?: ReturnType<typeof vi.fn>
   set?: ReturnType<typeof vi.fn>
@@ -123,6 +125,9 @@ function scriptedFace(options: {
           settingsNs: 'llm-pi-ai',
           settingsPath: ['providers', provider],
           declared: options.declaredRoutes?.includes(provider) ?? false,
+          ...options.modelErrors?.[provider] === undefined
+            ? {}
+            : { modelErrors: options.modelErrors[provider] },
         })),
       ))),
       discoverModels: discover,
@@ -292,6 +297,22 @@ describe('model list editing', () => {
       expectedRevision: 3,
       ops: [{ op: 'set', path: ['providers', 'openai', 'models'], value: [{ id: 'acme-large', contextWindow: 65_536, input: ['text', 'image'] }] }],
     })
+  })
+
+  it("shows the adapter's refusal on the model row it names, leaving that row editable", async () => {
+    const refusal = 'llm-pi-ai: provider "openai" model "acme-bad" reasoningEfforts names "ultra"'
+    await mountSection({
+      providers: { openai: { baseURL: 'https://proxy.example/v1', models: [{ id: 'acme-bad' }, { id: 'acme-ok' }] } },
+      modelErrors: { openai: { 'acme-bad': refusal } },
+    })
+    openEditor('openai')
+
+    // The row is where the fix goes, so it keeps its fields and gains the text
+    // the adapter reported for that exact model id.
+    const id = screen.getByLabelText(`${en.modelId} 1`) as HTMLInputElement
+    expect(id.value).toBe('acme-bad')
+    expect(id.disabled).toBe(false)
+    expect(screen.getByText(`${en.modelRefusal}: ${refusal}`)).toBeTruthy()
   })
 
   it('names a duplicate model id in the edit flow too', async () => {
