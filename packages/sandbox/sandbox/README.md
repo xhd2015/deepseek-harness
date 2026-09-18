@@ -63,7 +63,7 @@ Enforcement is reported per call: `full` means the backend governs every promise
 
 ### Denied calls and escalation
 
-When a confined call is denied, the operation reports a denial marker naming the mode — `[sandbox: file access denied under <mode> mode]` — and, when the composition advertises escalation, an escalation hint. The model may retry the exact call once with `sandbox_permissions` (the narrowest wider mode that suffices) plus a `justification`; the user sees one approval prompt and can allow once, reject, or cancel. A wider mode requires approval and applies to that one call only. Repeating the call's effective mode succeeds without approval; narrower targets remain invalid.
+When a confined call is denied, the operation reports a denial marker naming the mode — `[sandbox: file access denied under <mode> mode]` — and, when the composition advertises escalation, an escalation hint carrying the `[sandbox: escalation available` marker. Only that marker sanctions the retry: an argument error is not a denial, and answering one with an escalation ask is speculative. A supplied ask that cannot widen the call — the call already runs at that mode or wider — is ignored rather than refused: the work proceeds under the standing policy and the result carries `[sandbox: escalation to "<mode>" ignored — this call ran at "<mode>" mode]`. Declared properties are not intent, and a model that emits every property of a tool schema asks on every call. The model may then retry the exact call once with `sandbox_permissions` (the narrowest wider mode that suffices) plus a `justification`; the user sees one approval prompt and can allow once, reject, or cancel. The escalation must be strictly wider than the call's effective mode, and it applies to that one call only.
 
 ### Fail-closed behavior
 
@@ -97,7 +97,7 @@ This section explains the design decisions behind the contract and points at the
 
 ### Escalation choreography
 
-The ladder is a closed table — `read-only` may escalate to `workspace-write` or `danger-full-access`, `workspace-write` only to `danger-full-access` — checked at execution, never baked into a tool schema, whose enum stays the closed target vocabulary. [`approveEscalation`](src/escalation.ts) returns the current mode without approval when it is repeated, rejects narrower or unsupported targets, and requests approval for wider modes. Callers validate the `sandbox_permissions`/`justification` pairing first.
+The ladder is a closed table — `read-only` may escalate to `workspace-write` or `danger-full-access`, `workspace-write` only to `danger-full-access` — checked at execution, never baked into a tool schema, whose enum stays the closed target vocabulary. [`approveEscalation`](src/escalation.ts) returns the current mode without approval when it is repeated, rejects narrower or unsupported targets, and requests approval for wider modes. [`validateEscalationArgs`](src/escalation.ts) judges the ask against the mode the call would otherwise run under: one that cannot widen it is ignored, and only an ask that could widen it still needs its pairing — a request without a reason, a reason driving nothing, or a blank reason is refused. The strictly-wider test has one home in [`isStrictlyWider`](src/escalation.ts).
 
 ### Writable roots
 

@@ -63,7 +63,7 @@ kind: "package-reference"
 
 ### 被拒绝的调用与升权
 
-受限调用被拒绝时，操作会报告指明模式的拒绝标记——`[sandbox: file access denied under <mode> mode]`——组合声明升权能力时还会给出升权提示。模型可以用 `sandbox_permissions`（足以放行的最窄更宽模式）加 `justification` 重试一次完全相同的调用；用户会看到一次审批提示，可以选择允许一次、拒绝或取消。更宽的模式需要审批，且只作用于该次调用。重复指定调用的生效模式无需审批即可成功；更窄的目标仍然无效。
+受限调用被拒绝时，操作会报告指明模式的拒绝标记——`[sandbox: file access denied under <mode> mode]`——组合声明升权能力时还会给出携带 `[sandbox: escalation available` 标记的升权提示。只有该标记才授权重试：参数错误不是拒绝，用升权请求回应参数错误属于预先推测。无法加宽该调用的请求——即该调用本就运行在目标模式或更宽模式——会被忽略而不是被拒绝：工作在常驻策略下继续，结果携带 `[sandbox: escalation to "<mode>" ignored — this call ran at "<mode>" mode]`。声明了属性不等于表达了意图，而会把工具 schema 的每个属性都填上的模型每次调用都会提出升权请求。模型随后可以用 `sandbox_permissions`（足以放行的最窄更宽模式）加 `justification` 重试一次完全相同的调用；用户会看到一次审批提示，可以选择允许一次、拒绝或取消。升权必须严格宽于调用的生效模式，且只作用于该次调用。
 
 ### 故障关闭行为
 
@@ -97,7 +97,7 @@ kind: "package-reference"
 
 ### 升权编排
 
-阶梯是封闭表——`read-only` 可升权到 `workspace-write` 或 `danger-full-access`，`workspace-write` 只能升权到 `danger-full-access`——在执行时检查，绝不写入工具 schema，schema 的枚举保持封闭的目标词汇。[`approveEscalation`](src/escalation.ts) 在请求重复当前模式时无需审批就返回该模式，拒绝更窄或不支持的目标，并为更宽模式请求审批。调用方先校验 `sandbox_permissions`/`justification` 配对。
+阶梯是封闭表——`read-only` 可升权到 `workspace-write` 或 `danger-full-access`，`workspace-write` 只能升权到 `danger-full-access`——在执行时检查，绝不写入工具 schema，schema 的枚举保持封闭的目标词汇。[`approveEscalation`](src/escalation.ts) 在请求重复当前模式时无需审批就返回该模式，拒绝更窄或不支持的目标，并为更宽模式请求审批。[`validateEscalationArgs`](src/escalation.ts) 会针对该调用原本会运行的模式判定请求：无法加宽的请求被忽略，只有可能加宽的请求才需要满足配对——缺少理由、理由不驱动任何请求、或理由为空，都会被拒绝。严格更宽的判定只在 [`isStrictlyWider`](src/escalation.ts) 有一处归属。
 
 ### 可写根目录
 

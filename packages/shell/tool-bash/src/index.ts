@@ -51,7 +51,7 @@ interface BashToolArgs {
   justification?: string
 }
 
-function validateBashArgs(args: BashToolArgs): void {
+function validateBashArgs(args: BashToolArgs, effectiveMode?: SandboxMode): 'ignored' | undefined {
   if (args.command.trim().length === 0) {
     throw new Error('invalid command: expected a non-empty string')
   }
@@ -61,9 +61,9 @@ function validateBashArgs(args: BashToolArgs): void {
   if (args.timeoutMs !== undefined && (!Number.isFinite(args.timeoutMs) || args.timeoutMs <= 0)) {
     throw new Error(`invalid timeoutMs: expected a positive number, got ${JSON.stringify(args.timeoutMs)}`)
   }
-  // The escalation pairing (sandbox_permissions ⇔ justification, non-empty) is
-  // the shared rule both enforcing families validate identically.
-  validateEscalationArgs(args.sandbox_permissions, args.justification)
+  // The escalation judgement is the shared rule both enforcing families apply
+  // identically; the mode tells it whether this call's ask can widen anything.
+  return validateEscalationArgs(args.sandbox_permissions, args.justification, effectiveMode)
 }
 
 function bashDescription(backgroundEnabled: boolean, escalationModes: readonly SandboxMode[]): string {
@@ -79,16 +79,17 @@ function bashDescription(backgroundEnabled: boolean, escalationModes: readonly S
     + background
   if (escalationModes.length === 0) return base
   return base + ' Attempting a command the sandbox may deny is safe and expected: run it and read the '
-    + 'marker rather than assuming the denial. When a command is denied and a wider mode would let it '
-    + 'succeed, escalate immediately in the same turn — the one sanctioned exception to a denial: retry '
-    + 'the exact same command once with `sandbox_permissions` (the narrowest wider mode that suffices) '
-    + 'plus a one-sentence `justification`. Do not detour through chat to ask permission first — the '
-    + 'approval prompt raised by that retry is how the user consents. If the session states approval '
-    + 'prompts are disabled, there is no exception: a denial is final — do not set `sandbox_permissions`. '
-    + 'Never escalate speculatively: ground the request in a real denial — normally the one this command '
-    + 'just hit; escalating up front is fine only when this session already denied the same access. '
-    + 'A rejected escalation is final for that command — stop and explain, never work around '
-    + 'it — but it does not forbid attempting or escalating other commands later.'
+    + 'marker rather than assuming the denial. Only a result carrying the `[sandbox: escalation available` '
+    + 'marker sanctions an escalation — an argument error is not a denial, so correct what that error names '
+    + 'instead of escalating. When the marker appears and a wider mode would let the command succeed, '
+    + 'escalate immediately in the same turn — the one sanctioned exception to a denial: retry the exact '
+    + 'same command once with `sandbox_permissions` (the narrowest wider mode that suffices) plus a '
+    + 'one-sentence `justification`. Do not detour through chat to ask permission first — the approval '
+    + 'prompt raised by that retry is how the user consents. If the session states approval prompts are '
+    + 'disabled, there is no exception: a denial is final — do not set `sandbox_permissions`. Never escalate '
+    + 'speculatively: ground the request in such a marker this session produced, never in a guess. A rejected '
+    + 'escalation is final for that command — stop and explain, never work around it — but it does not forbid '
+    + 'attempting or escalating other commands later.'
 }
 
 /**
@@ -154,8 +155,13 @@ function resolveWorkdir(
   return modelWorkdir
 }
 
-/** Detach the executor DTO from readonly Service Definition types into plain JSON data. */
-function canonicalBashResult(result: ShellRunResult) {
+/**
+ * Detach the executor DTO from readonly Service Definition types into plain JSON data.
+ * @param result - the completed run from the executor.
+ * @param escalationIgnored - true when the call carried an escalation ask this
+ *   run could not honor; the flag is a result fact so the renderer can name it.
+ */
+function canonicalBashResult(result: ShellRunResult, escalationIgnored = false) {
   const output = (stream: ShellRunResult['stdout']) => ({
     text: stream.text,
     truncated: stream.truncated,
@@ -177,6 +183,7 @@ function canonicalBashResult(result: ShellRunResult) {
         ...result.sandbox.runnerFailed !== undefined ? { runnerFailed: result.sandbox.runnerFailed } : {},
       },
     } : {},
+    ...escalationIgnored ? { escalationIgnored: true } : {},
   }
 }
 
@@ -259,7 +266,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         sandbox_permissions: {
           type: 'string' as const,
           enum: [...escalationModes],
-          description: 'The wider sandbox mode this command needs. Only valid as a one-shot retry of a command the sandbox just denied; requires justification and user approval.',
+          description: 'The wider sandbox mode this command needs. Only valid as a one-shot retry after a result carrying the `[sandbox: escalation available` marker; requires justification and user approval.',
         },
         justification: {
           type: 'string' as const,
@@ -315,22 +322,27 @@ export function apply(ctx: Context, config: Config = {}): void {
                   runnerFailed: { type: 'boolean' },
                 },
               },
+              escalationIgnored: { type: 'boolean' },
             },
           },
         ],
       },
-      render: (_args, value) => [{
+      render: (args, value) => [{
         type: 'text',
         text: value.kind === 'background'
           ? `started background job ${value.jobId}`
-          : renderResult(value as { kind: 'foreground' } & ShellRunResult, escalationModes),
+          : renderResult(
+            value as { kind: 'foreground' } & ShellRunResult & { escalationIgnored?: boolean },
+            escalationModes,
+            args.sandbox_permissions,
+          ),
       }],
     },
     async execute(args: BashToolArgs, exec) {
-      validateBashArgs(args)
       // Description is display metadata; workdir defaults to the caller's session.
       const standingPolicy = resolveSandboxPolicy(exec)
-      const approvedMode = args.sandbox_permissions !== undefined && args.justification !== undefined
+      const escalationIgnored = validateBashArgs(args, standingPolicy?.mode) === 'ignored'
+      const approvedMode = !escalationIgnored && args.sandbox_permissions !== undefined && args.justification !== undefined
         ? await approveBashEscalation(args.sandbox_permissions, args.justification, exec, standingPolicy)
         : undefined
       const policy = approvedMode === undefined
@@ -381,7 +393,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         error.name = 'AbortError'
         throw error
       }
-      return { kind: 'foreground' as const, ...canonicalBashResult(result) }
+      return { kind: 'foreground' as const, ...canonicalBashResult(result, escalationIgnored) }
     },
     presentCall: presentBashCall,
     presentResult: presentBashResult,
