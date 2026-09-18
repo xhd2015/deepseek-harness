@@ -81,6 +81,12 @@ export interface ModelListEditorProps {
   probeBlocked?: keyof typeof en | undefined
   /** The Host operations whose interrogation answers the fetch action. */
   operations: ModelsOperations
+  /**
+   * Why the adapter refuses each model, keyed by model id. The row stays
+   * editable — the refused field is usually the one the message names — and the
+   * text sits under it so the refusal is readable where the fix goes.
+   */
+  modelErrors?: Record<string, string>
   /** Section copy. */
   t: (key: keyof typeof en) => string
   /** Disable every control (read-only deployment or a pending write). */
@@ -157,7 +163,7 @@ function adopt(candidate: LlmDiscoveredModel): ModelDraft {
  * @returns the model-list editor.
  */
 export function ModelListEditor(props: ModelListEditorProps): ReactNode {
-  const { models, onChange, probe, operations, t, disabled } = props
+  const { models, onChange, probe, operations, t, disabled, modelErrors } = props
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | undefined>(undefined)
   const [candidates, setCandidates] = useState<readonly LlmDiscoveredModel[] | undefined>(undefined)
@@ -347,97 +353,105 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
         </button>
       </div>
       {models.length === 0 ? <p className={styles['modelEmpty']}>{t('modelsEmpty')}</p> : null}
-      {models.map((model, index) => (
-        <div key={index} className={styles['modelEntry']}>
-          <div className={styles['modelRow']}>
-            <input
-              className={styles['input']}
-              type="text"
-              value={textOf(model, 'id')}
-              placeholder={t('modelId')}
-              aria-label={`${t('modelId')} ${index + 1}`}
-              disabled={disabled}
-              onChange={(event) => { patch(index, { id: event.target.value }) }}
-            />
-            <input
-              className={styles['input']}
-              type="text"
-              value={textOf(model, 'name')}
-              placeholder={t('modelName')}
-              aria-label={`${t('modelName')} ${index + 1}`}
-              disabled={disabled}
-              onChange={(event) => { patch(index, { name: event.target.value === '' ? undefined : event.target.value }) }}
-            />
-            <button
-              type="button"
-              className={styles['iconButton']}
-              aria-label={`${t('modelAdvanced')} ${index + 1}`}
-              aria-expanded={expanded.has(index)}
-              title={t('modelAdvanced')}
-              onClick={() => { toggleExpanded(index) }}
-            >
-              <IconChevron open={expanded.has(index)} />
-            </button>
-            <button
-              type="button"
-              className={`${styles['iconButton']} ${styles['iconButtonDanger']}`}
-              aria-label={`${t('removeModel')} ${index + 1}`}
-              title={t('removeModel')}
-              disabled={disabled}
-              onClick={() => {
-                onChange(models.filter((_model, at) => at !== index))
-                // Both stores are keyed by position, so every row after this
-                // one shifts down and would otherwise inherit its neighbour's
-                // state — a different row's capacities popping open, or its
-                // half-typed text appearing in another row's field.
-                setExpanded((current) => {
-                  const next = new Set<number>()
-                  for (const at of current) {
-                    if (at < index) next.add(at)
-                    else if (at > index) next.add(at - 1)
-                  }
-                  return next
-                })
-                setEditing(current => reindexOnRemove(current, index))
-              }}
-            >
-              <IconTrash />
-            </button>
+      {models.map((model, index) => {
+        const refusal = modelErrors?.[textOf(model, 'id')]
+        return (
+          <div key={index} className={styles['modelEntry']}>
+            <div className={styles['modelRow']}>
+              <input
+                className={styles['input']}
+                type="text"
+                value={textOf(model, 'id')}
+                placeholder={t('modelId')}
+                aria-label={`${t('modelId')} ${index + 1}`}
+                disabled={disabled}
+                onChange={(event) => { patch(index, { id: event.target.value }) }}
+              />
+              <input
+                className={styles['input']}
+                type="text"
+                value={textOf(model, 'name')}
+                placeholder={t('modelName')}
+                aria-label={`${t('modelName')} ${index + 1}`}
+                disabled={disabled}
+                onChange={(event) => { patch(index, { name: event.target.value === '' ? undefined : event.target.value }) }}
+              />
+              <button
+                type="button"
+                className={styles['iconButton']}
+                aria-label={`${t('modelAdvanced')} ${index + 1}`}
+                aria-expanded={expanded.has(index)}
+                title={t('modelAdvanced')}
+                onClick={() => { toggleExpanded(index) }}
+              >
+                <IconChevron open={expanded.has(index)} />
+              </button>
+              <button
+                type="button"
+                className={`${styles['iconButton']} ${styles['iconButtonDanger']}`}
+                aria-label={`${t('removeModel')} ${index + 1}`}
+                title={t('removeModel')}
+                disabled={disabled}
+                onClick={() => {
+                  onChange(models.filter((_model, at) => at !== index))
+                  // Both stores are keyed by position, so every row after this
+                  // one shifts down and would otherwise inherit its neighbour's
+                  // state — a different row's capacities popping open, or its
+                  // half-typed text appearing in another row's field.
+                  setExpanded((current) => {
+                    const next = new Set<number>()
+                    for (const at of current) {
+                      if (at < index) next.add(at)
+                      else if (at > index) next.add(at - 1)
+                    }
+                    return next
+                  })
+                  setEditing(current => reindexOnRemove(current, index))
+                }}
+              >
+                <IconTrash />
+              </button>
+            </div>
+            {refusal !== undefined && (
+              <p role="alert" className={styles['modelRefusal']}>
+                {`${t('modelRefusal')}: ${refusal}`}
+              </p>
+            )}
+            {expanded.has(index)
+              ? (
+                <div className={styles['modelAdvanced']}>
+                  <label className={styles['modelField']}>
+                    <span className={styles['modelFieldLabel']}>{t('modelContextWindow')}</span>
+                    <input
+                      className={styles['input']}
+                      type="text"
+                      inputMode="numeric"
+                      value={capacityText(model, index, 'contextWindow')}
+                      placeholder={CAPACITY_HINT.contextWindow}
+                      aria-label={`${t('modelContextWindow')} ${index + 1}`}
+                      disabled={disabled}
+                      onChange={(event) => { editCapacity(index, 'contextWindow', event.target.value) }}
+                    />
+                  </label>
+                  <label className={styles['modelField']}>
+                    <span className={styles['modelFieldLabel']}>{t('modelMaxTokens')}</span>
+                    <input
+                      className={styles['input']}
+                      type="text"
+                      inputMode="numeric"
+                      value={capacityText(model, index, 'maxTokens')}
+                      placeholder={CAPACITY_HINT.maxTokens}
+                      aria-label={`${t('modelMaxTokens')} ${index + 1}`}
+                      disabled={disabled}
+                      onChange={(event) => { editCapacity(index, 'maxTokens', event.target.value) }}
+                    />
+                  </label>
+                </div>
+              )
+              : null}
           </div>
-          {expanded.has(index)
-            ? (
-              <div className={styles['modelAdvanced']}>
-                <label className={styles['modelField']}>
-                  <span className={styles['modelFieldLabel']}>{t('modelContextWindow')}</span>
-                  <input
-                    className={styles['input']}
-                    type="text"
-                    inputMode="numeric"
-                    value={capacityText(model, index, 'contextWindow')}
-                    placeholder={CAPACITY_HINT.contextWindow}
-                    aria-label={`${t('modelContextWindow')} ${index + 1}`}
-                    disabled={disabled}
-                    onChange={(event) => { editCapacity(index, 'contextWindow', event.target.value) }}
-                  />
-                </label>
-                <label className={styles['modelField']}>
-                  <span className={styles['modelFieldLabel']}>{t('modelMaxTokens')}</span>
-                  <input
-                    className={styles['input']}
-                    type="text"
-                    inputMode="numeric"
-                    value={capacityText(model, index, 'maxTokens')}
-                    placeholder={CAPACITY_HINT.maxTokens}
-                    aria-label={`${t('modelMaxTokens')} ${index + 1}`}
-                    disabled={disabled}
-                    onChange={(event) => { editCapacity(index, 'maxTokens', event.target.value) }}
-                  />
-                </label>
-              </div>
-            )
-            : null}
-        </div>
-      ))}
+        )
+      })}
       <button
         type="button"
         className={styles['addModelButton']}

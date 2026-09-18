@@ -502,6 +502,13 @@ interface LlmConfigurableProvider {
   declared?: boolean
   /** Configuration diagnostic for repair; unaffected models may remain serviceable. */
   error?: string
+  /**
+   * Per-model refusals on this route, keyed by model id: each entry is why a
+   * model the profile names cannot serve a request while its siblings still do.
+   * A configuration surface shows the text on that model's own row, which is
+   * where the field the diagnostic names is edited.
+   */
+  modelErrors?: Record<string, string>
 }
 ```
 
@@ -518,6 +525,14 @@ interface LlmModelInfo {
   description?: string
   /** Accepted request modalities; absent means unknown, while an explicit omission is negative capability. */
   inputModalities?: readonly ModelModality[]
+  /**
+   * Why this entry cannot serve a request, when the adapter lists a model its
+   * own configuration names but it refuses to serve. Present means listed for
+   * repair, not selectable: a selector shows the text and offers no way to
+   * choose it, and a request naming it fails with this text. Absent means the
+   * adapter raises no objection — it is not a promise the request succeeds.
+   */
+  unavailable?: string
 }
 ```
 
@@ -812,11 +827,14 @@ declare abstract class LlmAdapter {
    */
   imageRequestPricing(_provider: string, _model: string): LlmImageRequestPricing | undefined;
   /**
-   * List models this adapter can currently advertise for one owned provider.
-   * The result is advisory: an adapter may accept unlisted model ids, and
-   * consumers must not turn absence into request rejection.
+   * List models this adapter can currently advertise for one owned provider,
+   * including a configured model it refuses to serve: that entry carries
+   * {@link LlmModelInfo.unavailable} so a selector can show why rather than
+   * hide a model the configuration names. The result is advisory: an adapter
+   * may accept unlisted model ids, and consumers must not turn absence into
+   * request rejection.
    * @param _provider - one provider route owned by this adapter.
-   * @returns discoverable models in adapter-preferred order.
+   * @returns discoverable models in adapter-preferred order, refused entries last.
    */
   listModels(_provider: string): Promise<readonly LlmModelInfo[]>;
   /**
@@ -990,7 +1008,8 @@ fileRequestText(ref: FileAttachmentRef): string
 
 /**
  * Discover models advertised by one registered provider. Catalog membership
- * is advisory and never changes routing or request validation.
+ * is advisory and never changes routing or request validation; an entry the
+ * adapter refuses reports that refusal instead of disappearing from the list.
  * @param provider - registered provider route to inspect.
  * @returns detached model metadata in adapter-preferred order.
  */

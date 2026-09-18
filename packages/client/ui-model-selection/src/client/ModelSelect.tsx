@@ -172,7 +172,9 @@ export function ModelSelect(
   }
 
   const moveFocus = (offset: number): void => {
-    const items = itemRefs.current.filter(item => item !== null)
+    // A refused model renders as a disabled button, which cannot take focus:
+    // leaving it in the cycle would park arrow navigation on a dead row.
+    const items = itemRefs.current.filter(item => item !== null && !item.disabled)
     if (items.length === 0) return
     const active = items.findIndex(item => item === document.activeElement)
     const next = (Math.max(active, 0) + offset + items.length) % items.length
@@ -339,6 +341,7 @@ export function ModelSelect(
                       <div className={css.groupTitle} id={headingId}>{group.name}</div>
                       {group.models.map((model) => {
                         const selected = state.current?.provider === group.id && state.current.model === model.id
+                        const refusal = model.unavailable
                         return (
                           <button
                             ref={itemRef()}
@@ -347,12 +350,17 @@ export function ModelSelect(
                             aria-checked={selected}
                             className={clsx(css.option, selected && css.selected)}
                             key={model.id}
-                            title={model.name}
-                            disabled={busy}
+                            title={refusal ?? model.name}
+                            disabled={busy || refusal !== undefined}
                             onClick={() => { choose({ provider: group.id, model: model.id }) }}
                           >
                             <span className={css.optionCopy}>
                               <span className={css.modelName}>{model.name}</span>
+                              {refusal !== undefined && (
+                                <span className={css.optionReason}>
+                                  {t('warning.modelUnavailable', { message: refusal })}
+                                </span>
+                              )}
                             </span>
                             <span className={css.check}>
                               {selected ? <IconCheckOutline16 /> : null}

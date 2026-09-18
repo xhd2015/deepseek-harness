@@ -123,7 +123,12 @@ function directoryEntries(
 ): LlmConfigurableProvider[] {
   const catalog = new Set(catalogProviderIds())
   const entries = new Map<string, LlmConfigurableProvider>()
-  const declare = (provider: string, displayName: string, error?: string): void => {
+  const declare = (
+    provider: string,
+    displayName: string,
+    error?: string,
+    modelErrors?: ReadonlyMap<string, string>,
+  ): void => {
     entries.set(provider, {
       provider,
       displayName,
@@ -134,10 +139,18 @@ function directoryEntries(
       // route is still one pi-ai knows.
       declared: !catalog.has(provider),
       ...error === undefined ? {} : { error },
+      // Named per model so the Models page shows a refused entry beside the
+      // field that refused it, and so a route-level `error` no longer stands
+      // in for the first of them.
+      ...modelErrors === undefined || modelErrors.size === 0
+        ? {}
+        : { modelErrors: Object.fromEntries(modelErrors) },
     })
   }
   for (const provider of catalog) declare(provider, provider)
-  for (const [provider, profile] of profiles) declare(provider, profile.displayName, profile.catalogError)
+  for (const [provider, profile] of profiles) {
+    declare(provider, profile.displayName, profile.catalogError, profile.modelErrors)
+  }
   return [...entries.values()]
 }
 

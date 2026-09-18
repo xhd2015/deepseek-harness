@@ -200,6 +200,51 @@ describe('ModelSelect reasoning effort', () => {
     expect(screen.queryByRole('button', { name: '重试' })).toBeNull()
   })
 
+  it('keeps a refused model visible and unselectable, and out of the keyboard order', () => {
+    const reason = 'llm-pi-ai: model "deepseek-v4-pro" reasoningEfforts names "ultra"'
+    const directory = createSnapshotStore<ModelDirectoryState>(state({
+      groups: [{
+        id: 'deepseek-official',
+        name: 'DeepSeek',
+        models: [
+          { id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', reasoning },
+          { id: 'deepseek-v4-pro', name: 'deepseek-v4-pro', unavailable: reason },
+          { id: 'deepseek-v4-lite', name: 'DeepSeek-V4-Lite' },
+        ],
+      }],
+      routable: false,
+      unavailableReason: reason,
+    }))
+    const select = vi.fn().mockResolvedValue(true)
+    render(<ModelSelect
+      locked={false}
+      available
+      directory={directory}
+      load={vi.fn()}
+      select={select}
+      t={t}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: /选择模型/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /模型/ }))
+    const refused = screen.getByRole('menuitemradio', { name: /deepseek-v4-pro/ })
+    // Listed with the adapter's own text — that is what tells the user which
+    // field to fix — but a disabled button submits nothing.
+    expect((refused as HTMLButtonElement).disabled).toBe(true)
+    expect(refused.textContent).toContain(`配置有误：${reason}`)
+    fireEvent.click(refused)
+    expect(select).not.toHaveBeenCalled()
+
+    // Arrow navigation steps over it rather than parking on a dead row.
+    const flash = screen.getByRole('menuitemradio', { name: /DeepSeek-V4-Flash/ })
+    const lite = screen.getByRole('menuitemradio', { name: /DeepSeek-V4-Lite/ })
+    flash.focus()
+    fireEvent.keyDown(flash, { key: 'ArrowDown' })
+    expect(document.activeElement).toBe(lite)
+    fireEvent.keyDown(lite, { key: 'ArrowUp' })
+    expect(document.activeElement).toBe(flash)
+  })
+
   it('portals the placed menu card to body and closes only on truly-outside mousedown', () => {
     const offsetWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth')!
     const offsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight')!

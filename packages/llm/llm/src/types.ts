@@ -252,6 +252,13 @@ export interface LlmConfigurableProvider {
   declared?: boolean
   /** Configuration diagnostic for repair; unaffected models may remain serviceable. */
   error?: string
+  /**
+   * Per-model refusals on this route, keyed by model id: each entry is why a
+   * model the profile names cannot serve a request while its siblings still do.
+   * A configuration surface shows the text on that model's own row, which is
+   * where the field the diagnostic names is edited.
+   */
+  modelErrors?: Record<string, string>
 }
 
 /**
@@ -323,6 +330,14 @@ export interface LlmModelInfo {
   description?: string
   /** Accepted request modalities; absent means unknown, while an explicit omission is negative capability. */
   inputModalities?: readonly ModelModality[]
+  /**
+   * Why this entry cannot serve a request, when the adapter lists a model its
+   * own configuration names but it refuses to serve. Present means listed for
+   * repair, not selectable: a selector shows the text and offers no way to
+   * choose it, and a request naming it fails with this text. Absent means the
+   * adapter raises no objection — it is not a promise the request succeeds.
+   */
+  unavailable?: string
 }
 
 /** Provider-owned context capacity for one exact provider/model route. */
