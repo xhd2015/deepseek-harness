@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-用侧边栏浏览 Workspace 及其 Session、重排它们并新建会话；在 Session Intent 主视觉区用选择器为新会话选择 Workspace。打开的 Workspace 默认显示五条非空白 Session，并在首条提示词落地前把当前选中的空白**新会话**作为一条临时额外行。**展开其余**会显示隐藏条目；关闭再打开 Workspace 会恢复该折叠投影。打开 Session 会重新展开它所属的 Workspace（包括由 URL 指定 Session 的情况），再次折叠该 Workspace 会被保留；持有当前 Session 的折叠 Workspace 保留业务色文件夹图标与 2px 前置色条，使该行仍然可辨认。
+用侧边栏浏览 Workspace 及其 Session、重排它们并新建会话；在 Session Intent 主视觉区用选择器为新会话选择 Workspace。打开的 Workspace 默认显示五条非空白 Session，并在首条提示词落地前把当前选中的空白**新会话**作为一条临时额外行。**展开其余**会显示隐藏条目；关闭再打开 Workspace 会恢复该折叠投影。打开 Session 会重新展开它所属的 Workspace（包括由 URL 指定 Session 的情况），再次折叠该 Workspace 会被保留；持有当前 Session 的折叠 Workspace 保留业务色文件夹图标与 2px 前置色条，使该行仍然可辨认。URL 中带有合法 `?session=` 的文档以聚焦状态起步：本插件激活时、框架首次渲染之前侧边栏就已收起，因此控制栏不会从可见面板动画进入，用户随后的开关决定其状态。该 id 是否在列表中稍后才判定，且不影响侧边栏；无效链接仍通过提示层报告。未带该参数，或参数非法时，框架保持默认宽度。
 
 ### 重排序与视图选项
 

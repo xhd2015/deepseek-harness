@@ -40,6 +40,12 @@ export interface ILayout {
   /** Toggle the sidebar panel (closed ⟷ contract default width). */
   toggleSidebar(): void
   /**
+   * Close the sidebar panel, leaving an already-closed frame unchanged.
+   * Applies the toggle's narrow/wide branches: a narrow frame drops its
+   * expansion override, a wide frame clears the width preference.
+   */
+  collapseSidebar(): void
+  /**
    * Report the right panel's presentation without changing its expanded state.
    * @param track - whether the normal panel width reserves a grid track,
    *   including beneath a fullscreen overlay.
@@ -88,6 +94,11 @@ export class LayoutController implements ILayout {
   /** Toggle the sidebar panel (closed ⟷ contract default width). */
   toggleSidebar(): void {
     this.panels.toggleSidebar()
+  }
+
+  /** Close the sidebar panel without reopening one the user already closed. */
+  collapseSidebar(): void {
+    this.panels.collapseSidebar()
   }
 
   /** Report the right panel's track and fullscreen presentation. */
