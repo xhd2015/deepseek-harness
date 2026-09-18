@@ -24,7 +24,7 @@
           },
           "sandbox_permissions": {
             "type": "string",
-            "description": "The wider sandbox mode this file operation needs. Only valid as a one-shot retry of an operation the sandbox just denied; requires justification and user approval.",
+            "description": "The wider sandbox mode this file operation needs. Only valid as a one-shot retry after a result carrying the `[sandbox: escalation available` marker; requires justification and user approval.",
             "enum": [
               "workspace-write",
               "danger-full-access"
@@ -422,7 +422,7 @@
           },
           "sandbox_permissions": {
             "type": "string",
-            "description": "The wider sandbox mode this file operation needs. Only valid as a one-shot retry of an operation the sandbox just denied; requires justification and user approval.",
+            "description": "The wider sandbox mode this file operation needs. Only valid as a one-shot retry after a result carrying the `[sandbox: escalation available` marker; requires justification and user approval.",
             "enum": [
               "workspace-write",
               "danger-full-access"

@@ -12,6 +12,8 @@ import {
   WIDER_MODES,
   approveEscalation,
   escalationHintMarker,
+  escalationIgnoredMarker,
+  isStrictlyWider,
   sandboxDenialMarker,
   validateEscalationArgs,
 } from '@deepseek-ai/dsh-sandbox'
@@ -27,6 +29,17 @@ describe('the strictly-wider ladder', () => {
   it('the target enum is the closed set every session could escalate TO (read-only is the floor)', () => {
     expect(ESCALATION_TARGETS).toEqual(['workspace-write', 'danger-full-access'])
   })
+
+  it('isStrictlyWider answers for grantable, equal, narrower, and unknown asks', () => {
+    expect(isStrictlyWider('workspace-write', 'read-only')).toBe(true)
+    expect(isStrictlyWider('danger-full-access', 'read-only')).toBe(true)
+    expect(isStrictlyWider('danger-full-access', 'workspace-write')).toBe(true)
+    // The floor is not a target, so read-only is never granted.
+    expect(isStrictlyWider('read-only', 'read-only')).toBe(false)
+    expect(isStrictlyWider('workspace-write', 'workspace-write')).toBe(false)
+    expect(isStrictlyWider('workspace-write', 'danger-full-access')).toBe(false)
+    expect(isStrictlyWider('workspace-write', 'unknown-mode' as never)).toBe(false)
+  })
 })
 
 describe('validateEscalationArgs', () => {
@@ -40,6 +53,32 @@ describe('validateEscalationArgs', () => {
     expect(() => { validateEscalationArgs(undefined, 'orphan reason') }).toThrow(/only valid together with sandbox_permissions/)
     expect(() => { validateEscalationArgs('workspace-write', '   ') }).toThrow(/non-empty sentence/)
   })
+
+  it('ignores an ask the call\'s own mode cannot widen, whatever its pairing', () => {
+    // A declared property is not a request. A model that emits every property
+    // of the schema asks on every call, so refusing these would make the call
+    // impossible; the ask grants nothing, so it is ignored instead.
+    for (const justification of [undefined, ' ', 'a real reason']) {
+      expect(validateEscalationArgs('danger-full-access', justification, 'danger-full-access')).toBe('ignored')
+    }
+    expect(validateEscalationArgs('read-only', undefined, 'read-only')).toBe('ignored')
+    expect(validateEscalationArgs('workspace-write', 'a real reason', 'danger-full-access')).toBe('ignored')
+    expect(validateEscalationArgs('workspace-write', 'a real reason', 'unknown-mode' as never)).toBe('ignored')
+  })
+
+  it('leaves a grantable ask to its pairing error, and an orphan justification to its own', () => {
+    // A call with no ask, or one that may widen, proceeds.
+    expect(validateEscalationArgs(undefined, undefined)).toBeUndefined()
+    expect(validateEscalationArgs('danger-full-access', 'a real reason', 'read-only')).toBeUndefined()
+    expect(() => { validateEscalationArgs('danger-full-access', undefined, 'read-only') })
+      .toThrow('invalid escalation: sandbox_permissions requires a justification')
+    expect(() => { validateEscalationArgs('danger-full-access', ' ', 'workspace-write') })
+      .toThrow('invalid justification: expected a non-empty sentence')
+    // Without a resolved mode the ask cannot be judged wider, so the pairing rules apply.
+    expect(() => { validateEscalationArgs('danger-full-access', ' ') }).toThrow('invalid justification: expected a non-empty sentence')
+    expect(() => { validateEscalationArgs(undefined, 'orphan reason', 'danger-full-access') })
+      .toThrow('invalid escalation: justification is only valid together with sandbox_permissions')
+  })
 })
 
 describe('the model-facing markers', () => {
@@ -51,6 +90,13 @@ describe('the model-facing markers', () => {
   it('the hint marker names the family subject', () => {
     expect(escalationHintMarker('command')).toContain('retry this exact command once with sandbox_permissions')
     expect(escalationHintMarker('operation')).toContain('retry this exact operation once with sandbox_permissions')
+  })
+
+  it('the ignored marker names the ask and the mode that ran', () => {
+    expect(escalationIgnoredMarker('danger-full-access', 'danger-full-access'))
+      .toBe('[sandbox: escalation to "danger-full-access" ignored — this call ran at "danger-full-access" mode]')
+    expect(escalationIgnoredMarker('workspace-write', 'danger-full-access'))
+      .toBe('[sandbox: escalation to "workspace-write" ignored — this call ran at "danger-full-access" mode]')
   })
 })
 
@@ -89,6 +135,13 @@ describe('approveEscalation', () => {
     await expect(approveEscalation(req({ requestedMode: 'workspace-write', effectiveMode: 'danger-full-access' as never }), spy))
       .rejects.toThrow(/not strictly wider/)
     expect(seen).toEqual([])
+  })
+
+  it('refuses a non-widening request that reached the approval step', async () => {
+    // The tools judge an ask against the standing mode first and ignore a
+    // redundant one; this guard is the enforcement for any caller that does not.
+    await expect(approveEscalation(req({ requestedMode: 'read-only' }), ingredients()))
+      .rejects.toThrow('sandbox escalation to "read-only" is not strictly wider than this call\'s current "read-only" mode')
   })
 
   it('a missing approval service and an agent-less call each fail closed with distinct text', async () => {
