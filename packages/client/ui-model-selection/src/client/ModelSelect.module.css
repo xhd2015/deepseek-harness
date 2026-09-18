@@ -392,3 +392,14 @@
   height: 12px;
   color: var(--dsw-alias-label-tertiary);
 }
+
+/* A refused model keeps its row so the diagnostic stays reachable: the name
+ * dims through `.option:disabled` and the reason carries the warning tone. */
+.optionReason {
+  overflow: hidden;
+  color: var(--dsw-alias-state-warn-label);
+  font-size: 12px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

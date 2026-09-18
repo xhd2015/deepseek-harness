@@ -1028,3 +1028,12 @@ select.input {
     font-size: 16px;
   }
 }
+
+/* The adapter's refusal for this one model, directly under the row it names:
+   the fields above it stay editable, since the fix is usually one of them. */
+.modelRefusal {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-state-warn-label);
+}

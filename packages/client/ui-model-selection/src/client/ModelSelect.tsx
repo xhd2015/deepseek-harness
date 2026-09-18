@@ -624,6 +624,7 @@ export function ModelSelect(
                       {group.models.map((model) => {
                         const index = modelIndex++
                         const selected = state.current?.provider === group.id && state.current.model === model.id
+                        const refusal = model.unavailable
                         return (
                           <button
                             ref={itemRef()}
@@ -642,12 +643,17 @@ export function ModelSelect(
                               else itemRefs.current[index]?.focus()
                             }}
                             key={model.id}
-                            title={model.name}
-                            disabled={busy}
+                            title={refusal ?? model.name}
+                            disabled={busy || refusal !== undefined}
                             onClick={() => { choose({ provider: group.id, model: model.id }) }}
                           >
                             <span className={css.optionCopy}>
                               <span className={css.modelName}>{renderModelLabel(group.provider, model, 'option', selected)}</span>
+                              {refusal !== undefined && (
+                                <span className={css.optionReason}>
+                                  {t('warning.modelUnavailable', { message: refusal })}
+                                </span>
+                              )}
                             </span>
                             <span className={css.check}>
                               {pending?.provider === group.id && pending.model === model.id

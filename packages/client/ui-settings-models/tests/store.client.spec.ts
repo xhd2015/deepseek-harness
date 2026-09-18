@@ -47,6 +47,18 @@ it('places account and official before third-party providers', () => {
   expect(directory.map(row => row.provider)).toEqual(providers)
 })
 
+it('carries per-model refusals into the joined row', () => {
+  [false, true].forEach((active) => {
+    expect(joinProviderDirectory(active ? [{ id: 'codex', name: 'codex' }] : [], [{
+      provider: 'codex', displayName: 'Codex', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'codex'],
+      modelErrors: { 'gpt-5.6-sol': 'reasoningEfforts names "ultra"' },
+    }])).toEqual([{
+      provider: 'codex', displayName: 'Codex', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'codex'],
+      active, modelErrors: { 'gpt-5.6-sol': 'reasoningEfforts names "ultra"' },
+    }])
+  })
+})
+
 let nextRpc = 0
 function ok<T>(value: T): RpcResponse<T> {
   return { rpcId: `r-${nextRpc++}` as never, result: { ok: true, value } }

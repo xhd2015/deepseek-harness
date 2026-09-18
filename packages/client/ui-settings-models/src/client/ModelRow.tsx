@@ -43,6 +43,8 @@ interface ModelRowProps {
   onChange: (model: DeepSeekModelDraft) => void
   onToggle: () => void
   onRemove: () => void
+  /** Why the adapter refuses this model, shown under the row when present. */
+  refusal?: string | undefined
 }
 
 function rowHalf(event: DragEvent<HTMLElement>): 'before' | 'after' {
@@ -185,6 +187,11 @@ export function ModelRow(props: ModelRowProps): ReactNode {
           )
           : null}
       </div>
+      {props.refusal !== undefined && (
+        <p role="alert" className={styles['modelRefusal']}>
+          {`${t('modelRefusal')}: ${props.refusal}`}
+        </p>
+      )}
     </div>
   )
 }
