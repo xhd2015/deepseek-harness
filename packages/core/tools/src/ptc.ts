@@ -91,7 +91,7 @@ const RUN_CODE_DESCRIPTION_PARAM_DESCRIPTION
 
 const RUN_CODE_CONTROLS = {
   timeoutMs: { type: 'number', description: 'Positive elapsed-time budget in milliseconds, capped by the deployment maximum.' },
-  sandbox_permissions: { type: 'string', enum: [...ESCALATION_TARGETS], description: 'Wider sandbox mode for this complete program execution; requires justification and approval.' },
+  sandbox_permissions: { type: 'string', enum: [...ESCALATION_TARGETS], description: 'Wider sandbox mode for this complete program execution; only valid as a one-shot retry after a result carrying the `[sandbox: escalation available` marker, and requires justification and approval.' },
   justification: { type: 'string', description: 'Reason this complete program needs wider access, shown to the user for approval. Use the language of the user’s current request.' },
 } as const
 
@@ -371,16 +371,18 @@ export function createRunCodeTool(registry: ToolRuntime, options: RunCodeBridgeO
       }
       const runtime = requireRuntime()
       const run = async (callSignal: AbortSignal): Promise<RunCodeOutput> => {
-        validateEscalationArgs(args.sandbox_permissions, args.justification)
+        const standingPolicy = runtime.sandboxMode === undefined ? undefined : options.resolveSandboxPolicy(exec)
+        const escalationIgnored = validateEscalationArgs(
+          args.sandbox_permissions, args.justification, standingPolicy?.mode,
+        ) === 'ignored'
         if (args.timeoutMs !== undefined && runtime.timeout === undefined) {
           throw new Error('timeoutMs is not available for this PTC runtime')
         }
         if (args.timeoutMs !== undefined && (!Number.isFinite(args.timeoutMs) || args.timeoutMs <= 0)) {
           throw new Error('invalid timeoutMs: expected a positive finite number')
         }
-        const standingPolicy = runtime.sandboxMode === undefined ? undefined : options.resolveSandboxPolicy(exec)
         let policy = standingPolicy
-        if (args.sandbox_permissions !== undefined && args.justification !== undefined) {
+        if (!escalationIgnored && args.sandbox_permissions !== undefined && args.justification !== undefined) {
           if (standingPolicy === undefined) throw new Error('sandbox_permissions is not available for this PTC runtime')
           const approvedMode = await approveEscalation({
             requestedMode: args.sandbox_permissions,

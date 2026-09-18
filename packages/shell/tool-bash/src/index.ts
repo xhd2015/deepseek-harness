@@ -70,7 +70,7 @@ interface BashToolArgs {
   justification?: string
 }
 
-function validateBashArgs(args: BashToolArgs, effectiveMode: SandboxMode | undefined): void {
+function validateBashArgs(args: BashToolArgs, effectiveMode: SandboxMode | undefined): 'ignored' | undefined {
   if (args.command.trim().length === 0) {
     throw new Error('invalid command: expected a non-empty string')
   }
@@ -80,11 +80,10 @@ function validateBashArgs(args: BashToolArgs, effectiveMode: SandboxMode | undef
   if (args.timeoutMs !== undefined && (!Number.isFinite(args.timeoutMs) || args.timeoutMs <= 0)) {
     throw new Error(`invalid timeoutMs: expected a positive number, got ${JSON.stringify(args.timeoutMs)}`)
   }
-  if (args.sandbox_permissions !== undefined && args.sandbox_permissions === effectiveMode) return
   const justification = args.sandbox_permissions === undefined && args.justification?.trim() === ''
     ? undefined
     : args.justification
-  validateEscalationArgs(args.sandbox_permissions, justification)
+  return validateEscalationArgs(args.sandbox_permissions, justification, effectiveMode)
 }
 
 function bashDescription(): string {
@@ -152,7 +151,7 @@ function resolveWorkdir(modelWorkdir: string | undefined, sessionCwd: string | u
 }
 
 /** Detach the executor DTO from readonly Service Definition types into plain JSON data. */
-function canonicalBashResult(result: ShellRunResult, cwd: string) {
+function canonicalBashResult(result: ShellRunResult, cwd: string, escalationIgnored = false) {
   const output = (stream: ShellRunResult['stdout']) => ({
     text: stream.text,
     truncated: stream.truncated,
@@ -175,6 +174,7 @@ function canonicalBashResult(result: ShellRunResult, cwd: string) {
         ...result.sandbox.runnerFailed !== undefined ? { runnerFailed: result.sandbox.runnerFailed } : {},
       },
     } : {},
+    ...escalationIgnored ? { escalationIgnored: true } : {},
   }
 }
 
@@ -461,25 +461,30 @@ export function apply(ctx: Context, config: Config = {}): void {
                     runnerFailed: { type: 'boolean' },
                   },
                 },
+                escalationIgnored: { type: 'boolean' },
               },
             },
           ],
         },
-        render: (_args, value) => [{
+        render: (args, value) => [{
           type: 'text',
           text: value.kind === 'background'
             ? `started background job ${value.jobId}`
             : value.kind === 'promoted'
               ? renderPromoted(value)
-              : renderResult(value as { kind: 'foreground' } & ShellRunResult, escalationModes),
+              : renderResult(
+                value as { kind: 'foreground' } & ShellRunResult & { escalationIgnored?: boolean },
+                escalationModes,
+                args.sandbox_permissions,
+              ),
         }],
         presentationMeta: (_args, value) => ({ cwd: value.cwd }),
       },
       async execute(args: BashToolArgs, exec) {
         // Description is display metadata; workdir defaults to the caller's session.
         const standingPolicy = resolveSandboxPolicy(exec)
-        validateBashArgs(args, standingPolicy?.mode)
-        const approvedMode = args.sandbox_permissions !== undefined && args.justification !== undefined
+        const escalationIgnored = validateBashArgs(args, standingPolicy?.mode) === 'ignored'
+        const approvedMode = !escalationIgnored && args.sandbox_permissions !== undefined && args.justification !== undefined
           ? await approveBashEscalation(args.sandbox_permissions, args.justification, exec, standingPolicy)
           : undefined
         const policy = approvedMode === undefined
@@ -527,7 +532,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         const foreground = await ctx.shell.execute(spec)
         const result = await foreground.result()
         if (result.aborted) throw toolAborted()
-        return { kind: 'foreground' as const, ...canonicalBashResult(result, spec.workdir) }
+        return { kind: 'foreground' as const, ...canonicalBashResult(result, spec.workdir, escalationIgnored) }
       },
       presentCall: presentBashCall,
       presentResult: presentBashResult,
