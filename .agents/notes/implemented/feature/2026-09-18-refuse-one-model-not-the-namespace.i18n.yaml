@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-09-18-refuse-one-model-not-the-namespace.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-18-refuse-one-model-not-the-namespace.md
+/agent-note-refuse-one-model-not-the-whole-namespace:
+  en: 3de6ed00c92c0458
+  zh: be2786d075389e81
+/agent-note-refuse-one-model-not-the-whole-namespace/problem:
+  en: 43b6e6ec930f9947
+  zh: b6e40e2aad0ab336
+/agent-note-refuse-one-model-not-the-whole-namespace/decision:
+  en: c46506cda2495139
+  zh: acd6054dfa22c2a5
+/agent-note-refuse-one-model-not-the-whole-namespace/alternatives-considered:
+  en: 43a0ab6a95dbecb2
+  zh: 9d6dba333c7934f7
+/agent-note-refuse-one-model-not-the-whole-namespace/consequences:
+  en: abd64f03e90669ef
+  zh: d1262d7cb565cb09
