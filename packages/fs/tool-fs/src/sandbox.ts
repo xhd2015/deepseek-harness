@@ -92,12 +92,12 @@ export class FsSandboxController {
       throw new ToolArgsError(['sandbox_permissions and justification are not available in this composition (no sandboxing filesystem to escalate)'])
     }
     const standingPolicy = this.policy?.resolve({ ...exec.agent ? { session: exec.agent.session } : {} })
-    if (args.sandbox_permissions !== undefined && args.sandbox_permissions === standingPolicy?.mode) return standingPolicy
-    const justification = args.sandbox_permissions === undefined && args.justification?.trim() === ''
-      ? undefined
-      : args.justification
-    validateEscalationArgs(args.sandbox_permissions, justification)
-    if (args.sandbox_permissions === undefined || args.justification === undefined) {
+    // An ask this call's standing mode cannot widen is ignored: the mutation
+    // runs under the standing policy and no approval is requested.
+    const escalationIgnored = validateEscalationArgs(
+      args.sandbox_permissions, args.justification, standingPolicy?.mode,
+    ) === 'ignored'
+    if (escalationIgnored || args.sandbox_permissions === undefined || args.justification === undefined) {
       return standingPolicy
     }
     const policy = standingPolicy as SandboxExecutionPolicy

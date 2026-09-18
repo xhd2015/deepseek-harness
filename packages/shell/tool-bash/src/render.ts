@@ -6,7 +6,7 @@
 
 import type { ShellRunResult, ShellSandboxInfo, CollectedOutput } from '@deepseek-ai/dsh-shell'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
-import { escalationHintMarker, sandboxDenialMarker } from '@deepseek-ai/dsh-sandbox'
+import { escalationHintMarker, escalationIgnoredMarker, sandboxDenialMarker } from '@deepseek-ai/dsh-sandbox'
 
 /** Append the truncation notice (with the full-output spill path) to a stream's text. */
 function streamText(output: CollectedOutput): string {
@@ -26,8 +26,9 @@ function streamText(output: CollectedOutput): string {
  * @returns the model-facing text: output body (or `(no output)`), then any timeout/stopped/signal/exit markers, each on its own line.
  */
 export function renderResult(
-  result: ShellRunResult & { stopped?: string },
+  result: ShellRunResult & { stopped?: string; readonly escalationIgnored?: boolean },
   escalationModes: readonly SandboxMode[] = [],
+  requestedMode?: string,
 ): string {
   const out = streamText(result.stdout)
   const err = streamText(result.stderr)
@@ -48,6 +49,12 @@ export function renderResult(
     if (escalationModes.length > 0) {
       markers.push(escalationHintMarker('command'))
     }
+  }
+  // A declared property is not a request: the ask is ignored when this call
+  // already runs at that mode or wider, and saying so is the only way a model
+  // that fills every property learns the field changed nothing.
+  if (requestedMode !== undefined && result.escalationIgnored === true && result.sandbox !== undefined) {
+    markers.push(escalationIgnoredMarker(requestedMode, result.sandbox.mode))
   }
   // A command may trap SIGTERM and exit 0 after timeout; still report interruption.
   if (result.timedOut) markers.push(`[timed out after ${result.timeoutMs}ms]`)

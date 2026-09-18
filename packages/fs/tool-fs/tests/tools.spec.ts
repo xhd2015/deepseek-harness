@@ -1153,6 +1153,17 @@ describe('sandbox escalation API (write/edit)', () => {
     expect(text(orphan)).toContain('justification is only valid together with sandbox_permissions')
   })
 
+  it('ignores an ask the session mode cannot widen, and performs the mutation', async () => {
+    // The session already runs at the requested mode, so the ask grants nothing:
+    // the mutation proceeds, and no approval is requested for it.
+    const { ctx } = await setupConfining({ approval: true })
+    const asked = vi.fn(() => Promise.resolve('allowed-once' as const))
+    ctx.on('approval/request', asked)
+    const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'x', sandbox_permissions: 'workspace-write' }, escalationAgent())
+    expect(result.isError).toBe(false)
+    expect(asked).not.toHaveBeenCalled()
+  })
+
   it.each([
     { sandbox_permissions: 'workspace-write', justification: 'why' },
     { sandbox_permissions: 'workspace-write' },
