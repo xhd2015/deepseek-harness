@@ -36,6 +36,13 @@ export type RemoteEventStreamOpener = (
   signal: AbortSignal,
 ) => AsyncIterable<unknown>
 
+/** Invoke one Gateway unary method on the selected carrier. */
+export type RemoteEventUnaryCaller = (
+  endpoint: string,
+  payload: unknown,
+  signal: AbortSignal,
+) => Promise<{ readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly error: { readonly message: string } }>
+
 /** One subscribed listener after its event-specific signature is erased. */
 type RemoteEventListener = (this: Context, ...args: unknown[]) => unknown
 
@@ -68,13 +75,15 @@ export class ClientRemoteEvents {
 
   /**
    * @param ownerCtx - Client Gateway root used for Agent Context resolution.
-   * @param connection - Connection carrier used for HTTP result calls.
+   * @param connection - Connection carrier registering this event generation.
    * @param openStream - selected in-process or WebSocket stream opener.
+   * @param callUnary - selected in-process or WebSocket unary caller.
    */
   constructor(
     private readonly ownerCtx: Context,
-    private readonly connection: ConnectionHandle,
+    connection: ConnectionHandle,
     private readonly openStream: RemoteEventStreamOpener,
+    private readonly callUnary: RemoteEventUnaryCaller,
   ) {
     this.unregisterGeneration = connection.registerGenerationSource(this.runGeneration)
   }
@@ -216,8 +225,7 @@ export class ClientRemoteEvents {
           ? { kind: 'result' }
           : outcome,
       }
-      const response = await this.connection.rpc.call(
-        '/api',
+      const response = await this.callUnary(
         REMOTE_EVENT_RESULT_ENDPOINT,
         { args: result },
         signal,
