@@ -64,6 +64,12 @@ const DARWIN_APPLESCRIPT_APPS: Record<string, string> = {
   safari: 'Safari',
 }
 
+/**
+ * Resolve the command that opens `url` in a new window for a named browser.
+ * @param browser - `--browser` id.
+ * @param url - authenticated application URL.
+ * @returns command and args, or `undefined` when this host has no known binary.
+ */
 export function newWindowLaunch(browser: string, url: string): { command: string; args: string[] } | undefined {
   if (process.platform === 'darwin') {
     const app = DARWIN_APPLESCRIPT_APPS[browser]

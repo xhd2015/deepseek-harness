@@ -65,7 +65,12 @@ function notWiderError(requestedMode: string, effectiveMode: SandboxMode): Error
   return new Error(`sandbox escalation to "${requestedMode}" is not strictly wider than this call's current "${effectiveMode}" mode`)
 }
 
-/** The marker naming an escalation ask that was ignored, and the mode that ran. */
+/**
+ * Format the result marker for an escalation request that cannot widen a call.
+ * @param requestedMode - mode named by the request.
+ * @param effectiveMode - mode under which the call ran.
+ * @returns model-visible marker that reports the ignored request and effective mode.
+ */
 export function escalationIgnoredMarker(requestedMode: string, effectiveMode: SandboxMode): string {
   return `[sandbox: escalation to "${requestedMode}" ignored — this call ran at "${effectiveMode}" mode]`
 }
