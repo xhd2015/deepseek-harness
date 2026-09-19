@@ -50,3 +50,19 @@ export function singleResultText(block: ToolResultNode): string | undefined {
   const only = block.content[0]
   return only?.type === 'text' ? only.text : undefined
 }
+
+/**
+ * Validate the optional escalation fields that the Client can check from a
+ * logged call. The executor validates a non-empty justification only when the
+ * requested mode can widen the effective policy; redundant requests are
+ * accepted before that check, so an empty string remains renderable here.
+ * @param args - parsed open-root Tool arguments.
+ * @returns whether the declared escalation fields use a known permission and string justification.
+ */
+export function validEscalationFields(args: Record<string, unknown>): boolean {
+  const permission = args.sandbox_permissions
+  const justification = args.justification
+  if (permission === undefined && justification === undefined) return true
+  if (permission !== 'workspace-write' && permission !== 'danger-full-access') return false
+  return typeof justification === 'string'
+}
