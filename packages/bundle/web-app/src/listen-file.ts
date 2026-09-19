@@ -23,6 +23,7 @@ export interface WebListenRecord {
 /**
  * Absolute path of the listen record.
  * @param home - harness home; defaults to {@link resolveDshHome}.
+ * @returns the active Web listen-record path under `home`.
  */
 export function webListenFilePath(home: string = resolveDshHome()): string {
   return join(home, WEB_LISTEN_FILE_NAME)
