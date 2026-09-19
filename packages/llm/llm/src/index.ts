@@ -233,11 +233,14 @@ export abstract class LlmAdapter {
   }
 
   /**
-   * List models this adapter can currently advertise for one owned provider.
-   * The result is advisory: an adapter may accept unlisted model ids, and
-   * consumers must not turn absence into request rejection.
+   * List models this adapter can currently advertise for one owned provider,
+   * including a configured model it refuses to serve: that entry carries
+   * {@link LlmModelInfo.unavailable} so a selector can show why rather than
+   * hide a model the configuration names. The result is advisory: an adapter
+   * may accept unlisted model ids, and consumers must not turn absence into
+   * request rejection.
    * @param _provider - one provider route owned by this adapter.
-   * @returns discoverable models in adapter-preferred order.
+   * @returns discoverable models in adapter-preferred order, refused entries last.
    */
   listModels(_provider: string): Promise<readonly LlmModelInfo[]> {
     return Promise.resolve([])
@@ -542,7 +545,11 @@ export class LlmRuntime extends TypertRemoteService {
    */
   @Remote
   listConfigurableProviders(): LlmConfigurableProvider[] {
-    return [...this.directory.values()].map(entry => ({ ...entry, settingsPath: [...entry.settingsPath] }))
+    return [...this.directory.values()].map(entry => ({
+      ...entry,
+      settingsPath: [...entry.settingsPath],
+      ...entry.modelErrors === undefined ? {} : { modelErrors: { ...entry.modelErrors } },
+    }))
   }
 
   /**
@@ -687,7 +694,8 @@ export class LlmRuntime extends TypertRemoteService {
 
   /**
    * Discover models advertised by one registered provider. Catalog membership
-   * is advisory and never changes routing or request validation.
+   * is advisory and never changes routing or request validation; an entry the
+   * adapter refuses reports that refusal instead of disappearing from the list.
    * @param provider - registered provider route to inspect.
    * @returns detached model metadata in adapter-preferred order.
    */
@@ -704,6 +712,8 @@ export class LlmRuntime extends TypertRemoteService {
         || typeof model.name !== 'string'
         || model.name.length === 0
         || (model.description !== undefined && typeof model.description !== 'string')
+        || (model.unavailable !== undefined
+          && (typeof model.unavailable !== 'string' || model.unavailable.length === 0))
         || seen.has(model.id)
       ) {
         throw new LlmError(`adapter returned invalid or duplicate model metadata for provider "${provider}"`, 'INVALID_CATALOG')
@@ -716,6 +726,7 @@ export class LlmRuntime extends TypertRemoteService {
         name: model.name,
         ...model.description === undefined ? {} : { description: model.description },
         ...inputModalities === undefined ? {} : { inputModalities },
+        ...model.unavailable === undefined ? {} : { unavailable: model.unavailable },
       }
     })
   }

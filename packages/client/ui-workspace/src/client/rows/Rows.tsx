@@ -124,7 +124,10 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home,
   const row = group
   // The ungrouped bucket has no workspace title: its label is dictionary copy.
   const label = row.workspaceId === undefined ? t('group.ungrouped') : row.label
-  const active = group.expanded && group.containsCurrent
+  // Holding the open Session outlives the fold: a folded row keeps the folder
+  // tint and adds the location accent, since its Session rows are not rendered.
+  const containsCurrent = group.containsCurrent
+  const foldedCurrent = containsCurrent && !group.expanded
   const [menuOpen, setMenuOpen] = useState(false)
   const workspaceMenuItems = [
     { id: 'rename', label: t('rename'), icon: <IconEditOutline16 /> },
@@ -132,9 +135,10 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home,
   ]
   const ownRow = (
     <div
-      className={clsx(css.projectRow, menuOpen && css.menuOpen)}
+      className={clsx(css.projectRow, menuOpen && css.menuOpen, foldedCurrent && css.projectRowCurrent)}
       role="treeitem"
       aria-expanded={row.expanded}
+      aria-current={containsCurrent ? 'true' : undefined}
       onClick={onToggle}
       draggable={drag !== undefined}
       onDragStart={drag === undefined
@@ -146,7 +150,7 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home,
         }}
       onDragEnd={drag?.end}
     >
-      <span className={clsx(css.slot, css.folder, active && css.folderActive)}>
+      <span className={clsx(css.slot, css.folder, containsCurrent && css.folderActive)}>
         {row.expanded ? <IconFolderOpen16 /> : <IconFolderClose16 />}
       </span>
       <span className={clsx(css.slot, css.chevron)}>

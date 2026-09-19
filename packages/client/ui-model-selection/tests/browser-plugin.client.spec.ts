@@ -15,7 +15,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
-import type { ModelSelection, ModelSelectionProjection } from '@deepseek-ai/dsh-api-session-controller/types'
+import type { ModelSelection, ModelSelectionProjection, ModelProviderGroup } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { CommandContribution, PopupSelectSpec, SelectOption } from '@deepseek-ai/dsh-client-ui-commands/client'
 import type { ModelSelectInjected } from '../src/client/slots.ts'
 import { apply, inject } from '../src/client/index.ts'
@@ -74,6 +74,9 @@ async function bench(locale: 'zh' | 'en' = 'zh') {
   // Whether the Host reports an adapter for the current route; the composer
   // block follows this, never catalog membership.
   let routable = true
+  // The Host's listing, refusal included: a model the route's configuration
+  // names but its adapter will not serve comes back marked, not omitted.
+  let groups: ModelProviderGroup[] = GROUPS
   const sessionRemote = {
     modelCatalog: () => {
       calls.models += 1
@@ -82,7 +85,7 @@ async function bench(locale: 'zh' | 'en' = 'zh') {
         value: {
           default: defaultSelection,
           routableProviders: routable ? ['deepseek-official'] : [],
-          groups: GROUPS,
+          groups,
           failures: [],
         },
       })
@@ -177,6 +180,16 @@ async function bench(locale: 'zh' | 'en' = 'zh') {
     setProjected: (id: SessionId, value: ModelSelectionProjection) => { projections.get(id)?.set(value) },
     address: (id: SessionId) => { addressed.add(id) },
     setRoutable: (next: boolean) => { routable = next },
+    setRefusal: (modelId: string, reason?: string) => {
+      groups = GROUPS.map(group => ({
+        ...group,
+        models: group.models.map(model => model.id !== modelId
+          ? model
+          : reason === undefined
+            ? { ...model }
+            : { ...model, unavailable: reason }),
+      }))
+    },
     blockOf: (key: string) => blocks.get(sid(key)),
   }
 }
@@ -359,6 +372,88 @@ describe('ui-model-selection dual entry', () => {
     await Promise.resolve()
     expect(b.blockOf('s1')).toBeUndefined()
     expect(b.calls.models).toBe(3)
+  })
+
+  it('lists a refused model, blocks its selection, and blocks the composer on it alone', async () => {
+    const b = await bench()
+    b.mint('s1')
+    const reason = 'llm-pi-ai: model "deepseek-v4-pro" reasoningEfforts names "ultra"'
+    const face = b.seat().inject!(sid('s1'))
+    // The catalog loads eagerly at mount, so the refusal reaches both entries
+    // through the refresh they already subscribe to.
+    b.setRefusal('deepseek-v4-pro', reason)
+    b.remote.emit('llm/adapters-updated', [])
+    face.load()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    // The refused entry stays in the listing — that is what lets both entries
+    // show why — while its sibling is untouched.
+    const refused = face.directory.getSnapshot().groups
+      .flatMap(group => group.models).find(model => model.id === 'deepseek-v4-pro')
+    expect(refused?.unavailable).toBe(reason)
+    const rows = await b.popup().options(projection('s1'), new AbortController().signal)
+    expect(rows.find(row => row.id === 'deepseek-official/deepseek-v4-pro')).toMatchObject({
+      badge: zh['option.unavailableBadge'],
+      detail: reason,
+    })
+
+    // Selecting it reports the adapter's own text rather than switching.
+    await expect(b.popup().onSelect(
+      { id: 'deepseek-official/deepseek-v4-pro', label: 'DeepSeek-V4-Pro' },
+      projection('s1'),
+    )).rejects.toThrow(reason)
+    expect(b.hostCurrent().model).toBe('deepseek-v4-flash')
+
+    // Selecting a served sibling still works.
+    await b.popup().onSelect(
+      { id: 'deepseek-official/deepseek-v4-flash', label: 'DeepSeek-V4-Flash' },
+      projection('s1'),
+    )
+    expect(b.calls.select).toBe(1)
+  })
+
+  it('blocks the composer when the current selection is the refused model', async () => {
+    const b = await bench()
+    b.mint('s1')
+    const reason = 'llm-pi-ai: model "deepseek-v4-pro" reasoningEfforts names "ultra"'
+    const face = b.seat().inject!(sid('s1'))
+    face.load()
+    await Promise.resolve()
+    await Promise.resolve()
+    // Served, unrefused: the composer is usable.
+    expect(b.blockOf('s1')).toBeUndefined()
+
+    b.setHostCurrent({ provider: 'deepseek-official', model: 'deepseek-v4-pro' })
+    b.setRefusal('deepseek-v4-pro', reason)
+    b.remote.emit('llm/adapters-updated', [])
+    await Promise.resolve()
+    await Promise.resolve()
+    // The adapter's own text, not this plugin's generic copy: it names what to
+    // fix, which is the whole point of refusing per model.
+    expect(b.blockOf('s1')?.reason).toBe(reason)
+    expect(face.directory.getSnapshot().routable).toBe(false)
+
+    // A sibling selection clears it without a reload.
+    b.setHostCurrent({ provider: 'deepseek-official', model: 'deepseek-v4-flash' })
+    b.remote.emit('llm/adapters-updated', [])
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(b.blockOf('s1')).toBeUndefined()
+
+    // Repairing the model under the refused selection clears it too — the
+    // reason must not outlive the refusal that set it.
+    b.setHostCurrent({ provider: 'deepseek-official', model: 'deepseek-v4-pro' })
+    b.remote.emit('llm/adapters-updated', [])
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(b.blockOf('s1')?.reason).toBe(reason)
+    b.setRefusal('deepseek-v4-pro')
+    b.remote.emit('llm/adapters-updated', [])
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(face.directory.getSnapshot().routable).toBe(true)
+    expect(b.blockOf('s1')).toBeUndefined()
   })
 
   it('never blocks on catalog membership alone', async () => {

@@ -609,6 +609,10 @@ describe('sandbox escalation through the generic task producer', () => {
     const properties = schema.parameters.properties as Record<string, { enum?: string[] }>
     expect(properties['sandbox_permissions']?.enum).toEqual(['workspace-write', 'danger-full-access'])
     expect(schema.description).toContain('approval prompt')
+    // The sanctioned retry is scoped to the marker, so an argument error is not
+    // read as a denial and answered with an escalation ask.
+    expect(schema.description).toContain('Only a result carrying the `[sandbox: escalation available` marker sanctions an escalation')
+    expect(schema.description).toContain('an argument error is not a denial')
 
     for (const args of [
       { command: 'true', description: 'd', sandbox_permissions: 'workspace-write' },
@@ -619,15 +623,20 @@ describe('sandbox escalation through the generic task producer', () => {
     }
   })
 
-  it('rejects injected escalation without a sandbox and non-widening escalation without prompting', async () => {
+  it('rejects injected escalation without a sandbox, and runs a redundant ask without prompting', async () => {
     const plain = await setup()
     expect(text(await call(plain, 'bash', escalate))).toContain('not available in this composition')
 
+    // The ask cannot widen this call: it is ignored, the command runs at the
+    // standing mode, and the result says which mode did the work. A model that
+    // fills every declared property would otherwise never run a command.
     const { ctx } = await setupSandboxed(true)
     const prompted = vi.fn()
     ctx.on('approval/request', () => { prompted(); return Promise.resolve<ApprovalOutcome>('allowed-once') })
     const result = await call(ctx, 'bash', { ...escalate, sandbox_permissions: 'workspace-write' }, sandboxAgent('workspace-write'))
-    expect(text(result)).toContain('not strictly wider')
+    expect(result.isError).toBe(false)
+    expect(text(result)).toContain('ok')
+    expect(text(result)).toContain('[sandbox: escalation to "workspace-write" ignored — this call ran at "workspace-write" mode]')
     expect(prompted).not.toHaveBeenCalled()
 
     const malformed = sandboxAgent()
@@ -636,7 +645,9 @@ describe('sandbox escalation through the generic task producer', () => {
       data: { mode: 'unknown-mode' },
       seq: malformed.session.seq,
     })
-    expect(text(await call(ctx, 'bash', escalate, malformed))).toContain('not strictly wider')
+    // An unknown mode is not strictly wider than an unknown target either, so the
+    // ask is ignored and the command runs.
+    expect(text(await call(ctx, 'bash', escalate, malformed))).toContain('ok')
   })
 
   it('fails closed when approval cannot be routed', async () => {

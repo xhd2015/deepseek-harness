@@ -968,9 +968,20 @@ describe('sandbox escalation API (write/edit)', () => {
 
   it('rejects the escalation argument pairing (one field without the other)', async () => {
     const { ctx } = await setupConfining()
-    const missing = await call(ctx, 'write', { file_path: 'a.txt', content: 'x', sandbox_permissions: 'workspace-write' }, escalationAgent())
+    const missing = await call(ctx, 'write', { file_path: 'a.txt', content: 'x', sandbox_permissions: 'danger-full-access' }, escalationAgent())
     expect(missing.isError).toBe(true)
     expect(text(missing)).toContain('sandbox_permissions requires a justification')
+  })
+
+  it('ignores an ask the session mode cannot widen, and performs the mutation', async () => {
+    // The session already runs at the requested mode, so the ask grants nothing:
+    // the mutation proceeds, and no approval is requested for it.
+    const { ctx } = await setupConfining({ approval: true })
+    const asked = vi.fn(() => Promise.resolve('allowed-once' as const))
+    ctx.on('approval/request', asked)
+    const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'x', sandbox_permissions: 'workspace-write' }, escalationAgent())
+    expect(result.isError).toBe(false)
+    expect(asked).not.toHaveBeenCalled()
   })
 
   it('sandbox_permissions under a non-confining backend fails closed (unadvertised field still reaches execute)', async () => {

@@ -22,6 +22,18 @@ export async function buildModelCatalog(
     try {
       const models = await ctx.llm.listModels(provider.id)
       const entries = await Promise.all(models.map(async (model) => {
+        // A refused model is listed from what the adapter already said about
+        // it: resolving its metadata would throw the same refusal here, and a
+        // per-provider catch would turn that into a group-level failure that
+        // hides the route's healthy models along with it.
+        if (model.unavailable !== undefined) {
+          return {
+            id: model.id,
+            name: model.name,
+            ...(model.description === undefined ? {} : { description: model.description }),
+            unavailable: model.unavailable,
+          }
+        }
         const resolved = await ctx.llm.resolveModelInfo(provider.id, model.id)
         const reasoning: ModelReasoning | undefined = resolved.reasoning === undefined
           ? undefined
