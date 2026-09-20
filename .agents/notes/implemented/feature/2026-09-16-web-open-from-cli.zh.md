@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-`dsh web open [dir]` 是 web profile 的第二次调用，不绑定服务器。正在服务的进程在 Connection 就绪后写入 `$DSH_HOME/web-listen.json`（pid、origin、launch token，权限 `0600`），dispose 时删除。open 客户端用 `Authorization: Bearer <token>` 依次 POST `workspace/create` 与 `session/create`，除非 `--no-open`，再打开 `/?token=…&session=…`。
+`dsh web open [dir]` 是 web profile 的第二次调用，不绑定服务器。正在服务的进程在 Connection 就绪后写入 `$DSH_HOME/web-listen.json`（pid、origin、launch token，权限 `0600`），dispose 时删除。open 客户端用 `Authorization: Bearer <token>` 依次 POST `workspace/create` 与 `session/create`，处理可选的[初始提示词或持久草稿](2026-09-20-web-runner-composer-drafts.zh.md)，除非 `--no-open`，再打开 `/?token=…&session=…`。
 
 `--browser brave|chrome|firefox|edge|safari` 是 serve 与 `open` 共用的 web 应用 flag，交给维护中的 `open` 包（`apps.*`，Safari 为 `Safari`）。省略则使用操作系统默认浏览器。未知名称是用法错误。
 

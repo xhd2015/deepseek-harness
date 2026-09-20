@@ -122,7 +122,7 @@ function wireNamespaces(): SettingsNamespaceView[] {
       revision: 0,
     },
     {
-      ns: 'llm-pi-ai',
+      ns: 'llm-proxy-providers',
       schema: JSON.parse(JSON.stringify(PiAiConfig.toJSON())) as JsonValue,
       value: { providers: { openai: { apiKeyEnv: 'OPENAI_API_KEY', baseURL: 'https://proxy', headers: { 'X-Team': 'a' } }, zombie: {} } },
       user: { providers: { openai: { apiKeyEnv: 'OPENAI_API_KEY', baseURL: 'https://proxy', headers: { 'X-Team': 'a' } }, zombie: {} } },
@@ -168,8 +168,8 @@ const REFUSALS: { [Code in RefusalCode]: (message: string) => RemoteError<Code> 
   'credential/rejected': message => new RemoteError('credential/rejected', message, { ref: 'DEEPSEEK_API_KEY' }),
   'gateway/internal': message => new RemoteError('gateway/internal', message, {}),
   'settings/conflict': message =>
-    new RemoteError('settings/conflict', message, { ns: 'llm-pi-ai', expected: 4, actual: 5 }),
-  'settings/rejected': message => new RemoteError('settings/rejected', message, { ns: 'llm-pi-ai' }),
+    new RemoteError('settings/conflict', message, { ns: 'llm-proxy-providers', expected: 4, actual: 5 }),
+  'settings/rejected': message => new RemoteError('settings/rejected', message, { ns: 'llm-proxy-providers' }),
 }
 function remoteFail(message: string, code: RefusalCode = 'credential/rejected') {
   return { ok: false as const, error: REFUSALS[code](message) }
@@ -181,7 +181,7 @@ function scriptedFace(overrides: {
   set?: ReturnType<typeof vi.fn>
   unset?: ReturnType<typeof vi.fn>
 } = {}) {
-  const providerNamespace = wireNamespaces().find(view => view.ns === 'llm-pi-ai')!
+  const providerNamespace = wireNamespaces().find(view => view.ns === 'llm-proxy-providers')!
   const update = overrides.update ?? vi.fn(() => Promise.resolve(remoteOk(providerNamespace)))
   const mutate = overrides.mutate ?? vi.fn(() => Promise.resolve(remoteOk(providerNamespace)))
   const set = overrides.set ?? vi.fn(() => Promise.resolve(remoteOk(undefined)))
@@ -610,7 +610,7 @@ describe('ModelsSection', () => {
     const scripted = scriptedFace()
     scripted.face.settings.describe.mockResolvedValue(remoteOk({
       writable: true, hasDocument: false,
-      namespaces: wireNamespaces().filter(view => view.ns !== 'llm-pi-ai'),
+      namespaces: wireNamespaces().filter(view => view.ns !== 'llm-proxy-providers'),
     }))
     await mountFace(scripted)
     fireEvent.click(screen.getByRole('button', { name: en.add }))
@@ -626,7 +626,7 @@ describe('ModelsSection', () => {
     const scripted = scriptedFace()
     const failure = 'llm-pi-ai: provider "openai" model "111" needs an api'
     scripted.face.llm.listConfigurableProviders.mockResolvedValue(remoteOk([
-      { provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'], error: failure },
+      { provider: 'openai', displayName: 'openai', settingsNs: 'llm-proxy-providers', settingsPath: ['providers', 'openai'], error: failure },
     ]))
     await mountFace(scripted)
     expect(screen.getByRole('alert').textContent).toBe(failure)
@@ -664,7 +664,7 @@ describe('ModelsSection', () => {
   it('dispatches the provider-card seat per rendered row, keyed by the owning namespace', async () => {
     const { renderSlot } = await mountSection()
     const cards = cardSeatCalls(renderSlot)
-    expect(cards).toContainEqual(['openai', true, true, 'llm-pi-ai'])
+    expect(cards).toContainEqual(['openai', true, true, 'llm-proxy-providers'])
     expect(cards).toContainEqual(['deepseek-official', true, false, 'llm-deepseek'])
     // The footer seat renders once below the rows and the add controls.
     expect(renderSlot.mock.calls.filter(call => call[0] === 'settings.models.footer')).toEqual([
@@ -681,7 +681,7 @@ describe('ModelsSection', () => {
     const { renderSlot } = await mountSection()
     renderSlot.mockClear()
     fireEvent.click(screen.getByRole('button', { name: en.add }))
-    expect(cardSeatCalls(renderSlot)).toContainEqual(['anthropic', false, false, 'llm-pi-ai'])
+    expect(cardSeatCalls(renderSlot)).toContainEqual(['anthropic', false, false, 'llm-proxy-providers'])
   })
 
   it('derives the draft seat\'s key fact from the page\'s conventional reference', async () => {
@@ -697,7 +697,7 @@ describe('ModelsSection', () => {
     fireEvent.click(screen.getByRole('button', { name: en.add }))
     // The dormant row names no reference yet; the seat still reports the
     // derived ANTHROPIC_API_KEY the editor itself displays as configured.
-    expect(cardSeatCalls(renderSlot)).toContainEqual(['anthropic', false, true, 'llm-pi-ai'])
+    expect(cardSeatCalls(renderSlot)).toContainEqual(['anthropic', false, true, 'llm-proxy-providers'])
   })
 
   it('skips the draft seat when a refresh drops the dormant row', async () => {
@@ -705,7 +705,7 @@ describe('ModelsSection', () => {
     fireEvent.click(screen.getByRole('button', { name: en.add }))
     const directory = [
       { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [], active: true },
-      { provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'], active: true },
+      { provider: 'openai', displayName: 'openai', settingsNs: 'llm-proxy-providers', settingsPath: ['providers', 'openai'], active: true },
     ].map(({ active: _active, ...entry }) => entry)
     face.llm.listConfigurableProviders.mockImplementation(() => Promise.resolve(remoteOk(directory)))
     renderSlot.mockClear()
@@ -1463,7 +1463,7 @@ describe('ModelsSection', () => {
     // Only the edited field travels: apiKeyEnv and headers were already stored
     // with these values, so no op restates them.
     expect(mutate.mock.calls[0]).toEqual([
-      'llm-pi-ai',
+      'llm-proxy-providers',
       [{ op: 'set', path: ['providers', 'openai', 'baseURL'], value: 'https://proxy/v2' }],
       0,
     ])
@@ -1485,7 +1485,7 @@ describe('ModelsSection', () => {
     fireEvent.click(screen.getByText(en.apply))
     await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
     expect(mutate.mock.calls[0]).toEqual([
-      'llm-pi-ai',
+      'llm-proxy-providers',
       [{ op: 'set', path: ['providers', 'anthropic', 'apiKeyEnv'], value: 'ANTHROPIC_API_KEY' }],
       0,
     ])
@@ -1499,7 +1499,7 @@ describe('ModelsSection', () => {
     fireEvent.click(screen.getByText(en.apply))
     await waitFor(() => { expect(mutate).toHaveBeenCalledOnce() })
     expect(mutate.mock.calls[0]).toEqual([
-      'llm-pi-ai',
+      'llm-proxy-providers',
       [{ op: 'set', path: ['providers', 'anthropic'], value: {} }],
       0,
     ])
@@ -1534,7 +1534,7 @@ describe('ModelsSection', () => {
     face.settings.describe.mockResolvedValue(remoteOk({
       writable: true,
       hasDocument: false,
-      namespaces: wireNamespaces().map(namespace => namespace.ns === 'llm-pi-ai' ? afterSettings : namespace),
+      namespaces: wireNamespaces().map(namespace => namespace.ns === 'llm-proxy-providers' ? afterSettings : namespace),
     }))
     // The refreshed settings answer reaches the page through the mirror's own
     // refresh (the document commit's invalidation in production).
@@ -1542,7 +1542,7 @@ describe('ModelsSection', () => {
       await mirror.load()
       await controller.load()
     })
-    expect(controller.store.getSnapshot().namespaces.get('llm-pi-ai')?.revision).toBe(1)
+    expect(controller.store.getSnapshot().namespaces.get('llm-proxy-providers')?.revision).toBe(1)
     fireEvent.click(screen.getByText(en.apply))
     await waitFor(() => { expect(set).toHaveBeenCalledTimes(2) })
     expect(mutate).toHaveBeenCalledOnce()
@@ -1668,7 +1668,7 @@ describe('ModelsSection', () => {
     expect(unset.mock.invocationCallOrder[0]).toBeLessThan(mutate.mock.invocationCallOrder[0] as number)
     expect(screen.queryByRole('dialog', { name: openaiCopy(en.deleteTitle) })).toBeNull()
     expect(mutate.mock.calls[0]).toEqual([
-      'llm-pi-ai',
+      'llm-proxy-providers',
       [{ op: 'unset', path: ['providers', 'openai'] }],
       undefined,
     ])
@@ -2085,7 +2085,7 @@ describe('ModelsSection', () => {
     const failure = await removeProviderProfile(
       operationsWith(face),
       controller,
-      { settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'] },
+      { settingsNs: 'llm-proxy-providers', settingsPath: ['providers', 'openai'] },
     )
     expect(failure).toBe('read-only')
     expect(controller.store.getSnapshot().rows).toBe(before)
@@ -2123,7 +2123,7 @@ describe('ModelsSection', () => {
     await waitFor(() => { expect(mutate).toHaveBeenCalledOnce() })
     expect(unset).not.toHaveBeenCalled()
     expect(mutate.mock.calls[0]).toEqual([
-      'llm-pi-ai',
+      'llm-proxy-providers',
       [{ op: 'unset', path: ['providers', 'zombie'] }],
       undefined,
     ])
@@ -2137,7 +2137,7 @@ describe('ModelsSection', () => {
       operationsWith(face),
       controller,
       {
-        settingsNs: 'llm-pi-ai',
+        settingsNs: 'llm-proxy-providers',
         settingsPath: ['providers', 'openai'],
         credentialRef: 'OPENAI_API_KEY',
       },

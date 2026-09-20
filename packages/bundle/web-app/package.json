@@ -45,6 +45,8 @@
     "presets/minimal.patch.yml",
     "presets/cordis.patch.yml",
     "lib/public-url-*.js",
+    "lib/startup-*.js",
+    "lib/opener-*.js",
     "lib/types/**/*.d.ts"
   ],
   "license": "MIT",

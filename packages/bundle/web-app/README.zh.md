@@ -45,6 +45,8 @@ dsh --profile web open ~/proj --browser brave
 
 `dsh web open [dir]` 对接已经在跑的 GUI：把该目录登记为 Workspace（同一路径则复用），创建新 Session 并打开。目录默认为调用时的 cwd。若没有 GUI 在服务，命令以非零退出并提示先执行 `dsh web`。该子命令上的 `--no-open` 仍会创建 Session。
 
+通过 `-p` / `--prompt <text>` 或 `--prompt-file <file>` 提交初始提示词；两种来源互斥。提示词文件按 UTF-8 读取，相对路径基于调用时的 cwd，而非工作区目录，文本保留空白和换行。无法读取的文件以及空白提示词会在创建 Session 前报错。添加 `--no-submit` 可将初始文本保存为可编辑草稿，而不启动轮次；此选项需要提示词来源，并可与 `--no-open` 同用。提示词文本不会进入浏览器 URL。初始提示词或草稿失败时以非零退出，并标明已创建的 Session。浏览器启动失败则在 stderr 打印不含凭据的 `warning:`，成功退出并保留 Session。
+
 **设置 → 模型**显示 **DeepSeek**，使用 `DEEPSEEK_API_KEY`。默认模型为 `deepseek-official` / `deepseek-flash`（DeepSeek-V4.1-Flash）。[DeepSeek 插件](../../llm/llm-deepseek/README.zh.md#endpoint-and-wire-format)使用 Messages API。
 
 已保存的模型选择覆盖组合默认值。设置卡接受兼容 Messages 的 API 地址与凭据引用。

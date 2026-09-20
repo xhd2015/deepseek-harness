@@ -24,7 +24,7 @@ import type {
 } from './contract/slots.ts'
 import type { InputNotice } from './contract/input.ts'
 import type { ReferenceInsert } from './contract/draft-editor.ts'
-import { createConversationStore, readConversationViewPreference } from './stores.ts'
+import { createConversationStore, hasConversationDraftChanges, readConversationViewPreference } from './stores.ts'
 import { formatFileMention } from '@deepseek-ai/dsh-file-reference/grammar'
 import { relativizeToCwd, workspaceTitleOf } from '@deepseek-ai/dsh-util-workspace-path'
 import { ConversationController, UnsupportedImageMediaTypeError, isImageMediaType } from './service.ts'
@@ -57,7 +57,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 /** Services required by the Conversation plugin. */
 export const inject = [
-  'slots', 'sessions', 'fileUpload', 'uiSession', 'uiWorkspace', 'locale', 'configForms',
+  'slots', 'sessions', 'remote', 'remote.session', 'fileUpload', 'uiSession', 'uiWorkspace', 'locale', 'configForms',
 ]
 
 /** Conversation runtime configuration. */
@@ -411,7 +411,16 @@ export function apply(ctx: Context, config: Config = Config({})): void {
             },
           },
         },
-        bindDraftPersistence: write => inputHub.shell(sessionId).bindDraftPersistence(write),
+        bindDraftPersistence: write => {
+          const local = inputHub.shell(sessionId).bindDraftPersistence(write)
+          const host = inputHub.bindDraftMirror(
+            sessionId,
+            text => { actions.setDraft(text) },
+            hasConversationDraftChanges(sessionId),
+            actions.markDraftSaved,
+          )
+          return () => { local(); host() }
+        },
         openView,
       }
     },
