@@ -29,10 +29,10 @@ it('carries the endpoint and native authentication the adapter reports onto the 
 
 it.each([false, true])('retains configuration diagnostics when the route is active: %s', (active) => {
   expect(joinProviderDirectory(active ? [{ id: 'openai', name: 'openai' }] : [], [{
-    provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'],
+    provider: 'openai', displayName: 'openai', settingsNs: 'llm-proxy-providers', settingsPath: ['providers', 'openai'],
     error: 'catalog unavailable',
   }])).toEqual([{
-    provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'],
+    provider: 'openai', displayName: 'openai', settingsNs: 'llm-proxy-providers', settingsPath: ['providers', 'openai'],
     active, error: 'catalog unavailable',
   }])
 })
@@ -50,10 +50,10 @@ it('places account and official before third-party providers', () => {
 it('carries per-model refusals into the joined row', () => {
   [false, true].forEach((active) => {
     expect(joinProviderDirectory(active ? [{ id: 'codex', name: 'codex' }] : [], [{
-      provider: 'codex', displayName: 'Codex', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'codex'],
+      provider: 'codex', displayName: 'Codex', settingsNs: 'llm-proxy-providers', settingsPath: ['providers', 'codex'],
       modelErrors: { 'gpt-5.6-sol': 'reasoningEfforts names "ultra"' },
     }])).toEqual([{
-      provider: 'codex', displayName: 'Codex', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'codex'],
+      provider: 'codex', displayName: 'Codex', settingsNs: 'llm-proxy-providers', settingsPath: ['providers', 'codex'],
       active, modelErrors: { 'gpt-5.6-sol': 'reasoningEfforts names "ultra"' },
     }])
   })
@@ -80,8 +80,8 @@ function remoteFail<T>(message: string): RemoteAnswer<T> {
 
 const DIRECTORY = [
   { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [], active: true },
-  { provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'], active: true },
-  { provider: 'anthropic', displayName: 'anthropic', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'anthropic'], active: false },
+  { provider: 'openai', displayName: 'openai', settingsNs: 'llm-proxy-providers', settingsPath: ['providers', 'openai'], active: true },
+  { provider: 'anthropic', displayName: 'anthropic', settingsNs: 'llm-proxy-providers', settingsPath: ['providers', 'anthropic'], active: false },
   { provider: 'ghost', displayName: 'Ghost', settingsNs: '', settingsPath: [], active: true },
 ]
 
@@ -105,7 +105,7 @@ const NAMESPACES = [
     revision: 0,
   },
   {
-    ns: 'llm-pi-ai',
+    ns: 'llm-proxy-providers',
     schema: {},
     value: { providers: { openai: { apiKeyEnv: 'OPENAI_API_KEY' } } },
     user: { providers: { openai: { apiKeyEnv: 'OPENAI_API_KEY' } } },
@@ -215,7 +215,7 @@ describe('ModelsSettingsStore', () => {
     expect(byProvider.get('anthropic')).toMatchObject({ configured: false, removable: false })
     expect(byProvider.get('anthropic')?.apiKeyEnv).toBeUndefined()
     expect(byProvider.get('ghost')).toMatchObject({ configured: false, removable: false })
-    expect(state.namespaces.get('llm-pi-ai')?.ns).toBe('llm-pi-ai')
+    expect(state.namespaces.get('llm-proxy-providers')?.ns).toBe('llm-proxy-providers')
   })
 
   it('degrades the credential badge, not the page, when the credential domain fails', async () => {
@@ -438,7 +438,7 @@ describe('edge joins', () => {
         writable: true,
         hasDocument: false,
         namespaces: [{
-          ns: 'llm-pi-ai',
+          ns: 'llm-proxy-providers',
           schema: {},
           value: { providers: { weird: 'oops' } },
           autoGenerate: true, applies: 'live' as const,
@@ -448,7 +448,7 @@ describe('edge joins', () => {
       })),
       providers: () => Promise.resolve(ok({
         providers: [
-          { provider: 'weird', displayName: 'weird', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'weird'], active: false },
+          { provider: 'weird', displayName: 'weird', settingsNs: 'llm-proxy-providers', settingsPath: ['providers', 'weird'], active: false },
         ] as never,
       })),
     })
@@ -468,7 +468,7 @@ describe('edge joins', () => {
       })),
       providers: () => Promise.resolve(ok({
         providers: [
-          { provider: 'anthropic', displayName: 'anthropic', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'anthropic'], active: false },
+          { provider: 'anthropic', displayName: 'anthropic', settingsNs: 'llm-proxy-providers', settingsPath: ['providers', 'anthropic'], active: false },
         ] as never,
       })),
       describeCredentials: refs => Promise.resolve(remoteOk(

@@ -1,4 +1,4 @@
-/** Web SSE transport for page-owned client entry reconciliation and rebuilt code replacement. */
+/** Web SSE transport for page-owned client entry reconciliation and rebuilt code replacement, relayed through the Gateway SharedWorker so tabs share one socket. */
 import type { Context } from '@deepseek-ai/cordis'
 import { EventSourceParserStream } from 'eventsource-parser/stream'
 import type { PluginsEventParseResult } from '../events.ts'

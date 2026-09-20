@@ -3,7 +3,8 @@
  *
  * Every connected document sends the existing Remote stream `open` and `cancel`
  * frames over its MessagePort. This Worker owns one physical WebSocket and
- * routes each Host frame back to the port that opened its stream id.
+ * routes each Host frame back to the port that opened its stream id. HMR
+ * subscribers also share one `/plugins/events` EventSource relay.
  */
 import {
   REMOTE_STREAM_MUX_PATH,
@@ -17,8 +18,10 @@ interface SharedWorkerConnectEvent extends Event {
 }
 
 let socket: WebSocket | undefined
+let hmrSource: EventSource | undefined
 let pending: RemoteStreamClientMessage[] = []
 const ports = new Set<MessagePort>()
+const hmrPorts = new Set<MessagePort>()
 const streams = new Map<string, MessagePort>()
 
 /** Convert the Worker origin into the Gateway's same-origin WebSocket URL. */
@@ -98,9 +101,39 @@ function isDisconnect(value: unknown): boolean {
   return typeof value === 'object' && value !== null && (value as { type?: unknown }).type === 'disconnect'
 }
 
+/** Whether a page wants the shared HMR event relay. */
+function isHmrSubscribe(value: unknown): boolean {
+  return typeof value === 'object' && value !== null && (value as { type?: unknown }).type === 'hmr-subscribe'
+}
+
+/** Whether a page no longer wants the shared HMR event relay. */
+function isHmrUnsubscribe(value: unknown): boolean {
+  return typeof value === 'object' && value !== null && (value as { type?: unknown }).type === 'hmr-unsubscribe'
+}
+
+/** Open the single SSE carrier while at least one page has an HMR subscription. */
+function ensureHmrSource(): void {
+  if (hmrSource !== undefined) return
+  const source = new EventSource('/plugins/events')
+  hmrSource = source
+  source.addEventListener('message', (event: MessageEvent<string>) => {
+    if (hmrSource !== source) return
+    for (const port of hmrPorts) port.postMessage({ type: 'hmr-event', data: event.data })
+  })
+}
+
+/** Remove one HMR subscription and release the carrier with its last consumer. */
+function unsubscribeHmr(port: MessagePort): void {
+  hmrPorts.delete(port)
+  if (hmrPorts.size !== 0 || hmrSource === undefined) return
+  hmrSource.close()
+  hmrSource = undefined
+}
+
 /** Cancel every logical stream owned by a departing document. */
 function disconnect(port: MessagePort): void {
   ports.delete(port)
+  unsubscribeHmr(port)
   for (const [streamId, owner] of streams) {
     if (owner !== port) continue
     streams.delete(streamId)
@@ -116,6 +149,15 @@ function disconnect(port: MessagePort): void {
 function receive(port: MessagePort, value: unknown): void {
   if (isDisconnect(value)) {
     disconnect(port)
+    return
+  }
+  if (isHmrSubscribe(value)) {
+    hmrPorts.add(port)
+    ensureHmrSource()
+    return
+  }
+  if (isHmrUnsubscribe(value)) {
+    unsubscribeHmr(port)
     return
   }
   let message: RemoteStreamClientMessage
@@ -140,7 +182,7 @@ function receive(port: MessagePort, value: unknown): void {
 /** Attach one tab port to the shared physical mux. */
 function connect(port: MessagePort): void {
   ports.add(port)
-  port.addEventListener('message', event => { receive(port, event.data) })
+  port.addEventListener('message', (event) => { receive(port, event.data) })
   port.start()
 }
 
