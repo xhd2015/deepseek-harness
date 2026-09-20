@@ -86,7 +86,7 @@ describe('catalog-route model discovery', () => {
     const server = await listingServer({ body: JSON.stringify({ data: [{ id: 'from-the-endpoint' }] }) })
     const ctx = await harness()
 
-    const models = await ctx.llm.discoverModels('llm-pi-ai', { provider: 'deepseek', baseURL: server.url })
+    const models = await ctx.llm.discoverModels('llm-proxy-providers', { provider: 'deepseek', baseURL: server.url })
 
     // pi-ai's own registry is the authority for its own providers, and it
     // carries what a listing endpoint would not disclose.
@@ -98,15 +98,15 @@ describe('catalog-route model discovery', () => {
 
   it('needs no endpoint for a route the catalog describes', async () => {
     const ctx = await harness()
-    await expect(ctx.llm.discoverModels('llm-pi-ai', { provider: 'deepseek' })).resolves.not.toHaveLength(0)
+    await expect(ctx.llm.discoverModels('llm-proxy-providers', { provider: 'deepseek' })).resolves.not.toHaveLength(0)
   })
 
   it('says where a route the catalog does not describe must get its models', async () => {
     const ctx = await harness()
-    await expect(ctx.llm.discoverModels('llm-pi-ai', { provider: 'acme-gateway' }))
+    await expect(ctx.llm.discoverModels('llm-proxy-providers', { provider: 'acme-gateway' }))
       .rejects.toThrow(/ships no catalog for provider "acme-gateway".*set a baseURL/s)
     // A form that cleared the field says the same thing as one that never had it.
-    await expect(ctx.llm.discoverModels('llm-pi-ai', { provider: 'acme-gateway', baseURL: '' }))
+    await expect(ctx.llm.discoverModels('llm-proxy-providers', { provider: 'acme-gateway', baseURL: '' }))
       .rejects.toThrow(/set a baseURL/)
     // The seam refuses a request naming neither, so the module's own guard for
     // that shape is only reachable by calling it directly.
@@ -129,7 +129,7 @@ describe('draft-provider model discovery', () => {
     })
     const ctx = await harness()
 
-    const models = await ctx.llm.discoverModels('llm-pi-ai', { baseURL: `${server.url}/v1`, apiKey: 'probe-key' })
+    const models = await ctx.llm.discoverModels('llm-proxy-providers', { baseURL: `${server.url}/v1`, apiKey: 'probe-key' })
 
     expect(models).toEqual([
       { id: 'acme-large', name: 'Acme Large', contextWindow: 65_536, maxTokens: 4096 },
@@ -161,7 +161,7 @@ describe('draft-provider model discovery', () => {
     })
     const ctx = await harness()
 
-    expect(await ctx.llm.discoverModels('llm-pi-ai', { baseURL: server.url })).toEqual([
+    expect(await ctx.llm.discoverModels('llm-proxy-providers', { baseURL: server.url })).toEqual([
       {
         id: 'lobechat-deepseek-chat',
         name: 'DeepSeek V4 Flash',
@@ -188,17 +188,17 @@ describe('draft-provider model discovery', () => {
     })
     const ctx = await harness()
 
-    const rootModels = await ctx.llm.discoverModels('llm-pi-ai', {
+    const rootModels = await ctx.llm.discoverModels('llm-proxy-providers', {
       baseURL: server.url,
       api: 'anthropic-messages',
       apiKey: 'anthropic-key',
     })
-    const versionedModels = await ctx.llm.discoverModels('llm-pi-ai', {
+    const versionedModels = await ctx.llm.discoverModels('llm-proxy-providers', {
       baseURL: `${server.url}/v1`,
       api: 'anthropic-messages',
       apiKey: 'anthropic-key',
     })
-    await ctx.llm.discoverModels('llm-pi-ai', {
+    await ctx.llm.discoverModels('llm-proxy-providers', {
       baseURL: server.url,
       api: 'anthropic-messages',
     })
@@ -229,7 +229,7 @@ describe('draft-provider model discovery', () => {
     })
     const ctx = await harness()
 
-    await expect(ctx.llm.discoverModels('llm-pi-ai', { baseURL: server.url }))
+    await expect(ctx.llm.discoverModels('llm-proxy-providers', { baseURL: server.url }))
       .resolves.toEqual([{ id: 'standard', name: 'standard' }])
   })
 
@@ -237,7 +237,7 @@ describe('draft-provider model discovery', () => {
     const server = await listingServer({ body: JSON.stringify({ data: [{ id: 'm' }] }) })
     const ctx = await harness()
 
-    await ctx.llm.discoverModels('llm-pi-ai', { baseURL: `${server.url}/openai/v1/` })
+    await ctx.llm.discoverModels('llm-proxy-providers', { baseURL: `${server.url}/openai/v1/` })
 
     expect(server.paths).toEqual(['/openai/v1/models'])
   })
@@ -246,7 +246,7 @@ describe('draft-provider model discovery', () => {
     const server = await listingServer({ body: JSON.stringify({ data: [{ id: 'm' }] }) })
     const ctx = await harness()
 
-    await ctx.llm.discoverModels('llm-pi-ai', { baseURL: server.url })
+    await ctx.llm.discoverModels('llm-proxy-providers', { baseURL: server.url })
 
     expect(server.headers[0]?.authorization).toBeUndefined()
   })
@@ -279,17 +279,17 @@ describe('draft-provider model discovery', () => {
       },
     })
 
-    await ctx.llm.discoverModels('llm-pi-ai', { provider: 'acme-gateway', baseURL: server.url })
+    await ctx.llm.discoverModels('llm-proxy-providers', { provider: 'acme-gateway', baseURL: server.url })
     // A key typed into the form is the one being tested — possibly the
     // replacement for the stored one — so it wins without resolving the
     // missing stored credential, while the route's headers still apply.
     Reflect.deleteProperty(process.env, 'ACME_GATEWAY_KEY')
-    await ctx.llm.discoverModels('llm-pi-ai', { provider: 'acme-gateway', baseURL: server.url, apiKey: 'typed' })
+    await ctx.llm.discoverModels('llm-proxy-providers', { provider: 'acme-gateway', baseURL: server.url, apiKey: 'typed' })
     // A route no profile declares yet is the create case: nothing is stored.
-    await ctx.llm.discoverModels('llm-pi-ai', { provider: 'not-declared-yet', baseURL: server.url })
+    await ctx.llm.discoverModels('llm-proxy-providers', { provider: 'not-declared-yet', baseURL: server.url })
     // A configured route without deployment headers still contributes its
     // stored credential without inventing a header map.
-    await ctx.llm.discoverModels('llm-pi-ai', { provider: 'plain-gateway', baseURL: server.url, apiKey: 'plain-typed' })
+    await ctx.llm.discoverModels('llm-proxy-providers', { provider: 'plain-gateway', baseURL: server.url, apiKey: 'plain-typed' })
 
     expect(server.headers.map(headers => headers.authorization))
       .toEqual(['Bearer stored-key', 'Bearer typed', undefined, 'Bearer plain-typed'])
@@ -306,7 +306,7 @@ describe('draft-provider model discovery', () => {
     Reflect.deleteProperty(process.env, 'ABSENT_FOR_DISCOVERY')
     await ctx.plugin(LlmPiAi, { providers: { deepseek: { apiKeyEnv: 'ABSENT_FOR_DISCOVERY' } } })
 
-    await expect(ctx.llm.discoverModels('llm-pi-ai', { provider: 'deepseek' })).resolves.not.toHaveLength(0)
+    await expect(ctx.llm.discoverModels('llm-proxy-providers', { provider: 'deepseek' })).resolves.not.toHaveLength(0)
   })
 
   it('drops unusable rows rather than failing the whole listing', async () => {
@@ -324,7 +324,7 @@ describe('draft-provider model discovery', () => {
     })
     const ctx = await harness()
 
-    expect(await ctx.llm.discoverModels('llm-pi-ai', { baseURL: server.url }))
+    expect(await ctx.llm.discoverModels('llm-proxy-providers', { baseURL: server.url }))
       .toEqual([{ id: 'good', name: 'good' }, { id: 'zero-capacity', name: 'zero-capacity' }])
   })
 
@@ -333,14 +333,14 @@ describe('draft-provider model discovery', () => {
 
     for (const status of [401, 403]) {
       const refused = await listingServer({ status, body: '{"error":"nope"}' })
-      await expect(ctx.llm.discoverModels('llm-pi-ai', { baseURL: refused.url, apiKey: 'wrong' }))
+      await expect(ctx.llm.discoverModels('llm-proxy-providers', { baseURL: refused.url, apiKey: 'wrong' }))
         .rejects.toThrow(new RegExp(`answered ${status}; check the API key`))
     }
 
     // A server fault is not a credential problem, so it must not send the user
     // off to re-check a key that is fine.
     const broken = await listingServer({ status: 500, body: '{"error":"boom"}' })
-    await expect(ctx.llm.discoverModels('llm-pi-ai', { baseURL: broken.url, apiKey: 'fine' }))
+    await expect(ctx.llm.discoverModels('llm-proxy-providers', { baseURL: broken.url, apiKey: 'fine' }))
       .rejects.toThrow(/answered 500$/)
   })
 
@@ -348,11 +348,11 @@ describe('draft-provider model discovery', () => {
     const server = await listingServer({ body: '{"models":[]}' })
     const ctx = await harness()
 
-    await expect(ctx.llm.discoverModels('llm-pi-ai', { baseURL: server.url }))
+    await expect(ctx.llm.discoverModels('llm-proxy-providers', { baseURL: server.url }))
       .rejects.toThrow(/neither a "data" array nor a "models" object/)
 
     const broken = await listingServer({ body: 'not json at all' })
-    await expect(ctx.llm.discoverModels('llm-pi-ai', { baseURL: broken.url }))
+    await expect(ctx.llm.discoverModels('llm-proxy-providers', { baseURL: broken.url }))
       .rejects.toThrow(/did not answer with JSON/)
   })
 
@@ -362,20 +362,20 @@ describe('draft-provider model discovery', () => {
     const oversized = `{"data":[{"id":"m","pad":"${'x'.repeat(4 * 1024 * 1024)}"}]}`
 
     const declared = await listingServer({ body: oversized })
-    await expect(ctx.llm.discoverModels('llm-pi-ai', { baseURL: declared.url }))
+    await expect(ctx.llm.discoverModels('llm-proxy-providers', { baseURL: declared.url }))
       .rejects.toThrow(/answered with more than 4194304 bytes/)
 
     // A streamed reply declares no length, so the ceiling has to hold on the
     // body the harness actually read.
     const streamed = await listingServer({ chunks: ['{"data":[{"id":"m","pad":"', 'x'.repeat(4 * 1024 * 1024), '"}]}'] })
-    await expect(ctx.llm.discoverModels('llm-pi-ai', { baseURL: streamed.url }))
+    await expect(ctx.llm.discoverModels('llm-proxy-providers', { baseURL: streamed.url }))
       .rejects.toThrow(/answered with more than 4194304 bytes/)
   })
 
   it('reports an unreachable endpoint instead of an empty catalog', async () => {
     const ctx = await harness()
     // Port 9 is the discard service: nothing accepts a connection there.
-    await expect(ctx.llm.discoverModels('llm-pi-ai', { baseURL: 'http://127.0.0.1:9/v1' }))
+    await expect(ctx.llm.discoverModels('llm-proxy-providers', { baseURL: 'http://127.0.0.1:9/v1' }))
       .rejects.toMatchObject({ code: 'DISCOVERY_FAILED' })
   })
 
@@ -386,7 +386,7 @@ describe('draft-provider model discovery', () => {
       // query despite its OpenAI lineage, and Codex uses OAuth; guessing at
       // either would report an auth failure as a provider with no models.
       const ctx = await harness()
-      await expect(ctx.llm.discoverModels('llm-pi-ai', { baseURL: 'https://gateway.example/v1', api }))
+      await expect(ctx.llm.discoverModels('llm-proxy-providers', { baseURL: 'https://gateway.example/v1', api }))
         .rejects.toMatchObject({ code: 'DISCOVERY_UNSUPPORTED' })
     },
   )
@@ -410,7 +410,7 @@ describe('draft-provider model discovery', () => {
         },
       }))
     })
-    const probe = ctx.llm.discoverModels('llm-pi-ai', {
+    const probe = ctx.llm.discoverModels('llm-proxy-providers', {
       baseURL: 'https://slow.example/v1',
     }, controller.signal)
     await bodyRead.promise
@@ -422,7 +422,7 @@ describe('draft-provider model discovery', () => {
   it('honors caller cancellation', async () => {
     const ctx = await harness()
     const aborted = AbortSignal.abort('test cancellation')
-    await expect(ctx.llm.discoverModels('llm-pi-ai', {
+    await expect(ctx.llm.discoverModels('llm-proxy-providers', {
       baseURL: 'http://127.0.0.1:9/v1',
     }, aborted)).rejects.toMatchObject({ code: 'ABORTED' })
   })
@@ -430,10 +430,10 @@ describe('draft-provider model discovery', () => {
   it('is offered for the namespace, and refuses one it does not serve', async () => {
     const ctx = await harness()
 
-    await expect(ctx.llm.discoverModels('llm-pi-ai', { provider: 'openai' })).resolves.not.toHaveLength(0)
+    await expect(ctx.llm.discoverModels('llm-proxy-providers', { provider: 'openai' })).resolves.not.toHaveLength(0)
     await expect(ctx.llm.discoverModels('llm-deepseek', { baseURL: 'https://api.deepseek.com' }))
       .rejects.toMatchObject({ code: 'NO_DISCOVERY' })
-    await expect(ctx.llm.discoverModels('llm-pi-ai', { baseURL: '' }))
+    await expect(ctx.llm.discoverModels('llm-proxy-providers', { baseURL: '' }))
       .rejects.toMatchObject({ code: 'INVALID_DISCOVERY' })
   })
 
@@ -441,11 +441,11 @@ describe('draft-provider model discovery', () => {
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)
     const fiber = await ctx.plugin(LlmPiAi, {})
-    await expect(ctx.llm.discoverModels('llm-pi-ai', { provider: 'openai' })).resolves.not.toHaveLength(0)
+    await expect(ctx.llm.discoverModels('llm-proxy-providers', { provider: 'openai' })).resolves.not.toHaveLength(0)
 
     await fiber.dispose()
 
-    await expect(ctx.llm.discoverModels('llm-pi-ai', { provider: 'openai' }))
+    await expect(ctx.llm.discoverModels('llm-proxy-providers', { provider: 'openai' }))
       .rejects.toMatchObject({ code: 'NO_DISCOVERY' })
   })
 })
@@ -546,6 +546,6 @@ describe('recorded provider listings', () => {
     const server = await listingServer({ body })
     const ctx = await harness()
 
-    await expect(ctx.llm.discoverModels('llm-pi-ai', { baseURL: server.url, api })).resolves.toEqual(models)
+    await expect(ctx.llm.discoverModels('llm-proxy-providers', { baseURL: server.url, api })).resolves.toEqual(models)
   })
 })

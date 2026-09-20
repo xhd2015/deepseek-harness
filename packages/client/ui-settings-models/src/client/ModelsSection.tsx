@@ -378,7 +378,8 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
   // Hand-declared routes live in the pi-ai namespace, which is also the only
   // one whose schema names the protocols one may speak; without it mounted
   // there is nothing to declare and the mode is not offered.
-  const piAi = state.namespaces.get('llm-pi-ai')
+  const piAi = state.namespaces.get('llm-proxy-providers') ?? state.namespaces.get('llm-pi-ai')
+  const piAiNs = state.namespaces.has('llm-proxy-providers') ? 'llm-proxy-providers' : 'llm-pi-ai'
   const protocols = protocolChoices(piAi, schema)
   const reasoningLevels = reasoningLevelChoices(piAi, schema)
   // Each mode is offered while its namespace is mounted and enabled while it
@@ -679,6 +680,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                       taken={state.rows.map(row => row.entry.provider)}
                       protocols={protocols}
                       reasoningLevels={reasoningLevels}
+                      settingsNs={piAiNs}
                       revision={piAi.revision}
                       operations={operations}
                       t={t}
