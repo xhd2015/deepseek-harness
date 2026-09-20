@@ -24,6 +24,7 @@ import {
 import { SessionCommandController, hasPromptContent } from './commands.ts'
 import { resolveSessionResource } from './session-resource.ts'
 import { SessionControlController } from './control.ts'
+import { SessionDraftController } from './drafts.ts'
 import { HistoryController } from './history/controller.ts'
 import { StateController } from './state/controller.ts'
 import { WebController } from './web/controller.ts'
@@ -43,6 +44,9 @@ import type {
   SessionControlFrame,
   SessionCreateRequest,
   SessionCreateValue,
+  SessionDraftRequest,
+  SessionDraftValue,
+  SessionSetDraftRequest,
   SessionFollowFrame,
   SessionFollowRequest,
   SessionForkRequest,
@@ -117,6 +121,7 @@ export class SessionController extends TypertRemoteService {
     'sessions',
     'sessionProjections',
     'sessionQuery',
+    'storageDomain',
     'typert',
     'typertGateway',
     'workspaceRegistry',
@@ -128,6 +133,7 @@ export class SessionController extends TypertRemoteService {
   })
 
   private historyController!: HistoryController
+  private drafts!: SessionDraftController
   private stateController!: StateController
   private webController!: WebController
 
@@ -162,6 +168,8 @@ export class SessionController extends TypertRemoteService {
   protected async [Service.init](): Promise<void> {
     const ctx = this.ctx
     ctx.typert.resources.register('session', { resolve: resolveSessionResource })
+    this.drafts = new SessionDraftController(ctx)
+    await this.drafts.open()
     this.agents = new ApiSessionAgentController(ctx)
     this.agents.initialize()
     this.commands = new SessionCommandController(ctx, this.agents, process.cwd())
@@ -279,6 +287,26 @@ export class SessionController extends TypertRemoteService {
   @Remote('create')
   create(request: SessionCreateRequest): Promise<SessionCreateValue> {
     return this.commands.create(request)
+  }
+
+  /**
+   * Read durable composer text without resuming the Session or changing its transcript.
+   * @param request - Session identity.
+   * @returns saved text, or empty text when no draft exists.
+   */
+  @Remote('getDraft')
+  getDraft(request: SessionDraftRequest): Promise<SessionDraftValue> {
+    return this.drafts.get(request)
+  }
+
+  /**
+   * Replace durable composer text without admitting a prompt; dependent writes must be serialized by callers.
+   * @param request - Session identity and text; empty text clears the record.
+   * @returns the text after this write is durable.
+   */
+  @Remote('setDraft')
+  setDraft(request: SessionSetDraftRequest): Promise<SessionDraftValue> {
+    return this.drafts.set(request)
   }
 
   /**

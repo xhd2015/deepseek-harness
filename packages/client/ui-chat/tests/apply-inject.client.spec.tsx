@@ -95,7 +95,14 @@ async function bench(initialSettings?: ChatSettings, withBrowserRegistry = true,
       type: 'compaction/summary', seq: throughSeq ?? 42, time: 0, data: { summary: [{ type: 'text', text: '# Summary' }] },
     } }] },
   }))
-  runtime.remote.provideNamespaces({ session: { openWorkspacePath, events } })
+  runtime.remote.provideNamespaces({
+    session: {
+      openWorkspacePath,
+      events,
+      getDraft: async () => ({ ok: true, value: { text: '' } }),
+      setDraft: async ({ text }: { text: string }) => ({ ok: true, value: { text } }),
+    },
+  })
   const openSession = vi.fn<(id: SessionId) => void>()
   runtime.ctx.provide('uiWorkspace', {
     openWorkspace: vi.fn(async (_workspaceId: WorkspaceId, beforeOpen: (id: SessionId) => void) => {

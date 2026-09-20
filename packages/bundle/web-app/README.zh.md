@@ -47,6 +47,8 @@ dsh --profile web open ~/proj --browser brave
 
 `dsh web open [dir]` 对接已经在跑的 GUI：把该目录登记为 Workspace（同一路径则复用），创建新 Session 并打开。目录默认为调用时的 cwd。若没有 GUI 在服务，命令以非零退出并提示先执行 `dsh web`。该子命令上的 `--no-open` 仍会创建 Session。
 
+通过 `-p` / `--prompt <text>` 或 `--prompt-file <file>` 提交初始提示词；两种来源互斥。提示词文件按 UTF-8 读取，相对路径基于调用时的 cwd，而非工作区目录，文本保留空白和换行。无法读取的文件以及空白提示词会在创建 Session 前报错。添加 `--no-submit` 可将初始文本保存为可编辑草稿，而不启动轮次；此选项需要提示词来源，并可与 `--no-open` 同用。提示词文本不会进入浏览器 URL。初始提示词或草稿失败时以非零退出，并标明已创建的 Session。浏览器启动失败则在 stderr 打印不含凭据的 `warning:`，成功退出并保留 Session。
+
 登录页将令牌输入与配对申请分成独立卡片。可粘贴登录链接或其中的令牌；登录链接可在已登录设备的设置 → 远程连接中复制。只有登录链接或令牌格式正确时“继续”才可用；不可用时激活按钮会显示校验提示。编辑输入内容会关闭提示，只有再次尝试提交时才重新显示。令牌被拒绝时显示占满内容宽度的错误横幅，与配对失败横幅一致。申请访问前即可看到配对操作说明。其他浏览器可以从此页申请访问。在已登录浏览器的**设置 → 远程连接**中核对显示码并批准后，申请浏览器会自动进入应用。[浏览器配对](../../client/remote-connection/README.zh.md)说明审批规则与申请限制。
 
 **设置 → 模型**显示 **DeepSeek API**，使用 `DEEPSEEK_API_KEY`。默认模型为 `deepseek-official` / `deepseek-flash`（DeepSeek-V4.1-Flash）。[DeepSeek 插件](../../llm/llm-deepseek/README.zh.md#endpoint-and-wire-format)使用 Messages API。
