@@ -10,7 +10,7 @@ Operators already keep `dsh web` running, then want a single command from a proj
 
 ## Decision
 
-`dsh web open [dir]` is a second invocation of the web profile. It does not bind a server. The serving process writes `$DSH_HOME/web-listen.json` (pid, origin, launch token, mode `0600`) after Connection is ready and removes it on dispose. The open client POSTs `workspace/create` then `session/create` with `Authorization: Bearer <token>`, then opens `/?token=…&session=…` unless `--no-open`.
+`dsh web open [dir]` is a second invocation of the web profile. It does not bind a server. The serving process writes `$DSH_HOME/web-listen.json` (pid, origin, launch token, mode `0600`) after Connection is ready and removes it on dispose. The open client POSTs `workspace/create` then `session/create` with `Authorization: Bearer <token>`, then applies any [initial prompt or durable draft](2026-09-20-web-runner-composer-drafts.md) and opens `/?token=…&session=…` unless `--no-open`.
 
 `--browser brave|chrome|firefox|edge|safari` is a web-app flag on serve and on `open`. It is passed to the maintained `open` package (`apps.*`, Safari as `Safari`). Omitting it keeps the OS default. Unknown names are usage errors.
 

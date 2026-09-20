@@ -9,6 +9,7 @@ import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   RemoteError, SlotTestRuntime, usePinnedBrowserLanguages, stubSettingsScope,
 } from '@deepseek-ai/dsh-client-test-runtime'
+import { installDraftRemote } from './draft-remote.client.ts'
 import { InputHub } from '../src/client/input/hub.ts'
 import { apply, inject, type EmptyWorkspaceOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -76,9 +77,11 @@ function WorkspaceProbe({ open }: EmptyWorkspaceOwnerProps) {
   )
 }
 
-async function bench(opts?: { blank?: boolean }) {
+async function bench(opts?: { blank?: boolean; initialDraft?: string }) {
   const runtime = await SlotTestRuntime.create()
   const openSession = provideWorkspaceNavigation(runtime)
+  const drafts = installDraftRemote(runtime)
+  if (opts?.initialDraft !== undefined) drafts.set(SID, opts.initialDraft)
   runtime.ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
   const locale = new LocaleRuntime(runtime.ctx)
   runtime.ctx.provide('locale', locale)
@@ -99,9 +102,31 @@ async function bench(opts?: { blank?: boolean }) {
 }
 
 describe('resident composer', () => {
+  it('loads a launch draft into the editable composer without sending it', async () => {
+    const runtime = await bench({ blank: true, initialDraft: 'Review this task\n世界' })
+    try {
+      await runtime.workspaces.update((draft) => {
+        draft.items = [{ workspaceId: 'w1', title: 'Proj', path: '/proj', sessionIds: [SID] }] as never
+      })
+      const prompt = vi.spyOn(runtime.sessions.behavior(SID), 'prompt')
+      const view = runtime.renderRoot()
+      await waitFor(() => {
+        expect(view.container.querySelector('[data-composer-input]')?.textContent)
+          .toContain('Review this task')
+      })
+      const input = view.container.querySelector('[data-composer-input]')
+      expect(input?.getAttribute('contenteditable')).toBe('true')
+      expect(prompt).not.toHaveBeenCalled()
+      expect(localStorage.getItem(`dsh.conversation.${SID}`)).toContain('Review this task')
+    } finally {
+      await runtime.dispose()
+    }
+  })
+
   it('renders the locked view state while no session exists at all', async () => {
     const runtime = await SlotTestRuntime.create()
     provideWorkspaceNavigation(runtime)
+    installDraftRemote(runtime)
     runtime.ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
     const locale = new LocaleRuntime(runtime.ctx)
     runtime.ctx.provide('locale', locale)
@@ -129,6 +154,7 @@ describe('resident composer', () => {
   it('keeps the complete Hero tree mounted when the first Workspace session appears', async () => {
     const runtime = await SlotTestRuntime.create()
     const openSession = provideWorkspaceNavigation(runtime)
+    installDraftRemote(runtime)
     runtime.ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
     const locale = new LocaleRuntime(runtime.ctx)
     runtime.ctx.provide('locale', locale)
@@ -196,6 +222,7 @@ describe('prompt rejection through the assembled composer', () => {
   it('renders the promptError alert strip and keeps the draft in the machine', async () => {
     const runtime = await SlotTestRuntime.create()
     const openSession = provideWorkspaceNavigation(runtime)
+    installDraftRemote(runtime)
     runtime.ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
     const locale = new LocaleRuntime(runtime.ctx)
     runtime.ctx.provide('locale', locale)

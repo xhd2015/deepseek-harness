@@ -46,6 +46,8 @@ target package 通过 declaration merge 扩展 snapshot 与 Location data map，
 
 已认领的命令在仅删除参数和末尾分隔空格时保留身份与高亮，改动命令名才会释放认领。所有命令和语言使用相同规则，包括 `/goal`、`/目标`、`/plan` 和 `/计划`。输入法组合输入期间，命令提示和普通占位文字持续隐藏，直到编辑器提交最终文字且对应输入为空时才重新显示。
 
+输入框文本通过 [Session Controller 草稿 API](../../api/session-controller/README.zh.md) 保存，位于会话记录之外。浏览器本地文本镜像提供即时刷新恢复，并持久记录文本是否尚未保存。未保存的本地文本（包括清空后的空文本）或等待 Host 读取时发生的编辑优先于该读取结果。否则输入框接受 Host 草稿，但不提交，即使本地镜像并非空文本。Host 确认只将匹配的本地文本标记为已保存；缺少保存状态标记的旧浏览器记录在完成同步前视为未保存。Host 写入串行执行，并合并另一写入尚未完成时的编辑；scope 销毁时先脱离观察并立即销毁输入 shell，再等待已接受的写入完成。存储失败保留编辑器内容并显示本地化错误。这种持久化仅覆盖文本，不保存附件对象或结构化编辑器引用，也不提供标签页之间的实时同步。
+
 工作区选择使用 `uiWorkspace.openWorkspace` 准备目标并提交导航。草稿文字和附件仅在该请求仍为当前请求时，通过它的同步准备回调搬移；后续导航或所有者释放会保留原草稿。
 
 本包占据 root 作用域 `main` 中的 `conversation` key。其 `main.conversation` shell 将 strict Session Header 保留在 optional-Session `conversation.content` Component Factory 外。Factory 拥有共享正文与 Composer，通过其标准 Hook 读取当前 Session，并公开 strict-Session `views` 与 root-scoped `widthControls` 两个局部位置。默认 adapter 渲染现有 `conversation.session` entry，主 occurrence 选择宽度拖拽条；嵌入式 occurrence 可以替换 `views`、省略拖拽条，且不渲染主 Header。`ctx.uiSession.provide()` 从同一个 Session binding 物化 Conversation 与 input source，并将 `inputActions` 作为稳定标准 prop 提供。

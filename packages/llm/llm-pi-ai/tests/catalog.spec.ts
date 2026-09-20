@@ -141,7 +141,7 @@ describe('hand-declared providers', () => {
     expect(directory).toContainEqual({
       provider: 'acme-gateway',
       displayName: 'Acme Gateway',
-      settingsNs: 'llm-pi-ai',
+      settingsNs: 'llm-proxy-providers',
       settingsPath: ['providers', 'acme-gateway'],
       // Nothing in the installed catalog answers for this route, which is what
       // configuration surfaces mark as a route this deployment declared.
@@ -227,7 +227,7 @@ describe('hand-declared providers', () => {
     // a written section, the plugin's own registration, and `ctx.llm`.
     const dir = await home()
     const ctx = await bootWithSettings(dir, {})
-    await ctx.settings.update('llm-pi-ai', {
+    await ctx.settings.update('llm-proxy-providers', {
       providers: {
         'acme-gateway': {
           api: 'openai-completions',
@@ -1028,7 +1028,7 @@ describe('compat switches', () => {
     // and `Model.compat`.
     const dir = await home()
     const ctx = await bootWithSettings(dir, {})
-    await expect(ctx.settings.update('llm-pi-ai', {
+    await expect(ctx.settings.update('llm-proxy-providers', {
       providers: {
         'acme-gateway': {
           api: 'openai-completions',
@@ -1047,7 +1047,7 @@ describe('compat switches', () => {
     const server = await mockServer([{ events: textEvents }])
     const dir = await home()
     const ctx = await bootWithSettings(dir, {})
-    await ctx.settings.update('llm-pi-ai', {
+    await ctx.settings.update('llm-proxy-providers', {
       providers: {
         'acme-gateway': {
           apiKeyEnv: KEY_ENV,
@@ -1218,7 +1218,7 @@ describe('configurable-provider directory', () => {
     const before = ctx.llm.listConfigurableProviders().length
     expect(before).toBeGreaterThan(30)
 
-    await ctx.settings.update('llm-pi-ai', {
+    await ctx.settings.update('llm-proxy-providers', {
       providers: {
         'deepseek-official': {
           api: 'openai-completions',
@@ -1240,7 +1240,7 @@ describe('configurable-provider directory', () => {
     const ctx = await bootWithSettings(dir, {})
     const catalogOnly = ctx.llm.listConfigurableProviders().length
 
-    await ctx.settings.update('llm-pi-ai', {
+    await ctx.settings.update('llm-proxy-providers', {
       providers: {
         'acme-gateway': {
           displayName: 'Acme Gateway',
@@ -1254,7 +1254,7 @@ describe('configurable-provider directory', () => {
     expect(ctx.llm.listConfigurableProviders().find(entry => entry.provider === 'acme-gateway')?.displayName)
       .toBe('Acme Gateway')
 
-    await ctx.settings.replace('llm-pi-ai', {})
+    await ctx.settings.replace('llm-proxy-providers', {})
     expect(ctx.llm.listConfigurableProviders()).toHaveLength(catalogOnly)
   })
 
@@ -1279,7 +1279,7 @@ describe('configurable-provider directory', () => {
     expect(ctx.llm.listConfigurableProviders()).toContainEqual({
       provider: 'openai-codex',
       displayName: 'openai-codex',
-      settingsNs: 'llm-pi-ai',
+      settingsNs: 'llm-proxy-providers',
       settingsPath: ['providers', 'openai-codex'],
       declared: false,
     })

@@ -35,6 +35,8 @@
     "lib/startup.js",
     "lib/open.js",
     "cordis.patch.yml",
+    "lib/startup-*.js",
+    "lib/opener-*.js",
     "lib/types/**/*.d.ts"
   ],
   "license": "MIT",

@@ -8,6 +8,7 @@ const CONVERSATION_STORE_KEY = 'dsh.conversation'
 /** Declared write set for the Conversation shell. */
 type ConversationActions = {
   setDraft: (draft: ConversationStoreState, text: string) => void
+  markDraftSaved: (draft: ConversationStoreState, text: string) => void
   setView: (draft: ConversationStoreState, view: string) => void
   openView: (draft: ConversationStoreState, view: string, focus: string) => void
   completeViewRequest: (draft: ConversationStoreState) => void
@@ -19,10 +20,11 @@ type ConversationActions = {
  */
 export function createConversationStore(): EngineStoreHandle<ConversationStoreState, ConversationActions> {
   return defineStore({
-    init: (): ConversationStoreState => ({ draft: '', view: null, viewRequest: null }),
+    init: (): ConversationStoreState => ({ draft: '', draftDirty: false, view: null, viewRequest: null }),
     persist: CONVERSATION_STORE_KEY,
     actions: {
-      setDraft: (d, text: string) => { d.draft = text },
+      setDraft: (d, text: string) => { d.draft = text; d.draftDirty = true },
+      markDraftSaved: (d, text: string) => { if (d.draft === text) d.draftDirty = false },
       setView: (d, view: string) => { d.view = view },
       openView: (d, view: string, focus: string) => {
         d.view = view
@@ -39,14 +41,30 @@ export function createConversationStore(): EngineStoreHandle<ConversationStoreSt
  * @returns the preferred View id, or null when storage has no usable value.
  */
 export function readConversationViewPreference(sessionId: SessionId): string | null {
-  if (typeof localStorage === 'undefined') return null
+  const stored = readStoredConversation(sessionId)
+  return stored !== undefined && typeof stored.view === 'string' ? stored.view : null
+}
+
+/**
+ * Distinguish unsaved browser recovery text from an acknowledged Host mirror.
+ * @param sessionId - Session-scoped persistence suffix.
+ * @returns whether recovery includes unsaved text or a clear; older records count as unsaved.
+ */
+export function hasConversationDraftChanges(sessionId: SessionId): boolean {
+  const stored = readStoredConversation(sessionId)
+  return typeof stored?.draft === 'string' && stored.draftDirty !== false
+}
+
+function readStoredConversation(sessionId: SessionId): Record<string, unknown> | undefined {
+  if (typeof localStorage === 'undefined') return undefined
   try {
     const raw = localStorage.getItem(`${CONVERSATION_STORE_KEY}.${sessionId}`)
-    if (raw === null) return null
+    if (raw === null) return undefined
     const stored: unknown = JSON.parse(raw)
-    if (typeof stored !== 'object' || stored === null || !('view' in stored)) return null
-    return typeof stored.view === 'string' ? stored.view : null
-  } catch {
-    return null
+    if (typeof stored !== 'object' || stored === null || Array.isArray(stored)) return undefined
+    return stored as Record<string, unknown>
+  } catch (_error) {
+    // Unavailable or malformed browser storage has no recoverable value.
+    return undefined
   }
 }

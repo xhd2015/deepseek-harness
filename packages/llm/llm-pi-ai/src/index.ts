@@ -3,7 +3,7 @@
  * provider routes; a route naming an installed pi-ai provider inherits that
  * provider's endpoint, protocol, and model catalog as defaults, and a route
  * pi-ai does not ship is declared outright. Profile facts resolve per request
- * over the optional `llm-pi-ai` user-settings section and the optional
+ * over the optional `llm-proxy-providers` user-settings section and the optional
  * credential seam, so a changed key, endpoint, model, or knob reaches the next
  * request without a restart; a changed *route set* (or a route's
  * registration-captured retry policy) re-registers the same adapter instance
@@ -90,7 +90,7 @@ export { supportedProtocols } from './provider.ts'
 export const name = 'llm-pi-ai'
 export const inject = ['llm']
 
-const NS = 'llm-pi-ai'
+const NS = 'llm-proxy-providers'
 
 /**
  * The registry captures these per route; a change here must re-register.

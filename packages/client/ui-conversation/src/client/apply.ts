@@ -18,7 +18,7 @@ import type {
   ConversationSessionInjected, DraftFileUploads,
 } from './contract/slots.ts'
 import type { InputNotice } from './contract/input.ts'
-import { createConversationStore, readConversationViewPreference } from './stores.ts'
+import { createConversationStore, hasConversationDraftChanges, readConversationViewPreference } from './stores.ts'
 import { ConversationController, UnsupportedImageMediaTypeError } from './service.ts'
 import type { IConversation } from './service.ts'
 import { ComposerBlockRegistry } from './input/blocks.ts'
@@ -47,7 +47,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 /** Services required by the Conversation plugin. */
 export const inject = [
-  'slots', 'sessions', 'fileUpload', 'uiSession', 'uiWorkspace', 'locale', 'settingsScope',
+  'slots', 'sessions', 'remote', 'remote.session', 'fileUpload', 'uiSession', 'uiWorkspace', 'locale', 'settingsScope',
 ]
 
 /** Conversation runtime configuration. */
@@ -295,7 +295,9 @@ export function apply(ctx: Context, config: Config = Config({})): void {
     store: conversationStore,
     inject: (sessionId: SessionId, actions: BoundActions<typeof conversationStore>): ConversationSessionInjected => ({
       hooks: { conversationViews },
-      bindDraftMirror: write => inputHub.shell(sessionId).bindMirror(write),
+      bindDraftMirror: write => inputHub.bindDraftMirror(
+        sessionId, write, hasConversationDraftChanges(sessionId), actions.markDraftSaved,
+      ),
       openView: (view, focus) => {
         activateView(sessionId, view)
         actions.openView(view, focus)

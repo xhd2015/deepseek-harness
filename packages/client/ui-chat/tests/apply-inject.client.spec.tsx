@@ -65,7 +65,13 @@ async function bench() {
   const openWorkspacePath = vi.fn<ClientRemote['session']['openWorkspacePath']>(
     () => Promise.resolve({ ok: true, value: { opened: true } }),
   )
-  runtime.remote.provideNamespaces({ session: { openWorkspacePath } })
+  runtime.remote.provideNamespaces({
+    session: {
+      openWorkspacePath,
+      getDraft: async () => ({ ok: true, value: { text: '' } }),
+      setDraft: async ({ text }: { text: string }) => ({ ok: true, value: { text } }),
+    },
+  })
   const openSession = vi.fn<(id: SessionId) => void>()
   runtime.ctx.provide('uiWorkspace', {
     openWorkspace: vi.fn(async (_workspaceId: WorkspaceId, beforeOpen: (id: SessionId) => void) => {

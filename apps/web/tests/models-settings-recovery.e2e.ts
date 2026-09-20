@@ -27,7 +27,7 @@ describe('web e2e: repairs a stored provider after catalog drift', () => {
   beforeAll(async () => {
     home = await mkdtemp(join(tmpdir(), 'dsh-models-recovery-'))
     await writeFile(join(home, 'settings.yaml'), [
-      'llm-pi-ai:', '  providers:', '    openrouter:', '      models:',
+      'llm-proxy-providers:', '  providers:', '    openrouter:', '      models:',
       '        - id: "111"', '    zai: {}', '    acme-gateway:',
       '      baseURL: https://gateway.example/v1', '      models:', '        - id: "custom-model"', '',
     ].join('\n'))

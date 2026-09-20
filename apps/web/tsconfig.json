@@ -66,6 +66,7 @@
     "tests/onboarding-usable-provider.e2e.ts",
     "tests/remote-welcome.e2e.ts",
     "tests/workspace-new-session-folding.e2e.ts",
+    "tests/web-open-draft.e2e.ts",
     "tests/workspace-management.e2e.ts",
     "tests/workspace-recency.e2e.ts",
     "tests/session-unarchive.e2e.ts",

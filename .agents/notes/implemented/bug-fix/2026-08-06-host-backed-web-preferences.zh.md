@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-Web 的 Appearance、Language 和繁忙态 Enter 偏好原本存在浏览器 `localStorage` 中。浏览器存储以 origin 为作用域，因此换一个端口重新打开 `dsh web` 会选中另一个存储分区并丢失选择，即使两个进程使用同一个 DSH home。这些是用户级产品偏好；会话选择、草稿、折叠展开状态和其他瞬态浏览器状态仍保留在页面内。
+Web 的 Appearance、Language 和繁忙态 Enter 偏好原本存在浏览器 `localStorage` 中。浏览器存储以 origin 为作用域，因此换一个端口重新打开 `dsh web` 会选中另一个存储分区并丢失选择，即使两个进程使用同一个 DSH home。这些是用户级产品偏好；会话选择、折叠展开状态和其他瞬态浏览器状态仍保留在页面内。[Session 输入框草稿](../feature/2026-09-20-web-runner-composer-drafts.zh.md) 使用独立的 Host storage domain，而非用户 settings。
 
 第一版主题实现只把 Appearance 移入 Host settings，但会在提供 `ThemeRuntime` 之前等待初始 RPC。缓慢或不可用的 settings 请求因而会挂起组装后的页面。该实现还在读取后才建立订阅，可能错过此窗口内的失效通知；它写入时不携带 namespace revision，并且允许已释放插件所排队的写入到达 Host。
 
@@ -32,7 +32,7 @@ Client 在非 loopback 页面禁用 Host 持久化，因此这些页面的偏好
 
 **带成对 sync/persist 回调的逐字段偏好控制器。** 第一版共享生命周期经领域提供的 `sync` 回调同步单个标量字段，服务则经注入的 `persist` 回调写回。这对相互依赖的回调迫使构造分两阶段完成——写入器先默认为无操作，稍后经 `bindPersistence` 替换——namespace 每新增一个字段，本都得再携带一个自己的控制器和一次全文档读取，且每个领域都重新声明了一个已注册 wire schema 本已表达的手写校验器。namespace scope 发布一份供服务订阅的快照并直接接受写入，因此这对回调与第二个构造阶段都不存在。
 
-**把每个 `localStorage` 条目都移入 settings。** 当前会话、草稿、面板展开状态、trajectory 显示状态和类似条目属于浏览器实例状态，而非用户配置。将它们提升为设置，会在没有产品契约的情况下，跨标签页和端口同步短暂导航状态。
+**把每个 `localStorage` 条目都移入 settings。** 当前会话、面板展开状态、trajectory 显示状态和类似条目属于浏览器实例状态，而非用户配置。将它们提升为设置，会在没有产品契约的情况下，跨标签页和端口同步短暂导航状态。
 
 ## 后果
 

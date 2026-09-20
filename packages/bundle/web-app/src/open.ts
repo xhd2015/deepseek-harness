@@ -49,10 +49,16 @@ export function apply(ctx: Context): void {
       directory,
       openBrowser: startup.openBrowser,
       ...startup.browser === undefined ? {} : { browser: startup.browser },
+      ...startup.initialPrompt === undefined ? {} : { initialPrompt: startup.initialPrompt },
       signal: lifetime.signal,
     }).then(
       (sessionId) => {
-        cmdlineInternals.stdout.write(`dsh web: opened ${sessionId} in ${directory}\n`)
+        cmdlineInternals.stdout.write(`dsh web: created ${sessionId} in ${directory}\n`)
+        if (startup.initialPrompt !== undefined) {
+          cmdlineInternals.stdout.write(startup.initialPrompt.submit
+            ? 'dsh web: submitted initial prompt\n'
+            : 'dsh web: saved initial draft\n')
+        }
         exit(0)
       },
       (error: unknown) => {
@@ -69,13 +75,16 @@ interface OpenRequest {
   readonly directory: string
   readonly openBrowser: boolean
   readonly browser?: WebBrowserId
+  readonly initialPrompt?: NonNullable<WebStartupValues['initialPrompt']>
   readonly signal: AbortSignal
 }
 
 /**
- * Create a Workspace and Session on the recorded listen origin, then optionally
- * open a browser to that Session.
- * @param request - directory, browser handoff, and cancellation.
+ * Create a Workspace and Session on the recorded listen origin, apply any
+ * initial prompt, and optionally open a browser to that Session.
+ * Browser launch failures warn on stderr without rejecting. Prompt failures
+ * reject with the created Session id and never open the browser.
+ * @param request - directory, validated initial prompt, browser handoff, and cancellation.
  * @returns the created Session id.
  */
 export async function runOpen(request: OpenRequest): Promise<string> {
@@ -84,9 +93,32 @@ export async function runOpen(request: OpenRequest): Promise<string> {
     throw new Error('web is not serving; start it with: dsh web')
   }
   const created = await createWorkspaceAndSession(listen.origin, listen.token, request.directory, request.signal)
+  if (request.initialPrompt !== undefined) {
+    const { text, submit } = request.initialPrompt
+    try {
+      await rpc(
+        listen.origin,
+        listen.token,
+        submit ? 'session/prompt' : 'session/setDraft',
+        { request: submit
+          ? { sessionId: created.sessionId, requestId: randomUUID(), mode: 'queue', content: [{ type: 'text', text }] }
+          : { sessionId: created.sessionId, text } },
+        request.signal,
+      )
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      throw new Error(`session ${created.sessionId} was created, but the initial ${submit ? 'prompt' : 'draft'} failed: ${message}`, { cause: error })
+    }
+  }
   if (request.openBrowser) {
     const url = sessionLaunchUrl(listen.origin, listen.token, created.sessionId)
-    await openerInternals.openBrowser(url, request.browser)
+    try {
+      await openerInternals.openBrowser(url, request.browser)
+    } catch (error) {
+      // Opener errors may contain the authenticated URL; never echo them.
+      void error
+      cmdlineInternals.stderr.write(`warning: session ${created.sessionId} was created, but the browser could not be opened\n`)
+    }
   }
   return created.sessionId
 }

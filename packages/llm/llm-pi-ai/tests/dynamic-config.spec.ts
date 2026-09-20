@@ -13,7 +13,7 @@ import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { assemble } from './assemble.ts'
 import { closeMockServers, mockServer, textEvents } from './mock-server.ts'
 
-const NS = 'llm-pi-ai'
+const NS = 'llm-proxy-providers'
 
 /** Minimal foreign adapter: only needs to own a route the pi-ai plugin then wants. */
 class StubAdapter extends LlmAdapter {
@@ -241,7 +241,7 @@ describe('request-level dynamic profiles', () => {
     expect(directory).toContainEqual({
       provider: 'openai',
       displayName: 'openai',
-      settingsNs: 'llm-pi-ai',
+      settingsNs: 'llm-proxy-providers',
       settingsPath: ['providers', 'openai'],
       declared: false,
     })

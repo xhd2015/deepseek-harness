@@ -307,7 +307,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
   // Hand-declared routes live in the pi-ai namespace, which is also the only
   // one whose schema names the protocols one may speak; without it mounted
   // there is nothing to declare and the entry point stays disabled.
-  const protocols = protocolChoices(state.namespaces.get('llm-pi-ai'), schema)
+  const protocols = protocolChoices(state.namespaces.get('llm-proxy-providers'), schema)
 
   return (
     <div className={styles['section']}>
@@ -497,7 +497,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                   taken={state.rows.map(row => row.entry.provider)}
                   protocols={protocols}
                   /* v8 ignore next -- the card only opens from a button disabled without this namespace */
-                  revision={state.namespaces.get('llm-pi-ai')?.revision ?? 0}
+                  revision={state.namespaces.get('llm-proxy-providers')?.revision ?? 0}
                   operations={operations}
                   t={t}
                   readOnly={!state.writable}
@@ -533,7 +533,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                     {t('add')}
                   </button>
                 )}
-                {state.namespaces.has('llm-pi-ai') && (
+                {state.namespaces.has('llm-proxy-providers') && (
                   <button
                     type="button"
                     className={styles['addButton']}

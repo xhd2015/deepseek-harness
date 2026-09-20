@@ -5,7 +5,7 @@
 
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
@@ -150,8 +150,64 @@ describe('web command-line provider', () => {
       mode: 'open',
       openBrowser: true,
       browser: 'brave',
-      directory: expect.stringContaining('proj'),
     })
+    expect(values?.directory).toContain('proj')
+  })
+
+  it.each(['-p', '--prompt'])('accepts %s without trimming the prompt', async (flag) => {
+    const text = '  Implement task\n保留换行\n'
+    const { values } = await bootProvider(['open', flag, text])
+    expect(values?.initialPrompt).toEqual({ text, submit: true })
+  })
+
+  it('reads a long UTF-8 prompt file relative to invoking cwd, not the target directory', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-web-prompt-'))
+    tempDirs.push(dir)
+    const file = join(dir, 'task.txt')
+    const text = '实现任务\r\n'.repeat(100_000)
+    writeFileSync(file, text)
+    const { values } = await bootProvider([
+      'open', join(dir, 'workspace'), '--prompt-file', relative(process.cwd(), file), '--no-submit', '--no-open',
+    ])
+    expect(values?.initialPrompt).toEqual({ text, submit: false })
+    expect(values?.openBrowser).toBe(false)
+  })
+
+  it.each([
+    [['-p', 'Task', '--prompt-file', 'task.txt'], '--prompt and --prompt-file cannot be used together'],
+    [['--no-submit'], '--no-submit requires --prompt or --prompt-file'],
+    [['-p', ' \n\t'], 'initial prompt must contain non-whitespace text'],
+    [['--prompt', ''], 'initial prompt must contain non-whitespace text'],
+  ])('rejects invalid prompt arguments %j before publishing startup', async (args, message) => {
+    const { values, observed } = await bootProvider(['open', ...args])
+    expect(values).toBeUndefined()
+    expect(observed.readerConfig).toBeUndefined()
+    expect(observed.exits).toEqual([1])
+    expect(observed.out).toContain(message)
+  })
+
+  it('rejects unreadable and blank prompt files before publishing startup', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-web-prompt-'))
+    tempDirs.push(dir)
+    const file = join(dir, 'task.txt')
+    const missing = await bootProvider(['open', '--prompt-file', file])
+    expect(missing.values).toBeUndefined()
+    expect(missing.observed.out).toContain('cannot read prompt file')
+    expect(missing.observed.exits).toEqual([1])
+    writeFileSync(file, '\r\n \t')
+    const blank = await bootProvider(['open', '--prompt-file', file])
+    expect(blank.values).toBeUndefined()
+    expect(blank.observed.out).toContain('initial prompt must contain non-whitespace text')
+    expect(blank.observed.exits).toEqual([1])
+  })
+
+  it('documents prompt sources and draft mode in open help', async () => {
+    const { values, observed } = await bootProvider(['open', '-h'])
+    expect(values).toBeUndefined()
+    expect(observed.exits).toEqual([0])
+    expect(observed.out).toContain('-p, --prompt <text>')
+    expect(observed.out).toContain('--prompt-file <file>')
+    expect(observed.out).toContain('--no-submit')
   })
 
   it('prints its own help and leaves the consumer pending', async () => {

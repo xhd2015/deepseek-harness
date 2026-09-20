@@ -8,6 +8,7 @@
  */
 
 import { Command } from 'commander'
+import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { parseCmdline } from '@deepseek-ai/dsh-cmdline'
@@ -32,6 +33,8 @@ export interface WebStartupValues {
   browser?: WebBrowserId
   /** Absolute directory for `open`; absent in `serve` mode. */
   directory?: string
+  /** Validated initial text and whether to submit it; absent without a prompt source. */
+  initialPrompt?: { readonly text: string; readonly submit: boolean }
   /** `--host`, absent when the invocation did not name one. */
   host?: string
   /** `--port`, absent when the invocation did not name one. */
@@ -53,6 +56,9 @@ interface ServeOptions {
 interface OpenOptions {
   open: boolean
   browser?: string
+  prompt?: string
+  promptFile?: string
+  submit: boolean
 }
 
 /**
@@ -97,6 +103,9 @@ Examples:
     .description('Create a session for a directory and open it in the running Web UI.')
     .argument('[dir]', 'workspace directory (default: current working directory)')
     .option('--no-open', 'create the session without opening a browser')
+    .option('-p, --prompt <text>', 'initial prompt to submit')
+    .option('--prompt-file <file>', 'read the initial prompt from a UTF-8 file (relative to invoking cwd)')
+    .option('--no-submit', 'save the initial prompt as an editable draft')
     .option('--browser <name>', `browser to open (${WEB_BROWSER_IDS.join(', ')})`)
     .helpOption('-h, --help', 'show this help')
   return program
@@ -124,16 +133,39 @@ function publishServe(ctx: Context, program: Command): void {
 
 function publishOpen(ctx: Context, program: Command, dir: string | undefined, options: OpenOptions): void {
   const parent = program.parent
-  const inherited = parent === null || parent === undefined ? undefined : parent.opts<ServeOptions>().browser
+  const inherited = parent?.opts<ServeOptions>().browser
   const browser = requireBrowser(program, options.browser ?? inherited)
+  const initialPrompt = resolveInitialPrompt(program, options)
   process.env.DSH_WEB_OPEN = '1'
   ctx.provide(WEB_STARTUP_SERVICE, {
     mode: 'open',
     openBrowser: options.open,
     directory: resolve(dir ?? process.cwd()),
+    ...initialPrompt !== undefined && { initialPrompt },
     ...browser !== undefined && { browser },
     trustedHosts: [],
   } satisfies WebStartupValues)
+}
+
+function resolveInitialPrompt(program: Command, options: OpenOptions): WebStartupValues['initialPrompt'] {
+  if (options.prompt !== undefined && options.promptFile !== undefined) {
+    program.error('dsh: --prompt and --prompt-file cannot be used together')
+  }
+  let text = options.prompt
+  if (options.promptFile !== undefined) {
+    try {
+      text = readFileSync(resolve(options.promptFile), 'utf8')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      program.error(`dsh: cannot read prompt file ${JSON.stringify(options.promptFile)}: ${message}`)
+    }
+  }
+  if (text === undefined) {
+    if (!options.submit) program.error('dsh: --no-submit requires --prompt or --prompt-file')
+    return undefined
+  }
+  if (text.trim().length === 0) program.error('dsh: initial prompt must contain non-whitespace text')
+  return { text, submit: options.submit }
 }
 
 /**
