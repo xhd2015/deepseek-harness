@@ -42,12 +42,21 @@ export function sessionIdFromSearch(search: string): SessionId | undefined {
 }
 
 /**
+ * Read the current page query, tolerating host-less evaluation such as the
+ * whole-client test tier running under plain Node.
+ * @returns `location.search`, or an empty string when no page exists.
+ */
+export function pageSearch(): string {
+  return typeof location === 'undefined' ? '' : location.search
+}
+
+/**
  * Write or remove `?session=` without adding a history entry.
  * @param sessionId - selected Session, or `undefined` to drop the parameter.
  */
 export function replaceSessionQuery(sessionId: SessionId | undefined): void {
-  if (globalThis.location === undefined || globalThis.history === undefined) return
-  const url = new URL(globalThis.location.href)
+  if (typeof location === 'undefined' || typeof history === 'undefined') return
+  const url = new URL(location.href)
   const present = url.searchParams.getAll(SESSION_QUERY)
   if (sessionId === undefined) {
     if (present.length === 0) return

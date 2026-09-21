@@ -173,7 +173,7 @@ describe('ConversationController', () => {
         getDraft: () => read.promise,
         setDraft: async ({ text }: { text: string }) => ({ ok: true, value: { text } }),
       },
-    } as never)
+    })
     b.runtime.ctx.provide('inputTriggers', {
       sessionOf: () => ({
         track: () => {},
@@ -183,7 +183,7 @@ describe('ConversationController', () => {
           return adjudication.promise
         },
       }),
-    } as never)
+    })
     try {
       b.hub.bindDraftMirror(b.runtime.sessions.binding('s1')!.sessionId, () => {}, false, () => {})
       b.shell.setDraft('/task')
