@@ -2089,6 +2089,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the created or reused Session identity and its preset when configured.',
       },
       {
+        signature: '@Remote(\'getDraft\') getDraft(request: SessionDraftRequest): Promise<SessionDraftValue>',
+        description: 'Read durable composer text without resuming the Session or changing its transcript.',
+        parameters: [{ name: 'request', description: 'Session identity.' }],
+        returns: 'saved text, or empty text when no draft exists.',
+      },
+      {
+        signature: '@Remote(\'setDraft\') setDraft(request: SessionSetDraftRequest): Promise<SessionDraftValue>',
+        description: 'Replace durable composer text without admitting a prompt; dependent writes must be serialized by callers.',
+        parameters: [{ name: 'request', description: 'Session identity and text; empty text clears the record.' }],
+        returns: 'the text after this write is durable.',
+      },
+      {
         signature: '@Remote(\'selectModel\') selectModel(request: SessionSelectModelRequest): Promise<SessionSelectModelValue>',
         description: 'Select one Session-local model after explicitly resuming the Session; save the default in the background.',
         parameters: [{ name: 'request', description: 'Session identity and requested model selection.' }],
@@ -7074,6 +7086,12 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionCreateValue {\n    readonly sessionId: SessionId;\n    readonly agentPreset?: string;\n}',
   },
   {
+    name: 'SessionDraftRequest',
+    declaration: 'export interface SessionDraftRequest {\n    readonly sessionId: SessionId;\n}',
+  },
+  {
+    name: 'SessionDraftValue',
+    declaration: 'export interface SessionDraftValue {\n    readonly text: string;\n}',
     name: 'SessionEndInput',
     declaration: 'export interface SessionEndInput {\n    reason: \'clear\' | \'logout\' | \'prompt_input_exit\' | \'resume\' | \'other\';\n    sessionId: string;\n}',
   },
@@ -7446,6 +7464,8 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type SessionSeqCursor = SessionSeq | -1;',
   },
   {
+    name: 'SessionSetDraftRequest',
+    declaration: 'export interface SessionSetDraftRequest extends SessionDraftRequest {\n    readonly text: string;\n}',
     name: 'SessionStartInput',
     declaration: 'export interface SessionStartInput {\n    cwd: string;\n    surface: string | null;\n    isInteractive: boolean;\n}',
   },
