@@ -1,4 +1,4 @@
-/** Web SSE transport for page-owned client entry reconciliation and rebuilt code replacement, relayed through the Gateway SharedWorker so tabs share one socket. */
+/** Web SSE transport for entry reconciliation and rebuilt code replacement; the SharedWorker relay shares one socket across tabs. */
 import type { Context } from '@deepseek-ai/cordis'
 import type { PluginsEventParseResult } from '../events.ts'
 import { parsePluginsEventFrame } from '../events.ts'
@@ -11,6 +11,13 @@ export const name = 'client-hmr'
 
 /** Required service: the client module system whose entry controller handles received frames. */
 export const inject = ['modules']
+
+/**
+ * Page-relative script URL of the Gateway SharedWorker relay; the browser
+ * resolves it against the document base, so this module never needs the
+ * `location` global itself. Mirrors the Gateway's served mux worker path.
+ */
+const REMOTE_SHARED_MUX_WORKER_PATH = '/api/remote.shared-mux-worker.js'
 
 /** Whether a Gateway SharedWorker relay frame carries one raw HMR SSE payload. */
 function isHmrEvent(value: unknown): value is { readonly type: 'hmr-event'; readonly data: string } {
@@ -33,8 +40,10 @@ export function apply(ctx: Context): void {
   }
 
   ctx.effect(() => {
+    // A page-relative script URL: the browser resolves it against the document
+    // base, so this module never needs the `location` global itself.
     const worker = new SharedWorker(
-      new URL('/api/remote.shared-mux-worker.js', location.origin),
+      REMOTE_SHARED_MUX_WORKER_PATH,
       { type: 'module', name: 'dsh-gateway-mux' },
     )
     const { port } = worker

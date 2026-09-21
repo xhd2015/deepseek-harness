@@ -18,6 +18,6 @@ export function installDraftRemote(runtime: SlotTestRuntime): Map<SessionId, str
       return { ok: true, value: { text } }
     },
   }
-  runtime.remote.provideNamespaces({ session } as never)
+  runtime.remote.provideNamespaces({ session })
   return drafts
 }
