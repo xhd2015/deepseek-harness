@@ -158,7 +158,7 @@ const SRC_JSON_CODEC: TypertCodec = { mode: 'src-json' }
 export const REMOTE_SHARED_MUX_WORKER_PATH = '/api/remote.shared-mux-worker.js'
 /** Built worker artifact resolved through the Gateway package's published export. */
 const REMOTE_SHARED_MUX_WORKER_ARTIFACT = createRequire(import.meta.url)
-  .resolve('@deepseek-ai/dsh-api-gateway/client/shared-mux-worker')
+  .resolve('@deepseek-ai/dsh-api-gateway/shared-mux-worker')
 
 /** Gateway transport configuration. */
 export interface Config {
