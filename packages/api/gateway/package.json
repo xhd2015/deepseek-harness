@@ -24,7 +24,7 @@
       "browser": "./lib/client.browser.js",
       "default": "./lib/client.browser.js"
     },
-    "./shared-mux-worker": "./lib/shared-mux-worker.js",
+    "./client/shared-mux-worker": "./lib/shared-mux-worker.js",
     "./types": {
       "types": "./lib/types/types.d.ts",
       "default": "./lib/types/types.js"
