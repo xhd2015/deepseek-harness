@@ -25,7 +25,7 @@ import type { DraftInitializationOptions } from '@deepseek-ai/dsh-client-ui-conv
 import type { RowToast } from './contract/slots.ts'
 import { pinOrderAccounts, pinOrderSource } from './pin-order.ts'
 import { RecentSessionViews } from './recent-views.ts'
-import { parseSessionQuery } from './session-query.ts'
+import { pageSearch, parseSessionQuery } from './session-query.ts'
 import type { WorkspaceViewStoreActions } from './stores.ts'
 
 interface MainSelection {
@@ -446,7 +446,7 @@ class UiWorkspaceService extends Service implements UiWorkspace {
       if (initial !== 'waiting' || this.restorationNavigation?.aborted === true) return
       // `dsh web open` names the Session in the query; do not restore the
       // persisted current or a blank Workspace Session over it.
-      if (parseSessionQuery(globalThis.location?.search ?? '').kind !== 'absent') {
+      if (parseSessionQuery(pageSearch()).kind !== 'absent') {
         initial = 'done'
         return
       }

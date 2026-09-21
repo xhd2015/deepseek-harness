@@ -52,7 +52,7 @@ import {
 } from './contract/slots.ts'
 import { createWorkspaceShortcutControls, installWorkspaceShortcuts } from './shortcuts.ts'
 import { UiWorkspaceService } from './navigation.ts'
-import { parseSessionQuery, replaceSessionQuery } from './session-query.ts'
+import { pageSearch, parseSessionQuery, replaceSessionQuery } from './session-query.ts'
 import { createWorkspaceViewStore } from './stores.ts'
 import { UnknownSessionHint, type UnknownSessionHintInjected } from './UnknownSessionHint.tsx'
 import { WorkspaceBrowser } from './rows/WorkspaceBrowser.tsx'
@@ -175,7 +175,7 @@ export function apply(ctx: Context, config: SyncedConfig<WorkspaceNavigationConf
   // what keeps the reader from watching the sidebar animate away once the Host
   // list settles. Whether the id is listed is not known yet; an unusable link
   // still raises its notice, over that rail.
-  if (parseSessionQuery(globalThis.location?.search ?? '').kind === 'id') {
+  if (parseSessionQuery(pageSearch()).kind === 'id') {
     ctx.layout.collapseSidebar()
   }
   ctx.effect(
@@ -503,7 +503,7 @@ function bindSessionUrl(
   const reconcile = (): void => {
     const snapshot = sessions.list.getSnapshot()
     if (snapshot.phase !== 'ready') return
-    const query = parseSessionQuery(globalThis.location?.search ?? '')
+    const query = parseSessionQuery(pageSearch())
     const current = Object.values(snapshot.byId)
       .find(session => (session.retainedBy.mainView ?? 0) > 0)?.id
     if (!deepLinkSettled) {
