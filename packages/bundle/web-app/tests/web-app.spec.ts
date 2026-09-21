@@ -43,7 +43,7 @@ type BrowserLauncher = ChildProcess & { stderr: PassThrough }
 
 /** Minimal browser-launcher process for the native handoff adapter. */
 function launcher(): BrowserLauncher {
-  return Object.assign(new EventEmitter(), { stderr: new PassThrough() }) as BrowserLauncher
+  return Object.assign(new EventEmitter(), { stderr: new PassThrough(), unref: () => {}, ref: () => {} }) as BrowserLauncher
 }
 
 /** Stage a dist fixture and point the bundle's resolver at it. */
@@ -476,7 +476,7 @@ describe('web-app runtime glue', () => {
     await ctx.fiber.dispose()
   })
 
-  it('scrubs the helper environment and reports helper spawn or exit failures', async () => {
+  it('scrubs the helper environment and detaches the default-browser helper', async () => {
     vi.stubEnv('DEEPSEEK_API_KEY', 'must-not-reach-browser')
     vi.stubEnv('DSH_HOME', '/must-not-reach-browser')
     const completed = launcher()
@@ -495,34 +495,9 @@ describe('web-app runtime glue', () => {
     expect(options?.env).not.toHaveProperty('DSH_HOME')
     expect(options?.env?.PATH).toBe(process.env.PATH)
     expect(options?.stdio).toEqual(['ignore', 'inherit', 'pipe'])
-    completed.emit('close', 0)
+    completed.emit('spawn')
     await expect(completion).resolves.toBeUndefined()
     expect(completed.listenerCount('error')).toBe(0)
-
-    const completedWithStderr = launcher()
-    vi.mocked(spawn).mockReturnValueOnce(completedWithStderr)
-    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
-    const completionWithStderr = originalOpenBrowser('http://127.0.0.1:4567')
-    completedWithStderr.stderr?.write('launcher note\n')
-    completedWithStderr.emit('close', 0)
-    await expect(completionWithStderr).resolves.toBeUndefined()
-    expect(stderr).toHaveBeenCalledWith('launcher note\n')
-
-    const failedWithReason = launcher()
-    vi.mocked(spawn).mockReturnValueOnce(failedWithReason)
-    const reasonFailure = originalOpenBrowser('http://127.0.0.1:4567')
-    const reasonAssertion = expect(reasonFailure).rejects.toThrow('desktop unavailable')
-    failedWithReason.stderr?.write('Error: desktop unavailable\n    at fixture')
-    failedWithReason.emit('close', 1)
-    await reasonAssertion
-
-    const failed = launcher()
-    vi.mocked(spawn).mockReturnValueOnce(failed)
-    const failure = originalOpenBrowser('http://127.0.0.1:4567')
-    const failureAssertion = expect(failure).rejects.toThrow('exited with code 3')
-    await Promise.resolve()
-    failed.emit('close', 3)
-    await failureAssertion
 
     const errored = launcher()
     vi.mocked(spawn).mockReturnValueOnce(errored)
@@ -531,6 +506,5 @@ describe('web-app runtime glue', () => {
     await Promise.resolve()
     errored.emit('error', new Error('spawn failed'))
     await errorAssertion
-    expect(errored.listenerCount('close')).toBe(0)
   })
 })
