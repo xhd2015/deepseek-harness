@@ -797,6 +797,20 @@ inspect( sessionId: SessionId, signal?: AbortSignal, ): Promise<SessionInspectio
 @Remote('create') create(request: SessionCreateRequest): Promise<SessionCreateValue>
 
 /**
+ * Read durable composer text without resuming the Session or changing its transcript.
+ * @param request - Session identity.
+ * @returns saved text, or empty text when no draft exists.
+ */
+@Remote('getDraft') getDraft(request: SessionDraftRequest): Promise<SessionDraftValue>
+
+/**
+ * Replace durable composer text without admitting a prompt; dependent writes must be serialized by callers.
+ * @param request - Session identity and text; empty text clears the record.
+ * @returns the text after this write is durable.
+ */
+@Remote('setDraft') setDraft(request: SessionSetDraftRequest): Promise<SessionDraftValue>
+
+/**
  * Select one Session-local model after explicitly resuming the Session.
  * @param request - Session identity and requested model selection.
  * @returns the normalized selection installed for the Session.
