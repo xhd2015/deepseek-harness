@@ -106,6 +106,55 @@ function systemHead(session: Session, headSeq: SessionSeq): SessionEvent<'system
 }
 
 /**
+ * Tokens to keep verbatim so the shadowed prefix can be replayed to the
+ * summarizer without overflowing the routed context window. The summarizer
+ * sends system, tools, and the shadowed span — the last overflowing request
+ * minus this retained tail, plus the compaction instruction.
+ * @param totalTokens - current request-priced total from the conversation meter.
+ * @param contextWindow - positive routed model capacity.
+ * @param surfaceTokens - route-priced sum of current surface nodes.
+ * @param firstCompactableTokens - price of the first non-system surface node;
+ *   the retain budget never swallows that node.
+ * @returns `0` when the total already fits with an 8% window margin; otherwise
+ *   the overflow plus that margin, capped so the oldest compactable node remains
+ *   in the shadowed prefix.
+ */
+export function retainTokensForSummarizer(
+  totalTokens: number,
+  contextWindow: number,
+  surfaceTokens: number,
+  firstCompactableTokens: number,
+): number {
+  if (!Number.isInteger(contextWindow) || contextWindow <= 0) return 0
+  const safety = Math.max(1, Math.floor(contextWindow * 0.08))
+  const computed = Math.max(0, totalTokens - contextWindow + safety)
+  const first = Math.max(1, firstCompactableTokens)
+  return Math.min(computed, Math.max(0, surfaceTokens - first))
+}
+
+/**
+ * {@link retainTokensForSummarizer} using the current surface's first
+ * non-system node as the prefix that must remain compactable.
+ * @param session - session supplying the system-head check.
+ * @param measurement - current conversation-meter totals and nodes.
+ * @param contextWindow - positive routed model capacity.
+ */
+export function retainTokensForSummarizerOnSurface(
+  session: Session,
+  measurement: TokenMeasurement,
+  contextWindow: number,
+): number {
+  const head = session.surface.nodes[0]
+  const firstIdx = head === undefined || systemHead(session, head) === undefined ? 0 : 1
+  return retainTokensForSummarizer(
+    measurement.totalTokens,
+    contextWindow,
+    measurement.surfaceTokens,
+    measurement.nodes[firstIdx]?.tokens ?? 1,
+  )
+}
+
+/**
  * Resolve the next range starting at the first non-system surface node while
  * retaining a priced recent tail and never splitting an assistant
  * tool-call/result pair. A `system/message` at surface node 0 is never inside
