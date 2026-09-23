@@ -55,14 +55,16 @@ Saved model selections override the composition default. The settings card accep
 
 The `minimal` agent preset uses a persistent shell, the `read_image` tool, and a fixed persona, with automatic history compaction and the idle-session `/compact` command. It shares the Host token meter and owns an isolated compaction backend. [Compaction configuration and retention](../../compaction/compaction-basic/README.md#use-this-package) follow the existing backend. Image reads reuse the Host filesystem and attachment store and require an image-capable model; text read, write, and edit tools remain excluded.
 
-`--host` and `--port` configure the listener; `--tls-cert` and `--tls-key` make it serve HTTPS; `--public-url` names the advertised public HTTP(S) root the GUI is reached at behind a prefix-stripping proxy, and `--trusted-host` adds further accepted authorities. All are described under [Listening, trust, and public deployments](#public-deployments), and the `tls` field those flags set is documented with the [carrier's config](../../../docs/subsystems/web-server.md#config):
+`--host` and `--port` configure the listener; `--tls-cert` and `--tls-key` make it serve HTTPS; `--public-url` names the advertised public HTTP(S) root the GUI is reached at behind a prefix-stripping proxy, and `--trusted-host` adds further accepted authorities. `--no-auth` skips process-token browser authentication when an outer reverse proxy already authenticates. All are described under [Listening, trust, and public deployments](#public-deployments), and the `tls` field those flags set is documented with the [carrier's config](../../../docs/subsystems/web-server.md#config):
 
 | Field | Default | Meaning |
 |---|---|---|
 | `openBrowser` | `true` | Open the default browser after startup; SSH launches suppress it |
 | `printUrl` | `true` | Print the `dsh web:` URL line at startup |
-| `surfaceContext` | `true` | Expose `DSH_WEB_URL` to the agent's shell commands |
+| `surfaceContext` | `true` | Give the agent GUI-orientation context and expose `DSH_WEB_URL` to its shell commands |
 | `publicUrl` | Unset | Advertised HTTP(S) application root; otherwise announce the bind-address URL |
+| `trustedHosts` | `[]` | Extra hosts allowed to reach the GUI from the network |
+| `disableAuth` | `false` | Skip process-token and cookie checks (`dsh web --no-auth`); Host/Origin trust remains |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-web-app) lists this runtime plugin's accepted fields and their JSDoc. The shipped composition inserts the `schedule` service row and the `ui-schedule` task page row, while the clock reading and the four reminder tools belong to the `standard`, `cordis`, and `ptc` presets. The `tool-subagent` and `tool-subagent-fork` rows in those presets deny the four tools, so a delegated child's scope never lists them.
 

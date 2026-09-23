@@ -1,7 +1,7 @@
 /**
  * The web app's command-line provider: it parses the `dsh --profile web` flag
  * family (`--host`, `--port`, `--public-url`, `--trusted-host`, `--no-open`,
- * `--browser`, TLS) and the `open [dir]` subcommand, then provides the
+ * `--no-auth`, `--browser`, TLS) and the `open [dir]` subcommand, then provides the
  * immutable values as {@link WEB_STARTUP_SERVICE}. Ordinary rows inject that
  * service before reading it from lazy config.
  * @module @deepseek-ai/dsh-web-app/startup
@@ -50,6 +50,8 @@ export interface WebStartupValues {
   trustedHosts: string[]
   /** Server certificate chain and unencrypted private key supplied together. */
   tls?: TlsConfig
+  /** When true, skip process-token and cookie checks (outer reverse-proxy auth). */
+  disableAuth: boolean
 }
 
 /** Serve-mode flags, as commander parsed them. */
@@ -62,6 +64,7 @@ interface ServeOptions {
   tlsCert?: string
   tlsKey?: string
   browser?: string
+  auth: boolean
 }
 
 /** `open` subcommand flags. */
@@ -104,6 +107,7 @@ function webCommand(): Command {
     .option('--trusted-host <authority...>', 'extra authority the /api browser-trust fence accepts (host or host:port; repeatable)')
     .option('--tls-cert <file>', 'PEM server certificate chain; requires --tls-key')
     .option('--tls-key <file>', 'unencrypted PEM private key; requires --tls-cert')
+    .option('--no-auth', 'disable process-token browser authentication (use when an outer reverse proxy already authenticates)')
     .option('--browser <name>', `browser to open (${WEB_BROWSER_IDS.join(', ')})`)
     .addHelpText('after', `
 Examples:
@@ -116,6 +120,7 @@ Examples:
                                              advertise a prefix-stripping HTTPS proxy entry and admit its authority
   dsh --profile web --tls-cert ./server-chain.pem --tls-key ./server-key.pem
                                              serve HTTPS with an existing certificate and key
+  dsh --profile web --no-auth                serve behind an outer authenticating reverse proxy
   dsh --profile web open                     new session for cwd in the running GUI
   dsh --profile web open ~/proj --browser brave
 `)
@@ -169,6 +174,7 @@ function publishServe(ctx: Context, program: Command): void {
     ...options.publicUrl !== undefined && { publicUrl: options.publicUrl },
     ...tls !== undefined && { tls },
     trustedHosts: options.trustedHost ?? [],
+    disableAuth: options.auth === false,
   } satisfies WebStartupValues)
 }
 
@@ -192,6 +198,7 @@ function publishOpen(ctx: Context, program: Command, dir: string | undefined, op
     ...initialPrompt !== undefined && { initialPrompt },
     ...browser !== undefined && { browser },
     trustedHosts: [],
+    disableAuth: false,
   } satisfies WebStartupValues)
 }
 
