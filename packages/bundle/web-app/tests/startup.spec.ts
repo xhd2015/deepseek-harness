@@ -64,6 +64,7 @@ export const apply = ctx => globalThis.__webStartupApply(ctx)
     '    openBrowser: !!js ctx.webStartup.openBrowser',
     '    port: !!js ctx.webStartup.port ?? 3080',
     '    trustedHosts: !!js ctx.webStartup.trustedHosts',
+    '    disableAuth: !!js ctx.webStartup.disableAuth === true',
     '- id: provider',
     `  name: ${pathToFileURL(join(dir, 'provider.mjs')).href}`,
     '',
@@ -106,24 +107,39 @@ describe('web command-line provider', () => {
       openBrowser: false,
       port: 8080,
       trustedHosts: ['lab.internal', 'lab-2.internal', '10.0.0.9'],
+      disableAuth: false,
     })
     expect(observed.readerConfig).toEqual({
       host: '127.0.0.1',
       openBrowser: false,
       port: 8080,
       trustedHosts: ['lab.internal', 'lab-2.internal', '10.0.0.9'],
+      disableAuth: false,
     })
     expect(observed.exits).toEqual([])
   })
 
   it('leaves deployment values to each consumer when flags omit them', async () => {
     const { values, observed } = await bootProvider([])
-    expect(values).toEqual({ mode: 'serve', openBrowser: true, trustedHosts: [] })
+    expect(values).toEqual({ mode: 'serve', openBrowser: true, trustedHosts: [], disableAuth: false })
     expect(observed.readerConfig).toEqual({
       host: '127.0.0.1',
       openBrowser: true,
       port: 3080,
       trustedHosts: [],
+      disableAuth: false,
+    })
+  })
+
+  it('publishes disableAuth from --no-auth', async () => {
+    const { values, observed } = await bootProvider(['--no-auth'])
+    expect(values?.disableAuth).toBe(true)
+    expect(observed.readerConfig).toEqual({
+      host: '127.0.0.1',
+      openBrowser: true,
+      port: 3080,
+      trustedHosts: [],
+      disableAuth: true,
     })
   })
 

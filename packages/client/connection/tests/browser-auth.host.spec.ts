@@ -273,4 +273,13 @@ describe('BrowserAuth', () => {
     await expect(createAuth(new RecordCredentials(), Number.MAX_SAFE_INTEGER))
       .rejects.toThrow(/safe timestamp range/u)
   })
+
+  it('skips process-token checks when disableAuth is set', async () => {
+    const auth = await BrowserAuth.create({}, credentials(new RecordCredentials()), 30, true)
+    expect(new URL(auth.authenticatedUrl('http://127.0.0.1:3080')).searchParams.get('token')).toBeNull()
+    expect(auth.isAuthenticated(request('/'))).toBe(true)
+    const index = response()
+    expect(auth.authorizeIndex(request('/'), index.value)).toBe(true)
+    expect(index.state.status).toBeUndefined()
+  })
 })

@@ -1,6 +1,6 @@
 /**
  * The web app's command-line provider: it parses the `dsh --profile web` flag
- * family (`--host`, `--port`, `--trusted-host`, `--no-open`, `--browser`) and
+ * family (`--host`, `--port`, `--trusted-host`, `--no-open`, `--no-auth`, `--browser`) and
  * the `open [dir]` subcommand, then provides the immutable values as
  * {@link WEB_STARTUP_SERVICE}. Ordinary rows inject that service before reading
  * it from lazy config.
@@ -41,6 +41,8 @@ export interface WebStartupValues {
   port?: number
   /** Explicit `--trusted-host` authorities, in argument order. */
   trustedHosts: string[]
+  /** When true, skip process-token and cookie checks (outer reverse-proxy auth). */
+  disableAuth: boolean
 }
 
 /** Serve-mode flags, as commander parsed them. */
@@ -50,6 +52,7 @@ interface ServeOptions {
   port?: string
   trustedHost?: string[]
   browser?: string
+  auth: boolean
 }
 
 /** `open` subcommand flags. */
@@ -89,6 +92,7 @@ function webCommand(): Command {
     .option('--no-open', 'do not open a browser')
     .option('--port <port>', 'listen port; pass 0 to let the OS pick a free one')
     .option('--trusted-host <authority...>', 'extra authority the /api browser-trust fence accepts (host or host:port; repeatable)')
+    .option('--no-auth', 'disable process-token browser authentication (use when an outer reverse proxy already authenticates)')
     .option('--browser <name>', `browser to open (${WEB_BROWSER_IDS.join(', ')})`)
     .addHelpText('after', `
 Examples:
@@ -96,6 +100,7 @@ Examples:
   dsh --profile web --no-open                serve without opening a browser
   dsh --profile web --browser brave          serve and open Brave
   dsh --profile web --port 8080              serve on another port
+  dsh --profile web --no-auth                serve behind an outer authenticating reverse proxy
   dsh --profile web open                     new session for cwd in the running GUI
   dsh --profile web open ~/proj --browser brave
 `)
@@ -128,6 +133,7 @@ function publishServe(ctx: Context, program: Command): void {
     ...options.host !== undefined && { host: options.host },
     ...options.port !== undefined && { port: Number(options.port) },
     trustedHosts: options.trustedHost ?? [],
+    disableAuth: options.auth === false,
   } satisfies WebStartupValues)
 }
 
@@ -144,6 +150,7 @@ function publishOpen(ctx: Context, program: Command, dir: string | undefined, op
     ...initialPrompt !== undefined && { initialPrompt },
     ...browser !== undefined && { browser },
     trustedHosts: [],
+    disableAuth: false,
   } satisfies WebStartupValues)
 }
 
