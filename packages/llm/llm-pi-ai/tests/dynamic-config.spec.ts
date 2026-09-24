@@ -13,7 +13,7 @@ import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { assemble } from './assemble.ts'
 import { closeMockServers, mockServer, textEvents } from './mock-server.ts'
 
-const NS = 'llm-pi-ai'
+const NS = 'llm-proxy-providers'
 
 /** Minimal foreign adapter: only needs to own a route the pi-ai plugin then wants. */
 class StubAdapter extends LlmAdapter {
@@ -119,9 +119,14 @@ describe('request-level dynamic profiles', () => {
     expect(ctx.llm.listConfigurableProviders()).toContainEqual({
       provider: 'openrouter', displayName: 'openrouter', settingsNs: NS,
       settingsPath: ['providers', 'openrouter'], declared: false, error: failure,
+      // Named per model as well: the Models page shows it on that model's row.
+      modelErrors: { '111': failure },
     })
     expect(await readFile(path, 'utf8')).toBe(stored)
-    expect((await ctx.llm.listModels('openrouter')).map(model => model.id)).toEqual([known.id])
+    // Listed, not served: the refused entry stays visible with its reason so a
+    // selector can show it, while the route's other model is unaffected.
+    expect((await ctx.llm.listModels('openrouter')).map(model => ({ id: model.id, unavailable: model.unavailable })))
+      .toEqual([{ id: known.id, unavailable: undefined }, { id: '111', unavailable: failure }])
     const bad = await assemble(ctx, { provider: 'openrouter', model: '111', messages: [] })
     expect(bad.finish).toMatchObject({ kind: 'error', failure: { code: 'INVALID_CONFIG', message: failure } })
     expect(server.requests).toHaveLength(0)
@@ -144,6 +149,54 @@ describe('request-level dynamic profiles', () => {
     const repaired = await assemble(ctx, { provider: 'openrouter', model: '111', messages: [] })
     expect(repaired.message.content).toEqual([{ type: 'text', text: 'hello' }])
     expect(server.requests).toHaveLength(2)
+  })
+
+  it('refuses one model entry by name and keeps its siblings and neighbours serving', async () => {
+    vi.stubEnv('PI_DYNAMIC_KEY', '')
+    const dir = await home()
+    const server = await mockServer([{ events: textEvents }])
+    const known = getBuiltinModels('openrouter').find(model => model.api === 'openai-completions')!
+    await writeFile(join(dir, 'settings.yaml'), JSON.stringify({ [NS]: { providers: {
+      openrouter: {
+        apiKeyEnv: 'PI_DYNAMIC_KEY',
+        baseURL: server.url,
+        api: 'openai-completions',
+        models: [{ id: known.id }, { id: '111', reasoningEfforts: { low: 'low', ultra: 'ultra' } }],
+      },
+      deepseek: { apiKeyEnv: 'PI_DYNAMIC_KEY', baseURL: server.url },
+    } } }))
+    await writeFile(join(dir, '.credentials.yaml'), 'version: 1\nrefs:\n  PI_DYNAMIC_KEY: fake-key\n', { mode: 0o600 })
+    const ctx = await boot(dir, {})
+    const refusal = 'llm-pi-ai: provider "openrouter" model "111" reasoningEfforts names "ultra", which is not a'
+      + ' reasoning level pi-ai knows (off, minimal, low, medium, high, xhigh, max)'
+
+    // The misspelled level is one model's refusal, not the namespace's: the
+    // route, its other model, and the neighbouring provider all keep serving —
+    // and the document stays editable, which is what lets the user repair it.
+    expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['openrouter', 'deepseek'])
+    const models = await ctx.llm.listModels('openrouter')
+    expect(models.map(model => model.id)).toEqual([known.id, '111'])
+    expect(models[1]).toEqual({ provider: 'openrouter', id: '111', name: '111', unavailable: refusal })
+    expect(ctx.llm.listConfigurableProviders().find(entry => entry.provider === 'openrouter')?.modelErrors)
+      .toEqual({ '111': refusal })
+    await expect(ctx.llm.resolveModelInfo('openrouter', '111')).rejects.toThrow(refusal)
+    const good = await assemble(ctx, { provider: 'openrouter', model: known.id, messages: [] })
+    expect(good.message.content).toEqual([{ type: 'text', text: 'hello' }])
+    const bad = await assemble(ctx, { provider: 'openrouter', model: '111', messages: [] })
+    expect(bad.finish).toMatchObject({ kind: 'error', failure: { code: 'INVALID_CONFIG', message: refusal } })
+    expect(server.requests).toHaveLength(1)
+
+    // The sibling's provider is editable while the refusal stands, and the
+    // repair is the models array the refused entry lives in — a path op cannot
+    // address an array element.
+    await ctx.settings.update(NS, { providers: { deepseek: { displayName: 'Edited' } } })
+    await ctx.settings.mutate(NS, [{ op: 'set', path: ['providers', 'openrouter', 'models'], value: [
+      { id: known.id },
+      { id: '111', reasoningEfforts: { low: 'low', max: 'ultra' } },
+    ] }])
+    expect((await ctx.llm.listModels('openrouter')).map(model => model.id)).toEqual([known.id, '111'])
+    expect(ctx.llm.listConfigurableProviders().find(entry => entry.provider === 'openrouter')?.modelErrors)
+      .toBeUndefined()
   })
 
   it('allows removing an obsolete override and deleting a route whose catalog cannot be built', async () => {
@@ -188,7 +241,7 @@ describe('request-level dynamic profiles', () => {
     expect(directory).toContainEqual({
       provider: 'openai',
       displayName: 'openai',
-      settingsNs: 'llm-pi-ai',
+      settingsNs: 'llm-proxy-providers',
       settingsPath: ['providers', 'openai'],
       declared: false,
     })

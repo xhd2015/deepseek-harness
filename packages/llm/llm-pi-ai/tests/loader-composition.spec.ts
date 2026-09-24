@@ -97,6 +97,37 @@ async function loadComposition(): Promise<{ ctx: Context; settingsPath: string }
 }
 
 describe('llm-pi-ai real dormant composition', () => {
+  it('authenticates an exported proxy Responses route with a placeholder credential', async () => {
+    vi.stubEnv('PI_COMPOSITION_KEY', '')
+    const server = await mockServer([{ events: [
+      JSON.stringify({ type: 'response.created', response: { id: 'resp-proxy', model: 'proxy-model' } }),
+      JSON.stringify({ type: 'response.output_item.added', output_index: 0, item: { type: 'message', id: 'msg-proxy', role: 'assistant', content: [] } }),
+      JSON.stringify({ type: 'response.content_part.added', output_index: 0, content_index: 0, part: { type: 'output_text', text: '', annotations: [] } }),
+      JSON.stringify({ type: 'response.output_text.delta', output_index: 0, content_index: 0, delta: 'hello' }),
+      JSON.stringify({ type: 'response.completed', response: { id: 'resp-proxy', status: 'completed', usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } } }),
+    ] }])
+    const { ctx, settingsPath } = await loadComposition()
+    await writeFile(settingsPath, [
+      'llm-proxy-providers:',
+      '  providers:',
+      '    llm-proxy-codex:',
+      '      apiKeyEnv: PI_COMPOSITION_KEY',
+      '      api: openai-responses',
+      `      baseURL: ${server.url}/v1`,
+      '      models:',
+      '        - id: proxy-model',
+      '          input: [ text, image ]',
+      '',
+    ].join('\n'))
+    await vi.waitFor(() => {
+      expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['llm-proxy-codex'])
+    }, { timeout: 5000 })
+    const result = await assemble(ctx, { provider: 'llm-proxy-codex', model: 'proxy-model', messages: [] })
+    expect(result.message.content).toEqual([{ type: 'text', text: 'hello' }])
+    expect(server.paths).toEqual(['/v1/responses'])
+    expect(server.headers[0]?.authorization).toBe('Bearer key-from-store')
+  })
+
   it('boots with zero routes and registers one the moment settings supply a profile', async () => {
     vi.stubEnv('PI_COMPOSITION_KEY', '')
     const server = await mockServer([{ events: textEvents }])
@@ -107,7 +138,7 @@ describe('llm-pi-ai real dormant composition', () => {
 
     // Exactly what the web Models page leaves on disk.
     await writeFile(settingsPath, [
-      'llm-pi-ai:',
+      'llm-proxy-providers:',
       '  providers:',
       '    deepseek:',
       '      apiKeyEnv: PI_COMPOSITION_KEY',
@@ -129,7 +160,7 @@ describe('llm-pi-ai real dormant composition', () => {
     const { ctx, settingsPath } = await loadComposition()
 
     await writeFile(settingsPath, [
-      'llm-pi-ai:',
+      'llm-proxy-providers:',
       '  providers:',
       '    acme-gateway:',
       '      apiKeyEnv: PI_COMPOSITION_KEY',
@@ -147,7 +178,7 @@ describe('llm-pi-ai real dormant composition', () => {
       expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['acme-gateway'])
     }, { timeout: 5000 })
 
-    await expect(ctx.llm.discoverModels('llm-pi-ai', {
+    await expect(ctx.llm.discoverModels('llm-proxy-providers', {
       provider: 'acme-gateway',
       baseURL: server.url,
       api: 'openai-completions',
@@ -167,7 +198,7 @@ describe('llm-pi-ai real dormant composition', () => {
     ])
     const { ctx, settingsPath } = await loadComposition()
     await writeFile(settingsPath, [
-      'llm-pi-ai:',
+      'llm-proxy-providers:',
       '  providers:',
       '    deepseek:',
       '      apiKeyEnv: PI_COMPOSITION_KEY',
@@ -227,7 +258,7 @@ describe('llm-pi-ai real dormant composition', () => {
     const server = await mockServer([{ events: textEvents }])
     const { ctx, settingsPath } = await loadComposition()
     await writeFile(settingsPath, [
-      'llm-pi-ai:',
+      'llm-proxy-providers:',
       '  providers:',
       '    deepseek:',
       '      apiKeyEnv: PI_COMPOSITION_KEY',

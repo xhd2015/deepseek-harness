@@ -273,16 +273,24 @@ export class PiAiAdapter extends LlmAdapter {
     return this.current().profiles.get(provider)?.retryPolicy
   }
 
+  /**
+   * Served models first, then the ones this route's configuration refuses.
+   * A refused entry has no materialized model, so the id the document names is
+   * its label, and it holds no position in the adapter's own catalog order.
+   */
   override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
     return Promise.resolve().then(() => {
       const snapshot = this.current()
-      this.profileOf(snapshot, provider)
-      return snapshot.models.getModels(provider).map(model => ({
+      const profile = this.profileOf(snapshot, provider)
+      const served: LlmModelInfo[] = snapshot.models.getModels(provider).map(model => ({
         provider,
         id: model.id,
         name: model.name,
         inputModalities: [...model.input],
       }))
+      const refused: LlmModelInfo[] = [...profile.modelErrors]
+        .map(([id, reason]) => ({ provider, id, name: id, unavailable: reason }))
+      return [...served, ...refused]
     })
   }
 

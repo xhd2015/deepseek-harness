@@ -6,6 +6,8 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { Context, Service, symbols } from '@deepseek-ai/cordis'
 import type { ConnectionRpcHandler } from '@deepseek-ai/dsh-client-connection'
 import { Deque } from '@deepseek-ai/dsh-deque'
@@ -42,6 +44,7 @@ import {
   REMOTE_EVENT_STREAM_READY,
   REMOTE_EVENT_RESULT_ENDPOINT,
   REMOTE_STREAM_MUX_PATH,
+  REMOTE_UNARY_STREAM_ENDPOINT,
   isRemoteEventAgentId,
   isRemoteJsonValue,
   parseRemoteEventResult,
@@ -114,6 +117,11 @@ type ConnectionRpcResult = Awaited<ReturnType<ConnectionRpcHandler>>
 type ConnectionRpcError = Extract<ConnectionRpcResult, { readonly ok: false }>['error']
 const NEVER_ABORTED_SIGNAL = new AbortController().signal
 const DEFAULT_WEBSOCKET_HEARTBEAT_INTERVAL_MS = 2_000
+/** Authenticated same-origin module Worker serving the browser-wide Remote mux. */
+export const REMOTE_SHARED_MUX_WORKER_PATH = '/api/remote.shared-mux-worker.js'
+/** Built worker artifact resolved through the Gateway package's published export. */
+const REMOTE_SHARED_MUX_WORKER_ARTIFACT = createRequire(import.meta.url)
+  .resolve('@deepseek-ai/dsh-api-gateway/shared-mux-worker')
 
 /** Gateway transport configuration. */
 export interface Config {
@@ -226,6 +234,30 @@ export class TypertGatewayService extends Service implements TypertGateway {
           await mux.close()
         }
       }, `api-gateway: ${REMOTE_STREAM_MUX_PATH} WebSocket`)
+      webCtx.effect(() => webCtx.webServer.register({
+        kind: 'exact',
+        path: REMOTE_SHARED_MUX_WORKER_PATH,
+        handler: (req, res) => {
+          const rejection = webCtx.connection.requestRejection(req)
+          if (rejection !== undefined) {
+            res.writeHead(rejection)
+            res.end()
+            return
+          }
+          if (req.method !== 'GET' && req.method !== 'HEAD') {
+            res.writeHead(405, { allow: 'GET, HEAD' })
+            res.end()
+            return
+          }
+          const artifact = readFileSync(REMOTE_SHARED_MUX_WORKER_ARTIFACT)
+          res.writeHead(200, {
+            'content-type': 'text/javascript; charset=utf-8',
+            'cache-control': 'no-cache',
+          })
+          if (req.method === 'GET') res.end(artifact)
+          else res.end()
+        },
+      }), `api-gateway: ${REMOTE_SHARED_MUX_WORKER_PATH}`)
     })
   }
 
@@ -378,7 +410,23 @@ export class TypertGatewayService extends Service implements TypertGateway {
     if (endpoint === REMOTE_EVENT_STREAM_ENDPOINT) {
       return this.openRemoteEvents(payload, signal)
     }
+    if (endpoint === REMOTE_UNARY_STREAM_ENDPOINT) {
+      return this.openUnaryWire(payload, signal)
+    }
     return this.stream(remoteRequest(endpoint, payload, signal))
+  }
+
+  /** Open one mux logical stream that yields exactly one unary RPC result. */
+  private async *openUnaryWire(payload: unknown, signal: AbortSignal): AsyncGenerator<ConnectionRpcResult> {
+    const request = parseUnaryWireRequest(payload)
+    if (!this.claimsEndpoint(request.endpoint)) {
+      throw new TypertGatewayError(
+        'gateway/method-unavailable',
+        request.endpoint,
+        'unary Remote endpoint is unavailable',
+      )
+    }
+    yield await this.dispatchRpc(request.endpoint, request.payload, signal)
   }
 
   private async *openRemoteEvents(
@@ -1154,6 +1202,20 @@ function decode(
       { cause, field },
     )
   }
+}
+
+function parseUnaryWireRequest(payload: unknown): { readonly endpoint: string; readonly payload: unknown } {
+  if (!isObject(payload) || !isPlainObject(payload) || Reflect.ownKeys(payload).length !== 1
+    || !Object.hasOwn(payload, 'args')) {
+    throw new TypeError('typert gateway: unary mux request must contain exactly one args object')
+  }
+  const args = payload.args
+  if (!isObject(args) || !isPlainObject(args) || Reflect.ownKeys(args).length !== 2
+    || !Object.hasOwn(args, 'endpoint') || !Object.hasOwn(args, 'payload')
+    || typeof args.endpoint !== 'string' || args.endpoint.length === 0) {
+    throw new TypeError('typert gateway: invalid unary mux request')
+  }
+  return { endpoint: args.endpoint, payload: args.payload }
 }
 
 function assertJsonValue(value: unknown, ancestors: Set<object>): void {

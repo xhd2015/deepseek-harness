@@ -28,7 +28,7 @@ function SidebarFrame({ renderSlot }: FrameProps) {
 /** The assembled sidebar over one Workspace inside the POSIX home the Host reports. */
 async function bench() {
   const runtime = await SlotTestRuntime.create()
-  runtime.ctx.provide('layout', { selectPanel: vi.fn() })
+  runtime.ctx.provide('layout', { selectPanel: vi.fn(), collapseSidebar: vi.fn() })
   runtime.releaseWorkspaceSource()
   const directoryPicker = {}
   const { remote } = runtime
@@ -69,7 +69,7 @@ describe('Host home in the assembled browsing region', () => {
     // First render precedes the ready frame: the shell mounts while the carrier
     // is still handshaking, so the Host reports no home yet.
     const { runtime, remote } = await bench()
-    remote.$host = { home: undefined, isLoopback: true }
+    remote.$host = { home: undefined, isLoopback: true, settingsTrusted: true }
     runtime.renderRoot()
     vi.useFakeTimers()
     try {
@@ -79,7 +79,7 @@ describe('Host home in the assembled browsing region', () => {
 
       // The ready frame lands: `$host.home` now answers, and the generation is
       // announced through the reset every consumer already listens to.
-      remote.$host = { home: '/home/u', isLoopback: true }
+      remote.$host = { home: '/home/u', isLoopback: true, settingsTrusted: true }
       act(() => { runtime.ctx.emit('connection/reset') })
       openHoverCard()
 

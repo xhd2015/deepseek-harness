@@ -285,14 +285,16 @@ const compatProfile: z<PiAiCompatProfile> = z.object({
  * (`off:`) survives validation because schemastery passes nullable data
  * through before any member schema runs — `z.const(null)` only controls the
  * error for non-null wrong values and what a configuration UI renders.
- * Only resolution decides which levels may leave the value empty, so the
- * diagnostic can name the route and model. The assertion narrows
- * schemastery's `Dict`, which types every literal key as required; dict
- * validation checks only present keys, so the runtime value is a partial record.
+ * The key set is deliberately unconstrained here: resolution decides which
+ * keys are levels, which may leave the value empty, and reports one bad entry
+ * as that model's diagnostic, so a typo in one model does not refuse the whole
+ * namespace and hide every other model the document configures. Admission to
+ * the type is still the assertion below, whose runtime truth resolution
+ * establishes. Dict validation checks only present keys, so the runtime value
+ * is a partial record.
  */
 const reasoningEfforts = z.dict(
   z.union([z.string(), z.const(null)]),
-  z.union(THINKING_LEVELS),
 ) as unknown as z<PiAiReasoningEfforts>
 
 /** The fields a `models` entry and a `modelOverrides` value share; only the id's home differs. */

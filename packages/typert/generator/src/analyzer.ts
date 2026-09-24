@@ -751,7 +751,10 @@ class FaceAnalyzer {
       if (target.includes('*') || subpath === './package.json'
         || subpath === './typert' || subpath === './client/typert' || subpath === './remote'
         // Data exports (bundle patch lists, JSON manifests) carry no TypeScript API.
-        || target.endsWith('.json') || target.endsWith('.yml') || target.endsWith('.yaml')) continue
+        || target.endsWith('.json') || target.endsWith('.yml') || target.endsWith('.yaml')
+        // Served build assets: the shared-mux worker is a self-contained
+        // browser bundle with no typed API in either analyzer face.
+        || subpath === './shared-mux-worker') continue
       const sourcePath = sourcePathForExport(registration.root, target)
       const sourceFile = this.sourceFiles.get(realPath(sourcePath))
       if (sourceFile === undefined) {

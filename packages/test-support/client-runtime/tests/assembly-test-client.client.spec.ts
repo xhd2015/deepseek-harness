@@ -19,7 +19,7 @@ const PARALLEL_PROBE = '@deepseek-ai/dsh-client-test-parallel-probe'
 /** Declared by ui-sidebar, whose SlotMap merge is outside this package's compilation face. */
 const SIDEBAR_SETTINGS = 'sidebar.settings' as never
 const BRAND = '@deepseek-ai/dsh-client-ui-brand-official'
-const globals = globalThis as { EventSource?: unknown; ResizeObserver?: unknown }
+const globals = globalThis as { SharedWorker?: unknown; ResizeObserver?: unknown }
 /** The whole roster's first boot pays the cold module transform of every plugin package. */
 const COLD_BOOT_TIMEOUT_MS = 60_000
 
@@ -40,12 +40,12 @@ describe('TestClient (jsdom)', () => {
     expect(document.body.contains(container)).toBe(true)
     expect(container.childElementCount).toBeGreaterThan(0)
     expect('__DSH_TRANSPORT__' in globalThis).toBe(false)
-    expect(globals.EventSource).toBeDefined()
+    expect(globals.SharedWorker).toBeDefined()
     expect(globals.ResizeObserver).toBeDefined()
     await client.dispose()
     expect(document.body.contains(container)).toBe(false)
     expect('__DSH_TRANSPORT__' in globalThis).toBe(false)
-    expect(globals.EventSource).toBeUndefined()
+    expect(globals.SharedWorker).toBeUndefined()
     expect(globals.ResizeObserver).toBeUndefined()
     await client.dispose()
   }, COLD_BOOT_TIMEOUT_MS)
@@ -56,10 +56,10 @@ describe('TestClient (jsdom)', () => {
     onTestFinished(() => { vi.unstubAllGlobals() })
     const client = await started({ roster: API_ROSTER })
     expect(globals.ResizeObserver).toBe(existing)
-    expect(globals.EventSource).toBeDefined()
+    expect(globals.SharedWorker).toBeDefined()
     await client.dispose()
     expect(globals.ResizeObserver).toBe(existing)
-    expect(globals.EventSource).toBeUndefined()
+    expect(globals.SharedWorker).toBeUndefined()
   })
 
   it('boots separate client instances against their own mocks and keeps shared shims until the last dispose', async () => {
@@ -84,10 +84,10 @@ describe('TestClient (jsdom)', () => {
     expect(mockB.log.calls('session/rename')).toHaveLength(1)
     await a.dispose()
     expect('__DSH_TRANSPORT__' in globalThis).toBe(false)
-    expect(globals.EventSource).toBeDefined()
+    expect(globals.SharedWorker).toBeDefined()
     await b.dispose()
     expect('__DSH_TRANSPORT__' in globalThis).toBe(false)
-    expect(globals.EventSource).toBeUndefined()
+    expect(globals.SharedWorker).toBeUndefined()
   })
 
   it('boots two plugin trees concurrently instead of serializing the worker', async () => {
@@ -241,6 +241,6 @@ describe('TestClient (jsdom)', () => {
     const mock = RemoteMock.create().stream('$events', openStream([]))
     await expect(TestClient.start({ roster }, mock, { connectTimeoutMs: 300 }))
       .rejects.toThrow(/connection state is \S+ after 300ms; unmatched: \[unary workspace\/follow\]; streams: \[.*\$events \(open\).*\]/)
-    expect(globals.EventSource).toBeUndefined()
+    expect(globals.SharedWorker).toBeUndefined()
   })
 })

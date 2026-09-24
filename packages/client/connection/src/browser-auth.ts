@@ -13,6 +13,7 @@ const AUTH_RECORD_KEY = credentialKey('client-connection', 'browser-session')
 const DAY_MILLISECONDS = 24 * 60 * 60 * 1000
 const SECRET_BYTES = 32
 const TOKEN_QUERY = 'token'
+const SESSION_QUERY = 'session'
 const COOKIE_PREFIX = 'dsh-auth-'
 const COOKIE_PAYLOAD_VERSION = 1
 const STORED_SECRET_VERSION = 1
@@ -95,6 +96,21 @@ function storedSecret(record: CredentialRecord | undefined): Buffer | undefined 
     throw new Error('client-connection: browser-session credential record has an invalid secret')
   }
   return secret
+}
+
+function redirectLocation(url: URL): string {
+  const sessions = url.searchParams.getAll(SESSION_QUERY)
+  if (sessions.length !== 1) return '/'
+  const session = sessions[0]
+  if (session === undefined || session === '' || !/^[A-Za-z0-9._:-]+$/u.test(session)) return '/'
+  return `/?${SESSION_QUERY}=${encodeURIComponent(session)}`
+}
+
+function bearerToken(request: ConnectionTrustRequest): string | undefined {
+  const value = header(request.headers, 'authorization')
+  if (value === undefined) return undefined
+  const match = /^Bearer +(\S+)$/u.exec(value)
+  return match?.[1]
 }
 
 function tokenMatches(actual: string, expected: string): boolean {
@@ -190,6 +206,7 @@ export class BrowserAuth {
     processOwner: object,
     private readonly secret: Buffer,
     maxAgeDays: number,
+    private readonly disableAuth: boolean,
   ) {
     this.launchToken = processLaunchToken(processOwner)
     this.maxAgeMilliseconds = maxAgeDays * DAY_MILLISECONDS
@@ -205,14 +222,16 @@ export class BrowserAuth {
    * @param processOwner - root application context retaining one token across Connection reloads.
    * @param credentials - persistent credential provider for the Web profile.
    * @param maxAgeDays - positive absolute browser-cookie lifetime in days.
+   * @param disableAuth - when true, skip process-token and cookie checks.
    * @returns initialized authentication owner with the process owner's launch token.
    */
   static async create(
     processOwner: object,
     credentials: CredentialProvider,
     maxAgeDays: number,
+    disableAuth = false,
   ): Promise<BrowserAuth> {
-    return new BrowserAuth(processOwner, await initializeSecret(credentials), maxAgeDays)
+    return new BrowserAuth(processOwner, await initializeSecret(credentials), maxAgeDays, disableAuth)
   }
 
   /**
@@ -225,7 +244,7 @@ export class BrowserAuth {
     url.pathname = '/'
     url.search = ''
     url.hash = ''
-    url.searchParams.set(TOKEN_QUERY, this.launchToken)
+    if (!this.disableAuth) url.searchParams.set(TOKEN_QUERY, this.launchToken)
     return url.href
   }
 
@@ -238,6 +257,7 @@ export class BrowserAuth {
    * @returns true only when the caller may serve index.html.
    */
   authorizeIndex(req: ConnectionIndexRequest, res: ConnectionIndexResponse): boolean {
+    if (this.disableAuth) return true
     /* v8 ignore next -- node:http always supplies url on server requests. */
     const url = new URL(req.url ?? '/', 'http://dsh.invalid')
     const tokens = url.searchParams.getAll(TOKEN_QUERY)
@@ -255,7 +275,7 @@ export class BrowserAuth {
         }, this.secret)
         res.writeHead(303, {
           'cache-control': 'no-store',
-          'location': '/',
+          'location': redirectLocation(url),
           'referrer-policy': 'no-referrer',
           'set-cookie': sessionCookie(
             cookieName(authority), value, expiresAt, Math.floor(this.maxAgeMilliseconds / 1000),
@@ -267,7 +287,7 @@ export class BrowserAuth {
       if (req.method === 'GET' && url.pathname === '/' && this.isAuthenticated(req)) {
         res.writeHead(303, {
           'cache-control': 'no-store',
-          'location': '/',
+          'location': redirectLocation(url),
           'referrer-policy': 'no-referrer',
         })
         res.end()
@@ -287,6 +307,9 @@ export class BrowserAuth {
    * @returns true only for an unexpired cookie signed by this activation's loaded secret.
    */
   isAuthenticated(request: ConnectionTrustRequest): boolean {
+    if (this.disableAuth) return true
+    const bearer = bearerToken(request)
+    if (bearer !== undefined && tokenMatches(bearer, this.launchToken)) return true
     const authority = requestAuthority(request.headers)
     const rawCookie = header(request.headers, 'cookie')
     if (authority === undefined || rawCookie === undefined) return false

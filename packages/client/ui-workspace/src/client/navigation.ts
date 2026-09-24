@@ -15,6 +15,7 @@ import type {
 } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+import { pageSearch, parseSessionQuery } from './session-query.ts'
 
 interface MainSelection {
   readonly sessionId?: SessionId
@@ -228,6 +229,12 @@ class UiWorkspaceService extends Service implements UiWorkspace {
       if (this.lifetime.signal.aborted) return
       if (this.clearArchivedCurrent()) return
       if (initial !== 'waiting') return
+      // `dsh web open` names the Session in the query; do not restore the
+      // persisted current or a blank Workspace Session over it.
+      if (parseSessionQuery(pageSearch()).kind !== 'absent') {
+        initial = 'done'
+        return
+      }
       const workspace = this.workspaces.list.getSnapshot()
       const sessions = this.sessions.list.getSnapshot()
       if (workspace.phase !== 'ready' || sessions.phase !== 'ready') return

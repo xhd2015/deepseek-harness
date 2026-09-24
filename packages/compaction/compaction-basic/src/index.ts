@@ -11,6 +11,8 @@ import type { CompactionResult, CompactionTrigger } from '@deepseek-ai/dsh-compa
 import type { Session, SessionSeq } from '@deepseek-ai/dsh-session'
 import { CONTEXT_WINDOW_EXCEEDED_CODE } from '@deepseek-ai/dsh-llm'
 import type { LlmCallConfig } from '@deepseek-ai/dsh-llm'
+import type {} from '@deepseek-ai/dsh-session-projection'
+import type {} from '@deepseek-ai/dsh-token-meter/src/projection.ts'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
@@ -25,6 +27,7 @@ import {
 import {
   assertNoActiveCompaction,
   compactSurfaceRegion,
+  retainTokensForSummarizerOnSurface,
   selectCompactableRange,
 } from './region.ts'
 import { summarizeWithLlm } from './summarizer.ts'
@@ -245,8 +248,8 @@ export class BasicCompactionEngine extends CompactionEngine {
   /**
    * Compact for replayed step-boundary pressure or one provider-confirmed context
    * overflow. Both triggers price the latest durable routed request envelope;
-   * overflow bypasses the normal threshold and retained-tail policy so it can
-   * force one useful balanced reduction.
+   * overflow bypasses the pressure threshold and keeps only enough tail for the
+   * summarizer request to fit in the routed context window.
    * @param agent - agent whose latest durable routed request is measured.
    * @param trigger - normal step-boundary pressure or context-overflow recovery.
    * @param signal - live turn cancellation signal forwarded to summarization.
@@ -282,7 +285,11 @@ export class BasicCompactionEngine extends CompactionEngine {
         prune.pruneSession(agent.session)
         measurement = meter.measure(agent.session)
       }
-      const range = selectCompactableRange(agent.session, measurement, 0)
+      const range = selectCompactableRange(
+        agent.session,
+        measurement,
+        await this.retainForSummarizer(agent, measurement, signal),
+      )
       if (range === null) return null
       return this.compactRegion(range.start, range.end, agent, signal)
     }
@@ -355,8 +362,9 @@ export class BasicCompactionEngine extends CompactionEngine {
   }
 
   /**
-   * Force one useful idle-session compaction below the pressure threshold, and
-   * resolve only after its standalone marker pair is durably checkpointed.
+   * Force one useful idle-session compaction below the pressure threshold,
+   * retaining enough tail for the summarizer request to fit, and resolve only
+   * after its standalone marker pair is durably checkpointed.
    * @param agent - idle agent whose next-turn admission this call reserves.
    * @param signal - cancellation scoped to this compaction request.
    * @param sourceCommandId - initiating command identity for presentation correlation.
@@ -373,10 +381,11 @@ export class BasicCompactionEngine extends CompactionEngine {
         const operationSignal = AbortSignal.any([agentSignal, signal])
         try {
           operationSignal.throwIfAborted()
+          const measurement = this.ctx.tokenMeter.measure(agent.session)
           const range = selectCompactableRange(
             agent.session,
-            this.ctx.tokenMeter.measure(agent.session),
-            0,
+            measurement,
+            this.retainFromProjectedWindow(agent.session, measurement),
           )
           if (range === null) return null
           return await compactSurfaceRegion(
@@ -413,6 +422,54 @@ export class BasicCompactionEngine extends CompactionEngine {
         'manual compaction requires an idle agent with no waking queued work',
         { cause: error },
       )
+    }
+  }
+
+  /**
+   * Retain budget from the projected context window, or `0` when none is known.
+   * @param session - session whose `contextPressure` projection is read.
+   * @param measurement - current conversation-meter totals.
+   */
+  private retainFromProjectedWindow(
+    session: Session,
+    measurement: Parameters<typeof retainTokensForSummarizerOnSurface>[1],
+  ): number {
+    const contextWindow = this.ctx.get('sessionProjections')
+      ?.snapshot(session).values.contextPressure?.contextWindow
+    if (typeof contextWindow !== 'number' || !Number.isInteger(contextWindow) || contextWindow <= 0) {
+      return 0
+    }
+    return retainTokensForSummarizerOnSurface(session, measurement, contextWindow)
+  }
+
+  /**
+   * Retain enough recent tail that the shadowed prefix plus the request envelope
+   * still fit in the routed context window for the summarizer call.
+   * @param agent - supplies the durable route or AgentOptions fallback.
+   * @param measurement - current conversation-meter totals.
+   * @param signal - forwarded to model-info resolution when no window is logged.
+   * @returns `0` when no capacity is known, otherwise the summarizer-fit retain budget.
+   */
+  private async retainForSummarizer(
+    agent: Agent,
+    measurement: Parameters<typeof retainTokensForSummarizerOnSurface>[1],
+    signal: AbortSignal,
+  ): Promise<number> {
+    const projectedWindow = this.ctx.get('sessionProjections')
+      ?.snapshot(agent.session).values.contextPressure?.contextWindow
+    if (typeof projectedWindow === 'number' && Number.isInteger(projectedWindow) && projectedWindow > 0) {
+      return retainTokensForSummarizerOnSurface(agent.session, measurement, projectedWindow)
+    }
+    const target = routedTarget(agent.session) ?? conversationTarget(agent)
+    if (target === undefined) return 0
+    try {
+      const context = (await this.ctx.llm.resolveModelInfo(target.provider, target.model, signal)).context
+      if (context === undefined) return 0
+      return retainTokensForSummarizerOnSurface(agent.session, measurement, context.contextWindow)
+    } catch (error: unknown) {
+      // Unlisted routes have no adapter capacity; overflow still force-compacts.
+      void error
+      return 0
     }
   }
 

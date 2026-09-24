@@ -62,6 +62,7 @@ function createAuth(
 function request(url: string, authority = '127.0.0.1:3080', init?: {
   cookie?: string
   method?: string
+  authorization?: string
 }): ConnectionIndexRequest {
   return {
     method: init?.method ?? 'GET',
@@ -69,6 +70,7 @@ function request(url: string, authority = '127.0.0.1:3080', init?: {
     headers: {
       host: authority,
       ...init?.cookie === undefined ? {} : { cookie: init.cookie },
+      ...init?.authorization === undefined ? {} : { authorization: init.authorization },
     },
   }
 }
@@ -138,6 +140,30 @@ describe('BrowserAuth', () => {
         'referrer-policy': 'no-referrer',
       },
     })
+  })
+
+  it('keeps a session query on the token redirect', async () => {
+    const auth = await createAuth(new RecordCredentials())
+    const launchUrl = new URL(auth.authenticatedUrl('http://127.0.0.1:3080'))
+    launchUrl.searchParams.set('session', 'session-abc')
+    const res = response()
+    expect(auth.authorizeIndex(
+      request(`${launchUrl.pathname}${launchUrl.search}`),
+      res.value,
+    )).toBe(false)
+    expect(res.state.headers?.location).toBe('/?session=session-abc')
+  })
+
+  it('accepts the process launch token as a Bearer credential', async () => {
+    const auth = await createAuth(new RecordCredentials())
+    const token = new URL(auth.authenticatedUrl('http://127.0.0.1:3080')).searchParams.get('token')
+    expect(token).toEqual(expect.any(String))
+    expect(auth.isAuthenticated(request('/', '127.0.0.1:3080', {
+      authorization: `Bearer ${token}`,
+    }))).toBe(true)
+    expect(auth.isAuthenticated(request('/', '127.0.0.1:3080', {
+      authorization: 'Bearer wrong',
+    }))).toBe(false)
   })
 
   it('accepts the cookie for index serving and gives every unauthenticated request one response', async () => {
@@ -246,5 +272,14 @@ describe('BrowserAuth', () => {
 
     await expect(createAuth(new RecordCredentials(), Number.MAX_SAFE_INTEGER))
       .rejects.toThrow(/safe timestamp range/u)
+  })
+
+  it('skips process-token checks when disableAuth is set', async () => {
+    const auth = await BrowserAuth.create({}, credentials(new RecordCredentials()), 30, true)
+    expect(new URL(auth.authenticatedUrl('http://127.0.0.1:3080')).searchParams.get('token')).toBeNull()
+    expect(auth.isAuthenticated(request('/'))).toBe(true)
+    const index = response()
+    expect(auth.authorizeIndex(request('/'), index.value)).toBe(true)
+    expect(index.state.status).toBeUndefined()
   })
 })

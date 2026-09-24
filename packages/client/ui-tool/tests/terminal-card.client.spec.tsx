@@ -258,9 +258,14 @@ describe('terminalCardModel', () => {
     ['permission value', { sandbox_permissions: 'read-only', justification: 'Need access' }],
     ['missing justification', { sandbox_permissions: 'workspace-write' }],
     ['orphan justification', { justification: 'Need access' }],
-    ['blank justification', { sandbox_permissions: 'workspace-write', justification: ' ' }],
   ])('keeps malformed standard-shell optional fields generic: %s', (_label, fields) => {
     expect(terminalCardModel(running({ argsRaw: shellArgs(fields) }))).toBeNull()
+  })
+
+  it('renders a blank justification: the executor accepts redundant asks before checking the text', () => {
+    expect(terminalCardModel(running({
+      argsRaw: shellArgs({ sandbox_permissions: 'workspace-write', justification: ' ' }),
+    }))).not.toBeNull()
   })
 
   it('accepts valid optional and unknown standard-shell fields on the open parameter root', () => {

@@ -15,13 +15,15 @@ import {
 } from '../src/client/index.ts'
 
 type Win = {
-  location?: { hostname: string; origin?: string }
+  location?: { hostname: string; host?: string; origin?: string }
   __DSH_TRANSPORT__?: ClientTransportHooks
+  __DSH_SETTINGS_TRUST__?: unknown
 }
 
 afterEach(() => {
   delete (globalThis as Win).location
   delete (globalThis as Win).__DSH_TRANSPORT__
+  delete (globalThis as Win).__DSH_SETTINGS_TRUST__
   vi.unstubAllGlobals()
   vi.useRealTimers()
 })
@@ -132,6 +134,58 @@ describe('connection client apply', () => {
   it('reports non-loopback page authority through the connection handle', async () => {
     ;(globalThis as Win).location = { hostname: '192.0.2.20' }
     expect((await mount()).isLoopback).toBe(false)
+  })
+
+  describe('settings trust', () => {
+    /** Mount with a page authority and the deployment's injected settings list. */
+    async function mountAt(hostname: string, trustedHosts: string[], host?: string): Promise<ConnectionHandle> {
+      ;(globalThis as Win).location = { hostname, ...(host === undefined ? {} : { host }) }
+      vi.stubGlobal('__DSH_SETTINGS_TRUST__', { trustedHosts })
+      return await mount()
+    }
+
+    it('qualifies a loopback page without any declared authority', async () => {
+      const handle = await mountAt('127.0.0.1', [])
+      expect(handle.isLoopback).toBe(true)
+      expect(handle.settingsTrusted).toBe(true)
+    })
+
+    it('qualifies a non-loopback page the deployment named for settings', async () => {
+      const handle = await mountAt('dsh-aes323.xhd2015.xyz', ['dsh-aes323.xhd2015.xyz'])
+      expect(handle.isLoopback).toBe(false)
+      expect(handle.settingsTrusted).toBe(true)
+    })
+
+    it('leaves an unnamed non-loopback page process-local', async () => {
+      const handle = await mountAt('dsh-aes323.xhd2015.xyz', ['other.internal'])
+      expect(handle.settingsTrusted).toBe(false)
+    })
+
+    it('leaves settings process-local when the boot global is absent or malformed', async () => {
+      for (const value of [undefined, null, {}, { trustedHosts: 'app.internal' }, { trustedHosts: [7] }]) {
+        ;(globalThis as Win).location = { hostname: 'app.internal' }
+        vi.stubGlobal('__DSH_SETTINGS_TRUST__', value)
+        expect((await mount()).settingsTrusted).toBe(false)
+      }
+    })
+
+    it('matches a port-bearing entry only on that port and a port-less entry on any port', async () => {
+      const ported = await mountAt('app.internal', ['app.internal:8443'], 'app.internal:9999')
+      expect(ported.settingsTrusted).toBe(false)
+      const exact = await mountAt('app.internal', ['app.internal:8443'], 'app.internal:8443')
+      expect(exact.settingsTrusted).toBe(true)
+      const anyPort = await mountAt('app.internal', ['app.internal'], 'app.internal:9999')
+      expect(anyPort.settingsTrusted).toBe(true)
+    })
+
+    it('treats a transport that owns the Host as settings-trusted', async () => {
+      ;(globalThis as Win).location = { hostname: 'preview.example' }
+      vi.stubGlobal('__DSH_SETTINGS_TRUST__', { trustedHosts: [] })
+      vi.stubGlobal('__DSH_TRANSPORT__', { ownsHost: true })
+      const handle = await mount()
+      expect(handle.isLoopback).toBe(true)
+      expect(handle.settingsTrusted).toBe(true)
+    })
   })
 
   it('requires one generation source and ignores a stale source disposer', async () => {

@@ -5,7 +5,7 @@
 
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
@@ -64,6 +64,8 @@ export const apply = ctx => globalThis.__webStartupApply(ctx)
     '    openBrowser: !!js ctx.webStartup.openBrowser',
     '    port: !!js ctx.webStartup.port ?? 3080',
     '    trustedHosts: !!js ctx.webStartup.trustedHosts',
+    '    trustedHostsForSettings: !!js ctx.webStartup.trustedHostsForSettings',
+    '    disableAuth: !!js ctx.webStartup.disableAuth === true',
     '- id: provider',
     `  name: ${pathToFileURL(join(dir, 'provider.mjs')).href}`,
     '',
@@ -99,26 +101,158 @@ describe('web command-line provider', () => {
       '--port', '8080',
       '--trusted-host', 'lab.internal', 'lab-2.internal',
       '--trusted-host', '10.0.0.9',
+      '--trusted-host-for-settings', 'lab.internal',
     ])
     expect(values).toEqual({
+      mode: 'serve',
       host: '127.0.0.1',
       openBrowser: false,
       port: 8080,
       trustedHosts: ['lab.internal', 'lab-2.internal', '10.0.0.9'],
+      trustedHostsForSettings: ['lab.internal'],
+      disableAuth: false,
     })
-    expect(observed.readerConfig).toEqual(values)
+    expect(observed.readerConfig).toEqual({
+      host: '127.0.0.1',
+      openBrowser: false,
+      port: 8080,
+      trustedHosts: ['lab.internal', 'lab-2.internal', '10.0.0.9'],
+      trustedHostsForSettings: ['lab.internal'],
+      disableAuth: false,
+    })
     expect(observed.exits).toEqual([])
   })
 
   it('leaves deployment values to each consumer when flags omit them', async () => {
     const { values, observed } = await bootProvider([])
-    expect(values).toEqual({ openBrowser: true, trustedHosts: [] })
+    expect(values).toEqual({
+      mode: 'serve',
+      openBrowser: true,
+      trustedHosts: [],
+      trustedHostsForSettings: [],
+      disableAuth: false,
+    })
     expect(observed.readerConfig).toEqual({
       host: '127.0.0.1',
       openBrowser: true,
       port: 3080,
       trustedHosts: [],
+      trustedHostsForSettings: [],
+      disableAuth: false,
     })
+  })
+
+  it('rejects a settings authority that is not also a --trusted-host', async () => {
+    const { values, observed } = await bootProvider(['--trusted-host-for-settings', 'lab.internal'])
+    expect(observed.out).toContain('is not also a --trusted-host')
+    expect(values).toBeUndefined()
+    expect(observed.exits).toEqual([1])
+  })
+
+  it('rejects a settings authority that is not a bare host[:port]', async () => {
+    const { values, observed } = await bootProvider([
+      '--trusted-host', 'https://lab.internal/x',
+      '--trusted-host-for-settings', 'https://lab.internal/x',
+    ])
+    expect(observed.out).toContain('expects a bare host or host:port')
+    expect(values).toBeUndefined()
+    expect(observed.exits).toEqual([1])
+  })
+
+  it('publishes disableAuth from --no-auth', async () => {
+    const { values, observed } = await bootProvider(['--no-auth'])
+    expect(values?.disableAuth).toBe(true)
+    expect(observed.readerConfig).toEqual({
+      host: '127.0.0.1',
+      openBrowser: true,
+      port: 3080,
+      trustedHosts: [],
+      trustedHostsForSettings: [],
+      disableAuth: true,
+    })
+  })
+
+  it('publishes a named browser on serve', async () => {
+    const { values } = await bootProvider(['--browser', 'brave'])
+    expect(values).toMatchObject({ mode: 'serve', browser: 'brave', openBrowser: true })
+  })
+
+  it('rejects an unknown --browser spelling', async () => {
+    const { values, observed } = await bootProvider(['--browser', 'lynx'])
+    expect(observed.out).toContain('--browser must be one of')
+    expect(values).toBeUndefined()
+    expect(observed.exits).toEqual([1])
+  })
+
+  it('accepts --browser=brave on open', async () => {
+    const { values } = await bootProvider(['open', '--browser=brave'])
+    expect(values).toMatchObject({ mode: 'open', browser: 'brave', openBrowser: true })
+  })
+
+  it('publishes open mode for a directory', async () => {
+    const { values } = await bootProvider(['open', '/tmp/proj', '--browser', 'brave'])
+    expect(values).toMatchObject({
+      mode: 'open',
+      openBrowser: true,
+      browser: 'brave',
+    })
+    expect(values?.directory).toContain('proj')
+  })
+
+  it.each(['-p', '--prompt'])('accepts %s without trimming the prompt', async (flag) => {
+    const text = '  Implement task\n保留换行\n'
+    const { values } = await bootProvider(['open', flag, text])
+    expect(values?.initialPrompt).toEqual({ text, submit: true })
+  })
+
+  it('reads a long UTF-8 prompt file relative to invoking cwd, not the target directory', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-web-prompt-'))
+    tempDirs.push(dir)
+    const file = join(dir, 'task.txt')
+    const text = '实现任务\r\n'.repeat(100_000)
+    writeFileSync(file, text)
+    const { values } = await bootProvider([
+      'open', join(dir, 'workspace'), '--prompt-file', relative(process.cwd(), file), '--no-submit', '--no-open',
+    ])
+    expect(values?.initialPrompt).toEqual({ text, submit: false })
+    expect(values?.openBrowser).toBe(false)
+  })
+
+  it.each([
+    [['-p', 'Task', '--prompt-file', 'task.txt'], '--prompt and --prompt-file cannot be used together'],
+    [['--no-submit'], '--no-submit requires --prompt or --prompt-file'],
+    [['-p', ' \n\t'], 'initial prompt must contain non-whitespace text'],
+    [['--prompt', ''], 'initial prompt must contain non-whitespace text'],
+  ])('rejects invalid prompt arguments %j before publishing startup', async (args, message) => {
+    const { values, observed } = await bootProvider(['open', ...args])
+    expect(values).toBeUndefined()
+    expect(observed.readerConfig).toBeUndefined()
+    expect(observed.exits).toEqual([1])
+    expect(observed.out).toContain(message)
+  })
+
+  it('rejects unreadable and blank prompt files before publishing startup', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-web-prompt-'))
+    tempDirs.push(dir)
+    const file = join(dir, 'task.txt')
+    const missing = await bootProvider(['open', '--prompt-file', file])
+    expect(missing.values).toBeUndefined()
+    expect(missing.observed.out).toContain('cannot read prompt file')
+    expect(missing.observed.exits).toEqual([1])
+    writeFileSync(file, '\r\n \t')
+    const blank = await bootProvider(['open', '--prompt-file', file])
+    expect(blank.values).toBeUndefined()
+    expect(blank.observed.out).toContain('initial prompt must contain non-whitespace text')
+    expect(blank.observed.exits).toEqual([1])
+  })
+
+  it('documents prompt sources and draft mode in open help', async () => {
+    const { values, observed } = await bootProvider(['open', '-h'])
+    expect(values).toBeUndefined()
+    expect(observed.exits).toEqual([0])
+    expect(observed.out).toContain('-p, --prompt <text>')
+    expect(observed.out).toContain('--prompt-file <file>')
+    expect(observed.out).toContain('--no-submit')
   })
 
   it('prints its own help and leaves the consumer pending', async () => {

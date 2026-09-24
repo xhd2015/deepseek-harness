@@ -29,7 +29,7 @@ function otherRow(overrides: Partial<ProviderRow> = {}): ProviderRow {
     entry: {
       provider: 'hfai',
       displayName: 'HFAI',
-      settingsNs: 'llm-pi-ai',
+      settingsNs: 'llm-proxy-providers',
       settingsPath: ['providers', 'hfai'],
       active: true,
     },
@@ -45,6 +45,7 @@ function state(overrides: Partial<ModelsSettingsState> = {}): ModelsSettingsStat
   return {
     status: 'ready',
     error: null,
+    terminal: false,
     credentialError: null,
     writable: true,
     rows: [row()],

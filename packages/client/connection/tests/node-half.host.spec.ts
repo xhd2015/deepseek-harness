@@ -190,12 +190,17 @@ describe('connection node half', () => {
     try {
       const rows: IndexInjection[] = []
       ctx.emit('webserver/index-inject', rows)
-      expect(rows).toEqual([{
-        kind: 'global', name: '__DSH_CONNECTION_RECOVERY__', value: {
-          backoffBaseMs: 500, backoffFactor: 2, backoffMaxMs: 10_000,
-          generationReadyWarnMs: 3_000, generationReadyTimeoutMs: 25_000,
+      expect(rows).toEqual([
+        {
+          kind: 'global', name: '__DSH_CONNECTION_RECOVERY__', value: {
+            backoffBaseMs: 500, backoffFactor: 2, backoffMaxMs: 10_000,
+            generationReadyWarnMs: 3_000, generationReadyTimeoutMs: 25_000,
+          },
         },
-      }])
+        {
+          kind: 'global', name: '__DSH_SETTINGS_TRUST__', value: { trustedHosts: [] },
+        },
+      ])
       await dispose()
       const after: IndexInjection[] = []
       ctx.emit('webserver/index-inject', after)
@@ -203,6 +208,41 @@ describe('connection node half', () => {
     } finally {
       await dispose()
     }
+  })
+
+  it('publishes the settings-trusted authorities to the page', async () => {
+    const { ctx, dispose } = await mounted({
+      trustedHosts: ['app.internal', 'lab.internal:8443'],
+      trustedHostsForSettings: ['app.internal'],
+    })
+    try {
+      const rows: IndexInjection[] = []
+      ctx.emit('webserver/index-inject', rows)
+      expect(rows.find(row => row.kind === 'global' && row.name === '__DSH_SETTINGS_TRUST__')).toEqual({
+        kind: 'global', name: '__DSH_SETTINGS_TRUST__', value: { trustedHosts: ['app.internal'] },
+      })
+    } finally {
+      await dispose()
+    }
+  })
+
+  it.each([
+    {
+      trustedHosts: ['app.internal'],
+      trustedHostsForSettings: ['https://app.internal'],
+      error: /not a bare host\[:port\] authority/,
+    },
+    {
+      trustedHosts: ['app.internal'],
+      trustedHostsForSettings: ['other.internal'],
+      error: /is not also a trustedHosts authority/,
+    },
+  ])('rejects an unusable settings grant at load: $trustedHostsForSettings', async ({ trustedHosts, trustedHostsForSettings, error }) => {
+    const ctx = new Context()
+    provideBrowserCredentials(ctx)
+    ctx.provide('webServer', fakeHttpServer([], []) as WebServer)
+    await expect(apply(ctx, { trustedHosts, trustedHostsForSettings })).rejects.toThrow(error)
+    expect(ctx.get('connection')).toBeUndefined()
   })
 
   it.each([

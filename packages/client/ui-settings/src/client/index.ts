@@ -54,8 +54,12 @@ export const inject = ['remote', 'remote.settings']
 export function apply(ctx: Context): void {
   const schema = new SettingsSchemaService(ctx)
   // Resolved once here, where `remote` is declared in this plugin's own
-  // `inject`; the binder hands the same answer to every scope it binds.
-  const persistence = ctx.remote.$host.isLoopback ? 'host' : 'memory'
+  // `inject`; the binder hands the same answer to every scope it binds. A
+  // loopback page always qualifies; a remote page qualifies only when the
+  // deployment named its authority as settings-trusted
+  // (`dsh web --trusted-host-for-settings`), because the Host document holds
+  // model credentials.
+  const persistence = ctx.remote.$host.settingsTrusted ? 'host' : 'memory'
   const mirror = new SettingsDescribeMirror(ctx, persistence)
   ctx.effect(() => {
     const disposers = [

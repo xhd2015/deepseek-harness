@@ -1324,7 +1324,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async listModels(provider: string): Promise<LlmModelInfo[]>',
-        description: 'Discover models advertised by one registered provider. Catalog membership is advisory and never changes routing or request validation.',
+        description: 'Discover models advertised by one registered provider. Catalog membership is advisory and never changes routing or request validation; an entry the adapter refuses reports that refusal instead of disappearing from the list.',
         parameters: [{ name: 'provider', description: 'registered provider route to inspect.' }],
         returns: 'detached model metadata in adapter-preferred order.',
       },
@@ -1693,6 +1693,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Create or idempotently adopt one ordinary Session.',
         parameters: [{ name: 'request', description: 'requested identity, location, and Agent preset.' }],
         returns: 'the Session identity and resolved preset when configured.',
+      },
+      {
+        signature: '@Remote(\'getDraft\') getDraft(request: SessionDraftRequest): Promise<SessionDraftValue>',
+        description: 'Read durable composer text without resuming the Session or changing its transcript.',
+        parameters: [{ name: 'request', description: 'Session identity.' }],
+        returns: 'saved text, or empty text when no draft exists.',
+      },
+      {
+        signature: '@Remote(\'setDraft\') setDraft(request: SessionSetDraftRequest): Promise<SessionDraftValue>',
+        description: 'Replace durable composer text without admitting a prompt; dependent writes must be serialized by callers.',
+        parameters: [{ name: 'request', description: 'Session identity and text; empty text clears the record.' }],
+        returns: 'the text after this write is durable.',
       },
       {
         signature: '@Remote(\'selectModel\') selectModel(request: SessionSelectModelRequest): Promise<SessionSelectModelValue>',
@@ -4990,7 +5002,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'LlmConfigurableProvider',
-    declaration: 'export interface LlmConfigurableProvider {\n    provider: string;\n    displayName: string;\n    settingsNs: string;\n    settingsPath: readonly string[];\n    declared?: boolean;\n    error?: string;\n}',
+    declaration: 'export interface LlmConfigurableProvider {\n    provider: string;\n    displayName: string;\n    settingsNs: string;\n    settingsPath: readonly string[];\n    declared?: boolean;\n    error?: string;\n    modelErrors?: Record<string, string>;\n}',
   },
   {
     name: 'LlmDiscoveredModel',
@@ -5018,7 +5030,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'LlmModelInfo',
-    declaration: 'export interface LlmModelInfo {\n    provider: string;\n    id: string;\n    name: string;\n    description?: string;\n    inputModalities?: readonly ModelModality[];\n}',
+    declaration: 'export interface LlmModelInfo {\n    provider: string;\n    id: string;\n    name: string;\n    description?: string;\n    inputModalities?: readonly ModelModality[];\n    unavailable?: string;\n}',
   },
   {
     name: 'LlmModelReasoningInfo',
@@ -5198,7 +5210,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ModelCatalogModel',
-    declaration: 'export interface ModelCatalogModel {\n    readonly id: string;\n    readonly name: string;\n    readonly description?: string;\n    readonly reasoning?: ModelReasoning;\n}',
+    declaration: 'export interface ModelCatalogModel {\n    readonly id: string;\n    readonly name: string;\n    readonly description?: string;\n    readonly reasoning?: ModelReasoning;\n    readonly unavailable?: string;\n}',
   },
   {
     name: 'ModelMessageSource',
@@ -5729,6 +5741,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionCreateValue {\n    readonly sessionId: SessionId;\n    readonly agentPreset?: string;\n}',
   },
   {
+    name: 'SessionDraftRequest',
+    declaration: 'export interface SessionDraftRequest {\n    readonly sessionId: SessionId;\n}',
+  },
+  {
+    name: 'SessionDraftValue',
+    declaration: 'export interface SessionDraftValue {\n    readonly text: string;\n}',
+  },
+  {
     name: 'SessionEvent',
     declaration: 'export type SessionEvent<T extends SessionEventType = SessionEventType> = {\n    [K in SessionEventType]: {\n        type: K;\n        seq: SessionSeq;\n        time: number;\n        data: SessionEventMap[K];\n        ignorable?: true;\n    } & (K extends SurfaceEventType ? SurfaceIntent<K> : {\n        surfaceOp?: never;\n        sourceEventSeqs?: never;\n    });\n}[T];',
   },
@@ -6067,6 +6087,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionSeqCursor',
     declaration: 'export type SessionSeqCursor = SessionSeq | -1;',
+  },
+  {
+    name: 'SessionSetDraftRequest',
+    declaration: 'export interface SessionSetDraftRequest extends SessionDraftRequest {\n    readonly text: string;\n}',
   },
   {
     name: 'SessionStartSource',

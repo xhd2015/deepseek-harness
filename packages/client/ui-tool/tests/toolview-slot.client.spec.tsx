@@ -66,7 +66,13 @@ const LAYOUT_CHILDREN = {
 async function bench(nodes: ToolResultNode[]) {
   const runtime = await SlotTestRuntime.create()
   const openWorkspacePath = vi.fn(async () => ({ ok: true, value: { opened: true } }))
-  runtime.remote.provideNamespaces({ session: { openWorkspacePath } })
+  runtime.remote.provideNamespaces({
+    session: {
+      openWorkspacePath,
+      getDraft: async () => ({ ok: true, value: { text: '' } }),
+      setDraft: async ({ text }: { text: string }) => ({ ok: true, value: { text } }),
+    },
+  })
   runtime.ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
   const layout = { openDetails: vi.fn(), closeDetails: vi.fn() }
   runtime.ctx.provide('layout', layout)
@@ -286,6 +292,8 @@ describe('registrant declaration injection', () => {
     runtime.remote.provideNamespaces({
       session: {
         openWorkspacePath: vi.fn(async () => ({ ok: true, value: { opened: true } })),
+        getDraft: async () => ({ ok: true, value: { text: '' } }),
+        setDraft: async ({ text }: { text: string }) => ({ ok: true, value: { text } }),
       },
     })
     runtime.ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)

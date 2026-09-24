@@ -203,6 +203,9 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   // The headless entry and its startup row share the JSON projection code
   // through a hashed tsdown chunk; both import it by relative path.
   '@deepseek-ai/dsh-headless': ['lib/json-stream-*.js'],
+  // The web entry, its startup row, and the `dsh web open` client share the
+  // browser-opening and listen-record code through hashed tsdown chunks.
+  '@deepseek-ai/dsh-web-app': ['lib/startup-*.js', 'lib/opener-*.js'],
 }
 
 function sameStringList(actual: readonly string[] | undefined, expected: readonly string[]): boolean {
@@ -239,6 +242,9 @@ export function expectedDshPackageFiles(manifest: PackageManifest): readonly str
     // A surface bundle's startup row is its own bundle: the Loader imports it
     // as a row module, so it cannot ride inside the package entry.
     ...exportDefault(manifest, './startup') === './lib/startup.js' ? ['lib/startup.js'] : [],
+    // The `open` client row is the same row-module pattern: the `dsh web open`
+    // launcher imports this subpath directly, so it ships as its own bundle.
+    ...exportDefault(manifest, './open') === './lib/open.js' ? ['lib/open.js'] : [],
     ...extras,
     // Subpaths whose runtime default is the tsc-emitted tree (lib/types/*.js —
     // browser-safe source channels rehomed off src so plain Node can import

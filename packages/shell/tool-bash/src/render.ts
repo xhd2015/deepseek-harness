@@ -6,7 +6,7 @@
 
 import type { ShellProcessRead, ShellRunResult, ShellSandboxInfo, CollectedOutput } from '@deepseek-ai/dsh-shell'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
-import { escalationHintMarker, sandboxDenialMarker } from '@deepseek-ai/dsh-sandbox'
+import { escalationHintMarker, escalationIgnoredMarker, sandboxDenialMarker } from '@deepseek-ai/dsh-sandbox'
 
 /** Append the truncation notice (with the full-output spill path) to a stream's text. */
 function streamText(output: CollectedOutput): string {
@@ -19,15 +19,19 @@ function streamText(output: CollectedOutput): string {
  * stderr section, then exit-status markers. Non-zero exits are reported, not
  * errored — the model decides how to react; only infrastructure failures
  * (spawn errors, aborts) surface as isError results.
- * @param result - the completed foreground run from the executor.
+ * @param result - the completed foreground run from the executor, plus the
+ *   tool's own escalation verdict when the call carried a redundant ask.
  * @param escalationModes - the escalation targets this composition advertises;
  *   non-empty adds the same-turn escalation hint after a denial marker
  *   (default `[]`: no hint).
+ * @param requestedMode - the `sandbox_permissions` the call carried, if any;
+ *   when the run did not happen under it, the result names the ignored ask.
  * @returns the model-facing text: output body (or `(no output)`), then any timeout/signal/exit markers, each on its own line.
  */
 export function renderResult(
-  result: ShellRunResult,
+  result: ShellRunResult & { readonly escalationIgnored?: boolean },
   escalationModes: readonly SandboxMode[] = [],
+  requestedMode?: string,
 ): string {
   const out = streamText(result.stdout)
   const err = streamText(result.stderr)
@@ -48,6 +52,12 @@ export function renderResult(
     if (escalationModes.length > 0) {
       markers.push(escalationHintMarker('command'))
     }
+  }
+  // A declared property is not a request: the ask is ignored when this call
+  // already runs at that mode or wider, and saying so is the only way a model
+  // that fills every property learns the field changed nothing.
+  if (requestedMode !== undefined && result.escalationIgnored === true && result.sandbox !== undefined) {
+    markers.push(escalationIgnoredMarker(requestedMode, result.sandbox.mode))
   }
   // A command may trap SIGTERM and exit 0 after timeout; still report interruption.
   if (result.timedOut) markers.push(`[timed out after ${result.timeoutMs}ms]`)

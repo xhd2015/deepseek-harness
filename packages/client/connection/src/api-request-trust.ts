@@ -22,8 +22,13 @@ function header(headers: ConnectionTrustRequest['headers'], name: string): strin
   return typeof value === 'string' ? value : undefined
 }
 
-/** Normalized URL of a Host-header authority (hostname lowercased, default port stripped, IPv6 bracketed), or undefined when unparsable. */
-function parseAuthority(authority: string): URL | undefined {
+/**
+ * Normalized URL of a Host-header authority (hostname lowercased, default port
+ * stripped, IPv6 bracketed).
+ * @param authority - bare `host` or `host:port` authority, as a request or a configured entry carries it.
+ * @returns the parsed URL, or undefined when the value is not an authority.
+ */
+export function parseAuthority(authority: string): URL | undefined {
   try {
     // http: is a WHATWG "special scheme": parsing yields a non-empty hostname or throws.
     return new URL(`http://${authority}`)
@@ -70,9 +75,14 @@ function canonicalAuthority(entry: string, entryUrl: URL): string {
  * an explicit port matches that exact authority; a port-less entry matches the
  * hostname on any port (the shape the CLI derives for IP-literal LAN serving,
  * where the bound port may be OS-assigned). Both sides compare through WHATWG
- * normalization, so case and a redundant `:80` never decide trust.
+ * normalization, so case and a redundant `:80` never decide trust. Callers
+ * outside the fence reuse it to match the page's own authority against the
+ * same configured entries.
+ * @param hostUrl - parsed authority to test, from a Host header or the page location.
+ * @param trustedHosts - configured entries to match against.
+ * @returns true when some entry covers the authority.
  */
-function isTrustedAuthority(hostUrl: URL, trustedHosts: readonly string[]): boolean {
+export function isTrustedAuthority(hostUrl: URL, trustedHosts: readonly string[]): boolean {
   return trustedHosts.some((entry) => {
     const entryUrl = parseAuthority(entry)
     if (entryUrl === undefined) return false

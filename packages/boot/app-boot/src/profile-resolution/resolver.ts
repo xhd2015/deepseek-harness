@@ -130,6 +130,19 @@ function canonicalPath(path: string): string {
   }
 }
 
+/**
+ * Real path of a fallback declarer.
+ *
+ * pnpm stores that manifest through a `node_modules` symlink. tsx skips
+ * tsconfig `paths` for an importer under `node_modules`, so resolution uses
+ * the real file and the loaded package sees the same paths.
+ * @param declarer - generation declarer path, possibly a symlink.
+ * @returns the canonical declarer path.
+ */
+function fallbackDeclarer(declarer: string): string {
+  return canonicalPath(declarer)
+}
+
 function prefixes(path: string): readonly string[] {
   const configured = resolve(path) + sep
   const canonical = canonicalPath(path) + sep
@@ -690,7 +703,9 @@ export function installProfileResolution(
         if (cacheable && !(result instanceof Promise)) state.esm = result
         return result
       }
-      const routedParent = pathToFileURL(route.kind === 'fallback' ? route.entry.declarer : route.parent).href
+      const routedParent = pathToFileURL(route.kind === 'fallback'
+        ? fallbackDeclarer(route.entry.declarer)
+        : route.parent).href
       if (behavior === 'enforce') {
         const previous = delegatedEsm
         delegatedEsm = { parent: routedParent, request }
@@ -789,7 +804,7 @@ export function installProfileResolution(
     request: string, routed: Exclude<ResolutionRoute, { kind: 'native' }>,
     parent: CommonJsParent, main: boolean, options?: CommonJsOptions,
   ): string => {
-    const anchor = routed.kind === 'fallback' ? routed.entry.declarer : routed.parent
+    const anchor = routed.kind === 'fallback' ? fallbackDeclarer(routed.entry.declarer) : routed.parent
     const synthetic = new cjs(anchor)
     // Late parent assignment preserves Node's require stack without publishing this routing anchor in parent.children.
     synthetic.parent = parent
@@ -826,7 +841,7 @@ export function installProfileResolution(
     if (state.route.kind === 'native') return resolveFrom(target.parentURL)
     const route = state.route
     if (route.kind === 'after-fallback') return resolveFrom(pathToFileURL(route.parent).href)
-    return resolveFrom(pathToFileURL(route.entry.declarer).href)
+    return resolveFrom(pathToFileURL(fallbackDeclarer(route.entry.declarer)).href)
   }
   const wrappedFilename: CommonJsModule['_resolveFilename'] = (request, parent, main, options) => {
     if (delegatedCjs || !parent?.filename) {

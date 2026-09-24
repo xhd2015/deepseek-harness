@@ -53,7 +53,7 @@ In **Settings → Models**, edit the provider, open **Customized settings**, and
 The checkboxes save `input` for pi-ai models and `inputModalities` for the direct DeepSeek adapter. You can also edit the model in `$DSH_HOME/settings.yaml`; for example, this custom pi-ai provider declares one text-only model and one vision model:
 
 ```yaml
-llm-pi-ai:
+llm-proxy-providers:
   providers:
     my-gateway:
       apiKeyEnv: GATEWAY_API_KEY
@@ -74,7 +74,7 @@ To restore inheritance after editing the checkboxes, remove the model's `input` 
 If every model you entered by hand takes images, set the fallback once on the route instead of on each of them:
 
 ```yaml
-llm-pi-ai:
+llm-proxy-providers:
   providers:
     vision-gateway:
       apiKeyEnv: GATEWAY_API_KEY
@@ -89,7 +89,7 @@ llm-pi-ai:
 `defaultInput` is a fallback, not an override, and defaults to `[text]`: on a built-in provider it answers only for models its catalog does not describe, so it never removes images from a catalog model that has them. Narrow one of those with that model's own `input`. When a built-in provider has no explicit `models` list, write it under `modelOverrides`, keyed by model id:
 
 ```yaml
-llm-pi-ai:
+llm-proxy-providers:
   providers:
     anthropic:
       modelOverrides:
@@ -106,7 +106,7 @@ Both fields state a claim about your endpoint rather than checking it. A model t
 The model picker offers an **Effort** menu for a model that declares reasoning levels. A built-in provider's models inherit their levels from the installed catalog. A model you enter by hand declares none, so the Effort entry does not appear in the menu and the endpoint's own default decides whether the model thinks. Declare the levels with `reasoningEfforts` in `$DSH_HOME/settings.yaml`:
 
 ```yaml
-llm-pi-ai:
+llm-proxy-providers:
   providers:
     my-gateway:
       apiKeyEnv: GATEWAY_API_KEY
@@ -121,7 +121,7 @@ llm-pi-ai:
             max: max
 ```
 
-Each key is a level the menu offers, and its value is the spelling sent on the wire as `reasoning_effort`, so `max: xhigh` renames a level for a gateway with its own vocabulary. Only `off` may stay empty, because for most endpoints not thinking is the parameter's absence. The route's `reasoning` is the level used while a session has picked none; choosing an effort in the picker saves it, with the model, as the default for new sessions.
+Each key is a level the menu offers, and its value is the spelling sent on the wire as `reasoning_effort`, so `max: xhigh` renames a level for a gateway with its own vocabulary. The keys are pi-ai's own levels — `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` — and a key outside that set refuses that one model rather than the whole section: the route keeps serving its other models, the model picker lists the refused one disabled with the reason, and the Models page shows the same text on its row. Only `off` may stay empty, because for most endpoints not thinking is the parameter's absence. The route's `reasoning` is the level used while a session has picked none; choosing an effort in the picker saves it, with the model, as the default for new sessions.
 
 An `off` left empty sends nothing, which only stops a model that thinks on request; an `off` given a value sends that value as `reasoning_effort` instead. A model that thinks unless told not to — DeepSeek V4 behind an OpenAI-compatible gateway, for example — needs `compat.thinkingFormat: deepseek`, which makes `off` send `thinking: {type: disabled}` and every other level send `thinking: {type: enabled}` beside the effort:
 
@@ -150,7 +150,7 @@ A gateway can hold a working key at a reachable address and still refuse every r
 Two account for most of it. A model that declares reasoning has its system prompt sent as `role: "developer"`, which many gateways reject outright, and the output cap is sent as `max_completion_tokens`, which a server that only knows `max_tokens` refuses. The form has no field for either; correct them on the route in `$DSH_HOME/settings.yaml`:
 
 ```yaml
-llm-pi-ai:
+llm-proxy-providers:
   providers:
     my-gateway:
       apiKeyEnv: GATEWAY_API_KEY

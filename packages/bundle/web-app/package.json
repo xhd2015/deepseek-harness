@@ -22,6 +22,10 @@
       "types": "./lib/types/startup.d.ts",
       "default": "./lib/startup.js"
     },
+    "./open": {
+      "types": "./lib/types/open.d.ts",
+      "default": "./lib/open.js"
+    },
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./src/*": "./src/*",
     "./package.json": "./package.json"
@@ -29,7 +33,10 @@
   "files": [
     "lib/index.js",
     "lib/startup.js",
+    "lib/open.js",
     "cordis.patch.yml",
+    "lib/startup-*.js",
+    "lib/opener-*.js",
     "lib/types/**/*.d.ts"
   ],
   "license": "MIT",
@@ -100,6 +107,7 @@
     "@deepseek-ai/dsh-cmdline": "workspace:^",
     "@deepseek-ai/dsh-cordis-client-runner": "workspace:^",
     "@deepseek-ai/dsh-cordis-host-runner": "workspace:^",
+    "@deepseek-ai/dsh-home-paths": "workspace:^",
     "@deepseek-ai/dsh-file-reference": "workspace:^",
     "@deepseek-ai/dsh-file-reference-local": "workspace:^",
     "@deepseek-ai/dsh-host-directory-picker-auto": "workspace:^",

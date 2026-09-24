@@ -80,10 +80,12 @@ interface PwshForegroundResult {
   stdout: { text: string; truncated: boolean; spillPath?: string }
   stderr: { text: string; truncated: boolean; spillPath?: string }
   sandbox?: { mode: string; denied: boolean; enforcement?: string; runnerFailed?: boolean }
+  /** True when the call carried an escalation ask this run could not honor. */
+  escalationIgnored?: boolean
 }
 
 /* jscpd:ignore-start -- minimal mirror of dsh-tool-bash's validation and execute plumbing (Agent Note). */
-function validatePwshArgs(args: PwshToolArgs): void {
+function validatePwshArgs(args: PwshToolArgs, effectiveMode?: SandboxMode): 'ignored' | undefined {
   if (args.command.trim().length === 0) {
     throw new Error('invalid command: expected a non-empty string')
   }
@@ -93,9 +95,9 @@ function validatePwshArgs(args: PwshToolArgs): void {
   if (args.timeoutMs !== undefined && (!Number.isFinite(args.timeoutMs) || args.timeoutMs <= 0)) {
     throw new Error(`invalid timeoutMs: expected a positive number, got ${JSON.stringify(args.timeoutMs)}`)
   }
-  // The escalation pairing (sandbox_permissions ⇔ justification, non-empty) is
-  // the shared rule both enforcing families validate identically.
-  validateEscalationArgs(args.sandbox_permissions, args.justification)
+  // The escalation judgement is the shared rule both enforcing families apply
+  // identically; the mode tells it whether this call's ask can widen anything.
+  return validateEscalationArgs(args.sandbox_permissions, args.justification, effectiveMode)
 }
 /* jscpd:ignore-end */
 
@@ -130,15 +132,16 @@ function pwshDescription(backgroundEnabled: boolean, escalationModes: readonly S
     + 'do not retry the command another way — escalate the exact command once or restructure it to '
     + 'avoid capturing output. '
     + 'Attempting a command the sandbox may deny is safe and expected: run it and read the '
-    + 'marker rather than assuming the denial. When a command is denied and a wider mode would let it '
-    + 'succeed, escalate immediately in the same turn — the one sanctioned exception to a denial: retry '
-    + 'the exact same command once with `sandbox_permissions` (the narrowest wider mode that suffices) '
-    + 'plus a one-sentence `justification`. Do not detour through chat to ask permission first — the '
-    + 'approval prompt raised by that retry is how the user consents. If the session states approval '
+    + 'marker rather than assuming the denial. Only a result carrying the `[sandbox: escalation available` '
+    + 'marker sanctions an escalation — an argument error is not a denial, so correct what that error names '
+    + 'instead of escalating. When the marker appears and a wider mode would let the command succeed, '
+    + 'escalate immediately in the same turn — the one sanctioned exception to a denial: retry the exact '
+    + 'same command once with `sandbox_permissions` (the narrowest wider mode that suffices) plus a '
+    + 'one-sentence `justification`. Do not detour through chat to ask permission first — the approval '
+    + 'prompt raised by that retry is how the user consents. If the session states approval '
     + 'prompts are disabled, there is no exception: a denial is final — do not set `sandbox_permissions`. '
-    + 'Never escalate speculatively: ground the request in a real denial — normally the one this command '
-    + 'just hit; escalating up front is fine only when this session already denied the same access. '
-    + 'A rejected escalation is final for that command — stop and explain, never work around '
+    + 'Never escalate speculatively: ground the request in such a marker this session produced, never in a '
+    + 'guess. A rejected escalation is final for that command — stop and explain, never work around '
     + 'it — but it does not forbid attempting or escalating other commands later.'
 }
 
@@ -156,7 +159,7 @@ function resolveWorkdir(modelWorkdir: string | undefined, exec: { agent?: Agent 
 }
 
 /** Detach the executor DTO from readonly Service Definition types into plain JSON data. */
-function canonicalPwshResult(result: ShellRunResult): PwshForegroundResult {
+function canonicalPwshResult(result: ShellRunResult, escalationIgnored = false): PwshForegroundResult {
   const output = (stream: ShellRunResult['stdout']) => ({
     text: stream.text,
     truncated: stream.truncated,
@@ -180,6 +183,7 @@ function canonicalPwshResult(result: ShellRunResult): PwshForegroundResult {
         ...result.sandbox.runnerFailed !== undefined ? { runnerFailed: result.sandbox.runnerFailed } : {},
       },
     } : {},
+    ...escalationIgnored ? { escalationIgnored: true } : {},
   }
 }
 
@@ -269,7 +273,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         sandbox_permissions: {
           type: 'string' as const,
           enum: [...escalationModes],
-          description: 'The wider sandbox mode this command needs. Only valid as a one-shot retry of a command the sandbox just denied; requires justification and user approval.',
+          description: 'The wider sandbox mode this command needs. Only valid as a one-shot retry after a result carrying the `[sandbox: escalation available` marker; requires justification and user approval.',
         },
         justification: {
           type: 'string' as const,
@@ -330,24 +334,29 @@ export function apply(ctx: Context, config: Config = {}): void {
                   runnerFailed: { type: 'boolean' },
                 },
               },
+              escalationIgnored: { type: 'boolean' },
             },
           },
         ],
       },
       /* jscpd:ignore-end */
-      render: (_args, value) => [{
+      render: (args, value) => [{
         type: 'text',
         text: value.kind === 'background'
           ? `started background job ${value.jobId}`
-          : renderPwshResult(value as RenderablePwshResult, escalationModes),
+          : renderPwshResult(
+            value as RenderablePwshResult & { escalationIgnored?: boolean },
+            escalationModes,
+            args.sandbox_permissions,
+          ),
       }],
     },
     /* jscpd:ignore-start -- the execute path mirrors dsh-tool-bash's by design (see the pwsh-tool-and-executor Agent Note). */
     async execute(args: PwshToolArgs, exec) {
-      validatePwshArgs(args)
       // Description is display metadata; workdir defaults to the caller's session.
       const standingPolicy = resolveSandboxPolicy(exec)
-      const approvedMode = args.sandbox_permissions !== undefined && args.justification !== undefined
+      const escalationIgnored = validatePwshArgs(args, standingPolicy?.mode) === 'ignored'
+      const approvedMode = !escalationIgnored && args.sandbox_permissions !== undefined && args.justification !== undefined
         ? await approvePwshEscalation(args.sandbox_permissions, args.justification, exec, standingPolicy)
         : undefined
       const policy = approvedMode === undefined
@@ -397,7 +406,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         error.name = 'AbortError'
         throw error
       }
-      return canonicalPwshResult(result)
+      return canonicalPwshResult(result, escalationIgnored)
     },
     /* jscpd:ignore-end */
     /* jscpd:ignore-start -- the background call card mirrors presentBashCall's by design (Agent Note). */

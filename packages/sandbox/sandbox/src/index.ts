@@ -14,6 +14,8 @@ export {
   WIDER_MODES,
   approveEscalation,
   escalationHintMarker,
+  escalationIgnoredMarker,
+  isStrictlyWider,
   sandboxDenialMarker,
   validateEscalationArgs,
 } from './escalation.ts'

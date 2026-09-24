@@ -21,7 +21,7 @@ import { apply as hostApply } from '../src/index.ts'
 // so browser-language detection never runs and a fresh LocaleRuntime opens on
 // FALLBACK_LOCALE (en); bench stages zh explicitly on the locale instead.
 
-async function bench(isLoopback = true, mock = RemoteMock.create().load(remoteDefaultResponses), services: object = {}) {
+async function bench(settingsTrusted = true, mock = RemoteMock.create().load(remoteDefaultResponses), services: object = {}) {
   onTestFinished(() => { mock.assertNoUnmatched() })
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
@@ -43,7 +43,9 @@ async function bench(isLoopback = true, mock = RemoteMock.create().load(remoteDe
     settings: mock.remote.settings,
   })
   // The fixed Host facts the settings provider reads its persistence from.
-  remote.$host = { home: undefined, isLoopback }
+  // `settingsTrusted: false` is the remote-browser case: a non-loopback page
+  // whose authority the deployment did not name as settings-trusted.
+  remote.$host = { home: undefined, isLoopback: settingsTrusted, settingsTrusted }
   await ctx.plugin({ inject: [...settingsInject], apply: settingsApply }).await()
   return { ctx, slots: ctx.get('slots') as SlotRegistry, locale, remote }
 }
@@ -167,7 +169,7 @@ describe('ui-settings-models apply', () => {
     // A keyed card extension and a footer entry register through the ordinary
     // ledger once the section's registration declared the seats.
     const disposeCard = b.slots.register(
-      { name: 'settings.models.provider-card', key: 'llm-pi-ai' } as never,
+      { name: 'settings.models.provider-card', key: 'llm-proxy-providers' } as never,
       () => null,
     )
     b.slots.register({ name: 'settings.models.footer', id: 'extra', order: 0 } as never, () => null)
@@ -218,7 +220,7 @@ describe('pushed invalidations', () => {
     declare(b.slots)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     // The fake wire face has no methods: a fetch attempt would throw.
-    b.remote.emit('settings/document-updated', ['llm-pi-ai', 1])
+    b.remote.emit('settings/document-updated', ['llm-proxy-providers', 1])
     b.remote.emit('credentials/reference-updated', ['OPENAI_API_KEY'])
     b.remote.emit('llm/adapters-updated', [])
     b.ctx.emit('connection/reset')

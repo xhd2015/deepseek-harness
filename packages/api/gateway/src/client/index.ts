@@ -10,6 +10,7 @@ export type { TypertGatewayFaultDetails } from '../remote-error-codes.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type {
   ConnectionHandle,
+  ConnectionRpcResult,
 } from '@deepseek-ai/dsh-client-connection/client'
 import type {
   InvocationDescriptor,
@@ -119,6 +120,12 @@ export interface RemoteHostFacts {
   readonly home: string | undefined
   /** Whether the carrier connects to the local Host. */
   readonly isLoopback: boolean
+  /**
+   * Whether this page may read and write the Host settings document. True for
+   * a loopback page, and for a non-loopback page whose authority the deployment
+   * named as settings-trusted; false leaves settings process-local.
+   */
+  readonly settingsTrusted: boolean
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -157,6 +164,7 @@ class ClientRemoteService extends Service implements ClientRemote {
       ctx,
       connection,
       (endpoint, payload, signal) => this.openRemoteStream(endpoint, payload, signal),
+      (endpoint, payload, signal) => this.callRemote(endpoint, payload, signal),
     )
     if (connection.rpc.open === undefined) this.streams.start()
     let disposed = false
@@ -189,10 +197,15 @@ class ClientRemoteService extends Service implements ClientRemote {
   get $host(): RemoteHostFacts {
     // Identity-stable: readers (useSyncExternalStore snapshots, memo inputs)
     // compare by reference, so a fresh object is minted only when the fact
-    // itself changed. isLoopback is fixed for the page lifetime.
+    // itself changed. isLoopback and settingsTrusted are fixed for the page
+    // lifetime.
     const home = this.connection.generation.getSnapshot()?.host.home
     if (this.hostFacts === undefined || this.hostFacts.home !== home) {
-      this.hostFacts = { home, isLoopback: this.connection.isLoopback }
+      this.hostFacts = {
+        home,
+        isLoopback: this.connection.isLoopback,
+        settingsTrusted: this.connection.settingsTrusted,
+      }
     }
     return this.hostFacts
   }
@@ -227,6 +240,18 @@ class ClientRemoteService extends Service implements ClientRemote {
     return local === undefined
       ? this.streams.open(endpoint, payload, signal)
       : normalizeConnectionStream(local)
+  }
+
+  private async callRemote(
+    endpoint: string,
+    payload: unknown,
+    signal: AbortSignal,
+    noConnection = `client api: ${endpoint} has no active Connection`,
+  ): Promise<ConnectionRpcResult<unknown>> {
+    const connection = this.ownerCtx.get('connection') as ConnectionHandle | undefined
+    if (connection === undefined) throw new Error(noConnection)
+    if (connection.rpc.open !== undefined) return connection.rpc.call('/api', endpoint, payload, signal)
+    return parseMuxUnaryResult(await this.streams.call(endpoint, payload, signal))
   }
 
   private enqueue<T>(operation: () => T | Promise<T>): Promise<T> {
@@ -436,10 +461,11 @@ class ClientRemoteService extends Service implements ClientRemote {
     const endpoint = endpointOf(descriptor)
     if (!token.active) return withdrawn(endpoint)
     const prepared = this.prepareInvocation(descriptor, projection, token, callerCtx, values, boundIdentity)
-    const connection = this.ownerCtx.get('connection') as ConnectionHandle | undefined
-    if (connection === undefined) throw new Error(`client api: ${endpoint} has no active Connection`)
+    if (this.ownerCtx.get('connection') === undefined) {
+      throw new Error(`client api: ${endpoint} has no active Connection`)
+    }
     try {
-      const result = await connection.rpc.call('/api', endpoint, { args: prepared.args }, prepared.signal)
+      const result = await this.callRemote(endpoint, { args: prepared.args }, prepared.signal)
       if (!mountActive(token)) return withdrawn(endpoint)
       if (!result.ok) return { ok: false, error: rebuiltFailure(result.error) }
       return { ok: true, value: result.value }
@@ -707,6 +733,23 @@ function requireStrictCodec(codec: TypertCodec, endpoint: string, field: string)
   if (codec.mode !== 'strict') {
     throw new Error(`client api: generated Remote ${endpoint} field ${JSON.stringify(field)} has no strict codec`)
   }
+}
+
+function parseMuxUnaryResult(value: unknown): ConnectionRpcResult<unknown> {
+  if (!isRecord(value)) throw new TypeError('client api: invalid unary mux result')
+  if (value.ok === true) return { ok: true, value: value.value }
+  if (value.ok !== false || !isRecord(value.error)) {
+    throw new TypeError('client api: invalid unary mux result')
+  }
+  const error = value.error
+  if (typeof error.code !== 'string' || typeof error.message !== 'string' || !isRecord(error.details)) {
+    throw new TypeError('client api: invalid unary mux failure')
+  }
+  return { ok: false, error: { code: error.code, message: error.message, details: error.details } }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 /** The namespace retired before or during the call, so no request outcome exists. */

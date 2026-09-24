@@ -74,6 +74,8 @@ async function bench(nodes: ToolResultNode[]) {
   runtime.remote.provideNamespaces({
     session: {
       openWorkspacePath: vi.fn(async () => ({ ok: true, value: { opened: true } })),
+      getDraft: async () => ({ ok: true, value: { text: '' } }),
+      setDraft: async ({ text }: { text: string }) => ({ ok: true, value: { text } }),
     },
   })
   runtime.ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)

@@ -53,7 +53,7 @@ Provider ID 是永久的，因为请求、已保存会话、模型默认值和�
 复选框将 pi-ai 模型的选择保存为 `input`，将直连 DeepSeek 适配器的选择保存为 `inputModalities`。也可以在 `$DSH_HOME/settings.yaml` 中编辑模型；例如，以下自定义 pi-ai 提供方声明了一个纯文本模型和一个视觉模型：
 
 ```yaml
-llm-pi-ai:
+llm-proxy-providers:
   providers:
     my-gateway:
       apiKeyEnv: GATEWAY_API_KEY
@@ -74,7 +74,7 @@ DeepSeek 将省略的 `inputModalities` 视为纯文本，并拒绝空列表。�
 如果你手动录入的模型全都接受图片，可以在路由上设置一次回退值，不必逐个模型写：
 
 ```yaml
-llm-pi-ai:
+llm-proxy-providers:
   providers:
     vision-gateway:
       apiKeyEnv: GATEWAY_API_KEY
@@ -89,7 +89,7 @@ llm-pi-ai:
 `defaultInput` 是回退值而不是覆盖值，默认为 `[text]`：在内置提供方上，它只为其目录未描述的模型作答，因此绝不会把目录中本就具备图片能力的模型的该能力去掉。要收窄这类模型，请用它自己的 `input`。内置提供方没有显式 `models` 列表时，写在 `modelOverrides` 下，以模型 id 为键：
 
 ```yaml
-llm-pi-ai:
+llm-proxy-providers:
   providers:
     anthropic:
       modelOverrides:
@@ -106,7 +106,7 @@ llm-pi-ai:
 对于声明了推理等级的模型，模型选择器会提供**推理等级**菜单。内置提供方的模型从已安装目录继承其等级。手动录入的模型不声明任何等级，因此模型菜单里不会出现推理等级项，由端点自身的默认值决定模型是否思考。请在 `$DSH_HOME/settings.yaml` 中用 `reasoningEfforts` 声明等级：
 
 ```yaml
-llm-pi-ai:
+llm-proxy-providers:
   providers:
     my-gateway:
       apiKeyEnv: GATEWAY_API_KEY
@@ -121,7 +121,7 @@ llm-pi-ai:
             max: max
 ```
 
-每个键都是菜单提供的一个等级，其值是在协议上以 `reasoning_effort` 发送的写法，因此 `max: xhigh` 可以为自有一套词汇的网关重命名某个等级。只有 `off` 可以留空，因为对多数端点来说，不思考就是不传该参数。路由的 `reasoning` 是会话尚未选择等级时采用的等级；在选择器中选定某个等级后，它会与模型一起保存为新会话的默认值。
+每个键都是菜单提供的一个等级，其值是在协议上以 `reasoning_effort` 发送的写法，因此 `max: xhigh` 可以为自有一套词汇的网关重命名某个等级。键必须是 pi-ai 自身的等级——`off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`；集合之外的键只会拒绝那一个模型，而不会拒绝整个段：该路由的其他模型继续提供服务，模型选择器会列出被拒绝的模型并置灰、同时显示原因，Models 页面也在对应行上显示同一段文字。只有 `off` 可以留空，因为对多数端点来说，不思考就是不传该参数。路由的 `reasoning` 是会话尚未选择等级时采用的等级；在选择器中选定某个等级后，它会与模型一起保存为新会话的默认值。
 
 留空的 `off` 什么都不发送，这只能让「按请求才思考」的模型停下来；给 `off` 一个值，则会把该值作为 `reasoning_effort` 发送。对于「不明确关闭就会思考」的模型——例如 OpenAI 兼容网关后面的 DeepSeek V4——需要 `compat.thinkingFormat: deepseek`：它让 `off` 发送 `thinking: {type: disabled}`，其他每个等级则在 effort 之外再发送 `thinking: {type: enabled}`：
 
@@ -150,7 +150,7 @@ llm-deepseek:
 其中两样占了绝大多数。声明了推理能力的模型，其系统提示词会以 `role: "developer"` 发出，很多网关直接拒绝；输出上限则写作 `max_completion_tokens`，只认 `max_tokens` 的服务端会拒绝。表单里没有这两个字段；请在 `$DSH_HOME/settings.yaml` 的路由上更正：
 
 ```yaml
-llm-pi-ai:
+llm-proxy-providers:
   providers:
     my-gateway:
       apiKeyEnv: GATEWAY_API_KEY

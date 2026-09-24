@@ -141,7 +141,7 @@ describe('hand-declared providers', () => {
     expect(directory).toContainEqual({
       provider: 'acme-gateway',
       displayName: 'Acme Gateway',
-      settingsNs: 'llm-pi-ai',
+      settingsNs: 'llm-proxy-providers',
       settingsPath: ['providers', 'acme-gateway'],
       // Nothing in the installed catalog answers for this route, which is what
       // configuration surfaces mark as a route this deployment declared.
@@ -227,7 +227,7 @@ describe('hand-declared providers', () => {
     // a written section, the plugin's own registration, and `ctx.llm`.
     const dir = await home()
     const ctx = await bootWithSettings(dir, {})
-    await ctx.settings.update('llm-pi-ai', {
+    await ctx.settings.update('llm-proxy-providers', {
       providers: {
         'acme-gateway': {
           api: 'openai-completions',
@@ -729,6 +729,28 @@ describe('per-model reasoning efforts', () => {
     expect(declare({ high: null })).toThrow(/only "off" may leave it empty/)
     expect(declare({ high: '' })).toThrow(/must not be an empty string/)
   })
+
+  it('refuses the one model naming an unknown level and keeps its siblings served', () => {
+    // A document value, not a typed one: the settings schema admits any key so
+    // resolution can report the misspelling, which the TS type cannot name.
+    const providers = declared([
+      { id: 'acme-typo', reasoningEfforts: { low: 'low', ultra: 'ultra' } as unknown as NonNullable<LlmPiAi.PiAiModelProfile['reasoningEfforts']> },
+      { id: 'acme-ok', reasoningEfforts: { low: 'low' } },
+    ])
+
+    // Deferred reads — the path a stored document takes — drop the one entry
+    // and remember why, so the route and its other models keep serving.
+    const profile = resolveProfiles(providers, 'deferred').get('acme-gateway')
+    expect(profile?.piProvider?.getModels().map(model => model.id)).toEqual(['acme-ok'])
+    expect([...profile?.modelErrors ?? []]).toEqual([[
+      'acme-typo',
+      'llm-pi-ai: provider "acme-gateway" model "acme-typo" reasoningEfforts names "ultra", which is not a'
+      + ' reasoning level pi-ai knows (off, minimal, low, medium, high, xhigh, max)',
+    ]])
+
+    // A write — the strict path — refuses the same profile at its own value.
+    expect(() => resolveProfiles(providers)).toThrow(/names "ultra"/)
+  })
 })
 
 describe('modelOverrides', () => {
@@ -1006,7 +1028,7 @@ describe('compat switches', () => {
     // and `Model.compat`.
     const dir = await home()
     const ctx = await bootWithSettings(dir, {})
-    await expect(ctx.settings.update('llm-pi-ai', {
+    await expect(ctx.settings.update('llm-proxy-providers', {
       providers: {
         'acme-gateway': {
           api: 'openai-completions',
@@ -1025,7 +1047,7 @@ describe('compat switches', () => {
     const server = await mockServer([{ events: textEvents }])
     const dir = await home()
     const ctx = await bootWithSettings(dir, {})
-    await ctx.settings.update('llm-pi-ai', {
+    await ctx.settings.update('llm-proxy-providers', {
       providers: {
         'acme-gateway': {
           apiKeyEnv: KEY_ENV,
@@ -1196,7 +1218,7 @@ describe('configurable-provider directory', () => {
     const before = ctx.llm.listConfigurableProviders().length
     expect(before).toBeGreaterThan(30)
 
-    await ctx.settings.update('llm-pi-ai', {
+    await ctx.settings.update('llm-proxy-providers', {
       providers: {
         'deepseek-official': {
           api: 'openai-completions',
@@ -1218,7 +1240,7 @@ describe('configurable-provider directory', () => {
     const ctx = await bootWithSettings(dir, {})
     const catalogOnly = ctx.llm.listConfigurableProviders().length
 
-    await ctx.settings.update('llm-pi-ai', {
+    await ctx.settings.update('llm-proxy-providers', {
       providers: {
         'acme-gateway': {
           displayName: 'Acme Gateway',
@@ -1232,7 +1254,7 @@ describe('configurable-provider directory', () => {
     expect(ctx.llm.listConfigurableProviders().find(entry => entry.provider === 'acme-gateway')?.displayName)
       .toBe('Acme Gateway')
 
-    await ctx.settings.replace('llm-pi-ai', {})
+    await ctx.settings.replace('llm-proxy-providers', {})
     expect(ctx.llm.listConfigurableProviders()).toHaveLength(catalogOnly)
   })
 
@@ -1257,7 +1279,7 @@ describe('configurable-provider directory', () => {
     expect(ctx.llm.listConfigurableProviders()).toContainEqual({
       provider: 'openai-codex',
       displayName: 'openai-codex',
-      settingsNs: 'llm-pi-ai',
+      settingsNs: 'llm-proxy-providers',
       settingsPath: ['providers', 'openai-codex'],
       declared: false,
     })

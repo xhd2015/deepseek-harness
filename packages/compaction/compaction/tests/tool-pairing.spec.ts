@@ -121,6 +121,49 @@ describe('tool-pairing boundaries', () => {
     expect(after(session, 'tool/result', 1)).toBe(true)
   })
 
+  it('a later cut is balanced after an ended step left unanswered tool-calls', () => {
+    const session = Session.create(SessionId('ended-orphan-calls'))
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'checkpoint' }],
+      source: { kind: 'plugin', plugin: 'compact' },
+    }), SURFACE)
+    session.append('turn/start', { turn: 1 })
+    session.append('step/start', { turn: 1, step: 1 })
+    session.append('assistant/message', {
+      stream: [],
+      turn: 1,
+      step: 1,
+      message: createMessage({
+        role: 'assistant',
+        content: [
+          { type: 'tool-call', id: ToolCallId('orphan-a'), name: 'read', arguments: '{}' },
+          { type: 'tool-call', id: ToolCallId('orphan-b'), name: 'read', arguments: '{}' },
+        ],
+        source: {
+          kind: 'model',
+          ...{ provider: 'mock', model: 'mock' },
+        },
+      }),
+    }, SURFACE)
+    session.append('tool/call', {
+      turn: 1, step: 1, callId: ToolCallId('orphan-a'), name: 'read', arguments: '{}',
+    })
+    session.append('step/end', { turn: 1, step: 1 })
+    session.append('turn/end', {
+      turn: 1,
+      reason: { kind: 'error', error: { message: "Cannot read properties of undefined (reading 'prepare')", code: 'UNKNOWN' } },
+    })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'later history' }],
+      source: { kind: 'user' },
+    }), SURFACE)
+
+    expect(after(session, 'user/message', 0)).toBe(true)
+    expect(before(session, 'assistant/message')).toBe(true)
+    expect(before(session, 'user/message', 1)).toBe(true)
+    expect(after(session, 'user/message', 1)).toBe(true)
+  })
+
   it('keeps neutral nodes inside an open pair unbalanced and free nodes balanced', () => {
     const midStep = Session.create(SessionId('neutral-mid-step'))
     midStep.append('assistant/message', {

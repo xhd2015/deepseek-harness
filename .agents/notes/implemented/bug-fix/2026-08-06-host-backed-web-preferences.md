@@ -6,7 +6,7 @@ English | [中文](2026-08-06-host-backed-web-preferences.zh.md)
 
 ## Problem
 
-The Web Appearance, Language, and busy-Enter preferences lived in browser `localStorage`. Browser storage is scoped to an origin, so reopening `dsh web` on another port selected a different partition and lost choices even though both processes used the same DSH home. These are user-level product preferences; session selection, drafts, disclosure state, and other transient browser state remain page-local.
+The Web Appearance, Language, and busy-Enter preferences lived in browser `localStorage`. Browser storage is scoped to an origin, so reopening `dsh web` on another port selected a different partition and lost choices even though both processes used the same DSH home. These are user-level product preferences; session selection, disclosure state, and other transient browser state remain page-local. [Session composer drafts](../feature/2026-09-20-web-runner-composer-drafts.md) use a separate Host storage domain rather than user settings.
 
 The first theme implementation moved only Appearance to Host settings but awaited its initial RPC before providing `ThemeRuntime`. A slow or unavailable settings request therefore suspended the assembled page. It also subscribed after the read, could miss an invalidation in that window, did not carry namespace revisions on writes, and allowed queued writes from a disposed plugin to reach the Host.
 
@@ -32,7 +32,7 @@ The Client keeps Host persistence disabled on non-loopback pages, so their prefe
 
 **A per-field preference controller with paired sync/persist callbacks.** The first shared lifecycle synchronized one scalar field through a domain `sync` callback while the service wrote back through an injected `persist` callback. The mutual callbacks forced two-phase construction — a defaulted no-op writer later replaced via `bindPersistence` — every additional field of a namespace would have carried its own controller and whole-document read, and each domain re-declared a hand-written guard the registered wire schema already expresses. The namespace scope publishes a snapshot the service subscribes to and accepts writes directly, so the callback pair and the second construction phase do not exist.
 
-**Move every `localStorage` entry into settings.** Current session, drafts, panel disclosure, trajectory display state, and similar entries are browser-instance state rather than user configuration. Promoting them would synchronize transient navigation state across tabs and ports without a product contract.
+**Move every `localStorage` entry into settings.** Current session, panel disclosure, trajectory display state, and similar entries are browser-instance state rather than user configuration. Promoting them would synchronize transient navigation state across tabs and ports without a product contract.
 
 ## Consequences
 

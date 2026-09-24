@@ -50,7 +50,7 @@ const DISCOVERY_FAILURES: {
 } = {
   'gateway/internal': message => new RemoteError('gateway/internal', message, {}),
   'llm/model-discovery-rejected': message =>
-    new RemoteError('llm/model-discovery-rejected', message, { settingsNs: 'llm-pi-ai' }),
+    new RemoteError('llm/model-discovery-rejected', message, { settingsNs: 'llm-proxy-providers' }),
 }
 function fail(message: string, code: keyof typeof DISCOVERY_FAILURES) {
   return { ok: false as const, error: DISCOVERY_FAILURES[code](message) }
@@ -66,8 +66,8 @@ type RefusalCode = 'credential/rejected' | 'settings/conflict' | 'settings/rejec
 const REFUSALS: { [Code in RefusalCode]: (message: string) => RemoteError<Code> } = {
   'credential/rejected': message => new RemoteError('credential/rejected', message, { ref: 'OPENAI_API_KEY' }),
   'settings/conflict': message =>
-    new RemoteError('settings/conflict', message, { ns: 'llm-pi-ai', expected: 7, actual: 8 }),
-  'settings/rejected': message => new RemoteError('settings/rejected', message, { ns: 'llm-pi-ai' }),
+    new RemoteError('settings/conflict', message, { ns: 'llm-proxy-providers', expected: 7, actual: 8 }),
+  'settings/rejected': message => new RemoteError('settings/rejected', message, { ns: 'llm-proxy-providers' }),
 }
 function remoteFail(message: string, code: RefusalCode = 'credential/rejected') {
   return { ok: false as const, error: REFUSALS[code](message) }
@@ -79,7 +79,7 @@ function piAiNamespace(
   baseProviders: Record<string, JsonValue> = {},
 ): SettingsNamespaceView {
   return {
-    ns: 'llm-pi-ai',
+    ns: 'llm-proxy-providers',
     schema: JSON.parse(JSON.stringify(PiAiConfig.toJSON())) as JsonValue,
     // `value` is the effective section; `user` is only the layer this page
     // writes. They differ whenever a composition `base` supplies something.
@@ -100,6 +100,8 @@ function scriptedFace(options: {
   baseProviders?: Record<string, JsonValue>
   /** Routes the adapter reports as hand-declared; the rest come back as shipped. */
   declaredRoutes?: readonly string[]
+  /** Refusals the adapter reports per route, keyed by model id. */
+  modelErrors?: Record<string, Record<string, string>>
   discover?: ReturnType<typeof vi.fn>
   mutate?: ReturnType<typeof vi.fn>
   set?: ReturnType<typeof vi.fn>
@@ -120,9 +122,12 @@ function scriptedFace(options: {
         Object.keys(providers).map(provider => ({
           provider,
           displayName: provider,
-          settingsNs: 'llm-pi-ai',
+          settingsNs: 'llm-proxy-providers',
           settingsPath: ['providers', provider],
           declared: options.declaredRoutes?.includes(provider) ?? false,
+          ...options.modelErrors?.[provider] === undefined
+            ? {}
+            : { modelErrors: options.modelErrors[provider] },
         })),
       ))),
       discoverModels: discover,
@@ -288,10 +293,26 @@ describe('model list editing', () => {
 
     await waitFor(() => { expect(mutate).toHaveBeenCalled() })
     expect(firstMutate(mutate)).toMatchObject({
-      ns: 'llm-pi-ai',
+      ns: 'llm-proxy-providers',
       expectedRevision: 3,
       ops: [{ op: 'set', path: ['providers', 'openai', 'models'], value: [{ id: 'acme-large', contextWindow: 65_536, input: ['text', 'image'] }] }],
     })
+  })
+
+  it("shows the adapter's refusal on the model row it names, leaving that row editable", async () => {
+    const refusal = 'llm-pi-ai: provider "openai" model "acme-bad" reasoningEfforts names "ultra"'
+    await mountSection({
+      providers: { openai: { baseURL: 'https://proxy.example/v1', models: [{ id: 'acme-bad' }, { id: 'acme-ok' }] } },
+      modelErrors: { openai: { 'acme-bad': refusal } },
+    })
+    openEditor('openai')
+
+    // The row is where the fix goes, so it keeps its fields and gains the text
+    // the adapter reported for that exact model id.
+    const id = screen.getByLabelText(`${en.modelId} 1`) as HTMLInputElement
+    expect(id.value).toBe('acme-bad')
+    expect(id.disabled).toBe(false)
+    expect(screen.getByText(`${en.modelRefusal}: ${refusal}`)).toBeTruthy()
   })
 
   it('names a duplicate model id in the edit flow too', async () => {
@@ -516,7 +537,7 @@ describe('endpoint interrogation', () => {
     const types = within(screen.getByRole('group', { name: `${en.modelInputTypes} 1` }))
     await waitFor(() => { expect(types.getByRole<HTMLInputElement>('checkbox', { name: en.modelInputImage }).disabled).toBe(false) })
     expect(types.getByRole<HTMLInputElement>('checkbox', { name: en.modelInputImage }).checked).toBe(input?.length !== 1)
-    expect(discover).toHaveBeenCalledExactlyOnceWith('llm-pi-ai', { provider: 'openai' })
+    expect(discover).toHaveBeenCalledExactlyOnceWith('llm-proxy-providers', { provider: 'openai' })
     fireEvent.click(screen.getByText(en.apply))
     await waitFor(() => { expect(screen.queryByRole('button', { name: en.apply })).toBeNull() })
     expect(mutate).not.toHaveBeenCalled()
@@ -562,7 +583,7 @@ describe('endpoint interrogation', () => {
 
     await waitFor(() => { expect(discover).toHaveBeenCalled() })
     expect(lastProbe(discover)).toEqual({
-      settingsNs: 'llm-pi-ai',
+      settingsNs: 'llm-proxy-providers',
       // The route is named, so an adapter that already describes it answers
       // from its own registry rather than the endpoint.
       provider: 'openai',
@@ -583,7 +604,7 @@ describe('endpoint interrogation', () => {
 
     await waitFor(() => { expect(discover).toHaveBeenCalled() })
     expect(lastProbe(discover)).toEqual({
-      settingsNs: 'llm-pi-ai',
+      settingsNs: 'llm-proxy-providers',
       provider: 'openai',
       baseURL: 'https://proxy.example/v1',
       api: 'openai-responses',
@@ -655,7 +676,7 @@ describe('endpoint interrogation', () => {
     fireEvent.click(screen.getByText(en.fetchModels))
 
     await waitFor(() => { expect(discover).toHaveBeenCalled() })
-    expect(lastProbe(discover)).toEqual({ settingsNs: 'llm-pi-ai', provider: 'openai' })
+    expect(lastProbe(discover)).toEqual({ settingsNs: 'llm-proxy-providers', provider: 'openai' })
   })
 
   it('keeps the create card asking only once it has an endpoint', () => {
@@ -677,7 +698,7 @@ describe('endpoint interrogation', () => {
 
     // A provider being declared names no route, so only the endpoint travels.
     expect(lastProbe(scripted.discover)).toEqual({
-      settingsNs: 'llm-pi-ai',
+      settingsNs: 'llm-proxy-providers',
       baseURL: 'https://acme.test/v1',
       api: 'openai-completions',
     })
@@ -802,7 +823,7 @@ describe('provider rows', () => {
     scripted.face.llm.listConfigurableProviders = vi.fn(() => Promise.resolve(ok([{
       provider: 'openai',
       displayName: 'openai',
-      settingsNs: 'llm-pi-ai',
+      settingsNs: 'llm-proxy-providers',
       settingsPath: ['providers', 'openai'],
     }]))) as never
     const controller = new ModelsSettingsStore(
@@ -860,7 +881,7 @@ describe('hand-declared providers', () => {
 
     await waitFor(() => { expect(onClose).toHaveBeenCalledWith(true) })
     expect(firstMutate(mutate)).toEqual({
-      ns: 'llm-pi-ai',
+      ns: 'llm-proxy-providers',
       ops: [{
         op: 'set',
         path: ['providers', 'acme-gateway'],
@@ -963,7 +984,7 @@ describe('hand-declared providers', () => {
     face.llm.listConfigurableProviders = vi.fn(() => Promise.resolve(ok([{
       provider: 'acme-gateway',
       displayName: 'Acme 网关',
-      settingsNs: 'llm-pi-ai',
+      settingsNs: 'llm-proxy-providers',
       settingsPath: ['providers', 'acme-gateway'],
       declared: true,
     }])))
@@ -1019,7 +1040,7 @@ describe('hand-declared providers', () => {
     // Only the protocol travels: every other stored field is unchanged, so no
     // op restates it.
     expect(firstMutate(mutate)).toEqual({
-      ns: 'llm-pi-ai',
+      ns: 'llm-proxy-providers',
       ops: [{ op: 'set', path: ['providers', 'acme-gateway', 'api'], value: 'anthropic-messages' }],
       expectedRevision: 3,
     })
@@ -1582,7 +1603,7 @@ describe('API key field', () => {
     // a round trip to be told what the field already says.
     expect(buttonNamed(en.fetchModels).disabled).toBe(true)
     expect(buttonNamed(en.fetchModels).title).toBe(en.keyIllegalCharacters)
-    expect(discover).toHaveBeenCalledExactlyOnceWith('llm-pi-ai', { provider: 'openai' })
+    expect(discover).toHaveBeenCalledExactlyOnceWith('llm-proxy-providers', { provider: 'openai' })
   })
 
   it('carries the trimmed key into an interrogation, not the padded draft', async () => {

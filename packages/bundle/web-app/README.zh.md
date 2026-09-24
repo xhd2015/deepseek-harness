@@ -32,9 +32,16 @@ kind: "package-bundle"
 ```sh
 dsh --profile web
 dsh --profile web --no-open --port 8080
+dsh --profile web --browser brave
+dsh --profile web open
+dsh --profile web open ~/proj --browser brave
 ```
 
-启动后你会看到 `dsh web:` 行，其根 URL 携带新的进程 token。除非 `--no-open` 或 SSH 会话抑制，否则默认浏览器会打开该 URL、取得签名 cookie，再重定向到不含认证参数的根页面。页面加载且你可以与 agent 对话，就说明成功了。两种可预期的失败：前端未构建时，启动会以构建提示停止（checkout 中运行 `pnpm run build`）；浏览器无法打开时，stderr 会打印不含凭据的诊断，但服务器会继续运行——请自行打开已打印的启动 URL。
+启动后你会看到 `dsh web:` 行，其根 URL 携带新的进程 token。除非 `--no-open` 或 SSH 会话抑制，否则选定浏览器（`--browser brave|chrome|firefox|edge|safari`，或操作系统默认）会打开该 URL、取得签名 cookie，再重定向到不含认证参数的根页面。页面加载且你可以与 agent 对话，就说明成功了。两种可预期的失败：前端未构建时，启动会以构建提示停止（checkout 中运行 `pnpm run build`）；浏览器无法打开时，stderr 会打印不含凭据的诊断，但服务器会继续运行——请自行打开已打印的启动 URL。
+
+`dsh web open [dir]` 对接已经在跑的 GUI：把该目录登记为 Workspace（同一路径则复用），创建新 Session 并打开。目录默认为调用时的 cwd。若没有 GUI 在服务，命令以非零退出并提示先执行 `dsh web`。该子命令上的 `--no-open` 仍会创建 Session。
+
+通过 `-p` / `--prompt <text>` 或 `--prompt-file <file>` 提交初始提示词；两种来源互斥。提示词文件按 UTF-8 读取，相对路径基于调用时的 cwd，而非工作区目录，文本保留空白和换行。无法读取的文件以及空白提示词会在创建 Session 前报错。添加 `--no-submit` 可将初始文本保存为可编辑草稿，而不启动轮次；此选项需要提示词来源，并可与 `--no-open` 同用。提示词文本不会进入浏览器 URL。初始提示词或草稿失败时以非零退出，并标明已创建的 Session。浏览器启动失败则在 stderr 打印不含凭据的 `warning:`，成功退出并保留 Session。
 
 **设置 → 模型**显示 **DeepSeek**，使用 `DEEPSEEK_API_KEY`。默认模型为 `deepseek-official` / `deepseek-flash`（DeepSeek-V41-Flash）。[DeepSeek 插件](../../llm/llm-deepseek/README.zh.md#choose-a-protocol)默认使用 Messages；在 Cordis YAML 中设置 `protocol: chat-completions` 可选择 Chat Completions。Web 不提供协议选择器。
 
@@ -42,7 +49,7 @@ dsh --profile web --no-open --port 8080
 
 ### 配置
 
-大多数用户不需要设置这些；命令行 flag 会提供给下面四个设置——`--host`、`--port` 与 `--trusted-host` 来自本次调用，`--no-open` 仅对本次调用关闭浏览器交接：
+大多数用户不需要设置这些；命令行 flag 会提供给下面四个设置——`--host`、`--port` 与 `--trusted-host` 来自本次调用，`--no-open` 仅对本次调用关闭浏览器交接。`--trusted-host-for-settings` 由 Connection 行消费，而不是本插件的 config，因为它携带的授权是在浏览器中判定的：
 
 | 字段 | 默认值 | 含义 |
 |---|---|---|
@@ -50,12 +57,23 @@ dsh --profile web --no-open --port 8080
 | `printUrl` | `true` | 启动时打印 `dsh web:` URL 行 |
 | `surfaceContext` | `true` | 给 agent 提供 GUI 定位上下文，并把 `DSH_WEB_URL` 暴露给其 shell 命令 |
 | `trustedHosts` | `[]` | 允许从网络访问 GUI 的额外主机 |
+| `disableAuth` | `false` | 跳过进程 token 与 cookie 校验（`dsh web --no-auth`）；Host/Origin 信任仍然生效 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-web-app)是每个受支持字段及其 JSDoc 的穷尽式真源。
 
 ### LAN 访问与可信主机
 
 默认情况下 GUI 只接受本机的连接。绑定所有网络接口的部署也会允许 LAN 内的浏览器访问，此时打印的 URL 会附带一个 LAN 地址；`--trusted-host` 在两种情况下都能添加额外主机。Host 与 Origin 检查控制可达性，token 交换则认证每个 Host API 方法与 WebSocket 流。LAN 地址只在启动时采样一次，因此之后的网络变化不会被感知——重启 GUI 以重新公告。
+
+### 从受信主机编辑设置
+
+设置保存在 Host 文档中并包含模型凭据，因此只有当页面由 loopback authority 加载时——或由部署通过 `--trusted-host-for-settings` 显式指定的 authority 加载时——才能读写它们。每一项必须同时是 `--trusted-host`，否则栅栏会拒绝那个本应使用该授权的页面；违反这一点会在启动时报用法错误。
+
+```sh
+dsh web --trusted-host dsh.example.com --trusted-host-for-settings dsh.example.com
+```
+
+不指定第二个 flag 时，通过 `https://` 访问的部署会让设置保持在进程本地：Models 页面会显示"设置位于运行 Harness 的机器上"的提示，并引导操作者改用 loopback GUI 或 SSH 端口转发。被指定的 authority 会以 `__DSH_SETTINGS_TRUST__` 启动全局量送达浏览器，页面自身的 authority 会用与栅栏相同的归一化规则与之匹配——不带端口的条目匹配任意端口上的该主机名，带端口的条目必须精确匹配。因此，把一个公网可达的 authority 列在这里，就等于允许任何能加载该页面并通过该部署认证的人编辑设置与凭据。
 
 ### 通过 SSH 运行
 
@@ -92,7 +110,8 @@ URL 行与浏览器交接都是就绪信号：监督方一观察到该行就发�
 | 文件 | 职责 |
 |---|---|
 | [`src/index.ts`](src/index.ts) | `web-app` 粘合插件：dist 解析、LAN 信任采样、提示词段落、bash 变量、URL 行、浏览器交接 |
-| [`src/startup.ts`](src/startup.ts) | `web-startup` 提供方：`--host`、`--port`、`--trusted-host`、`--no-open`、`--help` |
+| [`src/startup.ts`](src/startup.ts) | `web-startup` 提供方：`--host`、`--port`、`--trusted-host`、`--trusted-host-for-settings`、`--no-open`、`--browser`、`open [dir]`、`--help` |
+| [`src/open.ts`](src/open.ts) | 对接正在运行的 GUI 的 `dsh web open` 客户端 |
 | [`cordis.patch.yml`](cordis.patch.yml) | Web patch：重述的基础值、Web 宿主行、浏览器名录、由 preset 承载的 agent 层 |
 | — | 不发布运行时不变式伴生入口；每项贡献（frontend-static 子插件、提示词段落、bashEnv 注册）都会随 fiber 由注册表释放，且每个所属注册表的包负责该关系的不变式；本包不持有需要审计的可变状态。 |
 | [`tests/web-app.spec.ts`](tests/web-app.spec.ts) | dist 解析、回退席位、提示词段落、就绪宣告 |

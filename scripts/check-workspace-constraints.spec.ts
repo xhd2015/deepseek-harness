@@ -182,6 +182,25 @@ describe('package payload constraints', () => {
     const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
     expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])
   })
+
+  it('publishes the open client row beside the entry and startup bundles', () => {
+    expect(expectedDshPackageFiles({
+      name: '@deepseek-ai/dsh-web-app',
+      dsh: { bundle: { patch: './cordis.patch.yml' } },
+      exports: {
+        './startup': { default: './lib/startup.js' },
+        './open': { default: './lib/open.js' },
+      },
+    })).toEqual([
+      'lib/index.js',
+      'lib/startup.js',
+      'lib/open.js',
+      'cordis.patch.yml',
+      'lib/startup-*.js',
+      'lib/opener-*.js',
+      'lib/types/**/*.d.ts',
+    ])
+  })
 })
 
 it('publishes CLI runtime declarations and rejects a payload that omits them', () => {

@@ -1,5 +1,6 @@
 /** Runtime profile resolution uses one eager generation for ESM and CommonJS. */
 
+import { spawnSync } from 'node:child_process'
 import {
   existsSync,
   mkdirSync,
@@ -12,9 +13,10 @@ import {
 } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { getEnvironmentData } from 'node:worker_threads'
+import ts from 'typescript'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   installProfileResolution,
@@ -285,6 +287,84 @@ describe('profile resolution generation', { concurrent: false }, () => {
     expect(import.meta.resolve('resolution-lib', parent)).toBe(pathToFileURL(join(f.installed, 'index.js')).href)
     expect(await importFrom('resolution-lib', parent)).toMatchObject({ marker: 1 })
   })
+
+  it('resolves a symlinked node_modules declarer from its real path', () => {
+    // tsx skips tsconfig paths for an importer under node_modules. Vitest does
+    // not, so the source launcher runs in a child whose paths map includes this fixture.
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'dsh-profile-symlink-')))
+    roots.push(root)
+    const realOwner = join(root, 'real-owner')
+    const pathsLib = join(realOwner, 'node_modules', 'paths-lib')
+    file(join(realOwner, 'package.json'), JSON.stringify({
+      name: 'owner-pkg', dependencies: { 'paths-lib': '*' },
+    }))
+    file(join(pathsLib, 'package.json'), JSON.stringify({
+      name: 'paths-lib', type: 'module', exports: { '.': './lib.js' },
+    }))
+    file(join(pathsLib, 'lib.js'), 'export const source = "lib"\n')
+    file(join(pathsLib, 'src.js'), 'export const source = "src"\n')
+    const installDir = join(root, 'install')
+    const installAnchor = join(installDir, 'package.json')
+    file(installAnchor, JSON.stringify({
+      name: 'test-app', version: '0.0.0', dependencies: { 'owner-pkg': '*' },
+    }))
+    mkdirSync(join(installDir, 'node_modules'))
+    symlinkSync(realOwner, join(installDir, 'node_modules', 'owner-pkg'), process.platform === 'win32' ? 'junction' : 'dir')
+    const profileDir = join(root, 'profiles', 'test')
+    file(join(profileDir, 'package.json'), JSON.stringify({ name: 'test-profile', private: true }))
+    file(join(profileDir, 'entry.mjs'), '')
+    file(join(profileDir, 'entry.cjs'), '')
+    const repoRoot = fileURLToPath(new URL('../../../../', import.meta.url))
+    const baseConfig = ts.readConfigFile(join(repoRoot, 'tsconfig.base.json'), ts.sys.readFile).config as {
+      compilerOptions: { paths: Record<string, string[]> }
+    }
+    const paths = Object.fromEntries(Object.entries(baseConfig.compilerOptions.paths).map(([key, values]) => [
+      key,
+      values.map(value => relative(root, resolve(repoRoot, value))),
+    ]))
+    paths['paths-lib'] = [relative(root, join(pathsLib, 'src.js'))]
+    file(join(root, 'tsconfig.json'), JSON.stringify({ compilerOptions: { baseUrl: '.', paths } }))
+    const profileModule = pathToFileURL(join(repoRoot, 'packages/boot/app-boot/src/profile.ts')).href
+    const resolverModule = pathToFileURL(join(repoRoot, 'packages/boot/app-boot/src/profile-resolution/resolver.ts')).href
+    file(join(root, 'run.mjs'), `
+import { createRequire } from 'node:module'
+import { pathToFileURL } from 'node:url'
+import { healProfilesModuleFallback } from ${JSON.stringify(profileModule)}
+import { installProfileResolution } from ${JSON.stringify(resolverModule)}
+const [home, installAnchor, profileDir] = process.argv.slice(2)
+const generation = await healProfilesModuleFallback({
+  installAnchor,
+  profile: { name: 'test', dir: profileDir, layers: [], patchPath: profileDir + '/cordis.patch.yml', patches: [] },
+  home,
+  materialize: false,
+})
+const registration = installProfileResolution(generation, 'enforce')
+const declarer = generation.entries.find(entry => entry.name === 'paths-lib')?.declarer
+const parent = pathToFileURL(profileDir + '/entry.mjs').href
+const require = createRequire(${JSON.stringify(join(repoRoot, 'package.json'))})
+const loader = require('node-addon-require-builtin').requireBuiltin('internal/modules/esm/loader').getOrInitializeCascadedLoader()
+const resolved = 'getOrCreateModuleJob' in loader
+  ? loader.resolveSync(parent, { specifier: 'paths-lib', attributes: {} }).url
+  : loader.resolveSync('paths-lib', parent, {}).url
+const cjs = createRequire(profileDir + '/entry.cjs').resolve('paths-lib')
+registration.dispose()
+console.log(JSON.stringify({ declarer, esm: resolved, cjs }))
+`)
+    const env: NodeJS.ProcessEnv = { ...process.env, TSX_TSCONFIG_PATH: join(root, 'tsconfig.json') }
+    delete env.NODE_OPTIONS
+    const child = spawnSync(process.execPath, ['--import', 'tsx/esm', join(root, 'run.mjs'), root, installAnchor, profileDir], {
+      cwd: repoRoot,
+      env,
+      encoding: 'utf8',
+      timeout: 60_000,
+    })
+    expect(child.status, child.stderr).toBe(0)
+    const reported = JSON.parse(child.stdout) as { declarer: string; esm: string; cjs: string }
+    expect(reported.declarer).toBe(join(installDir, 'node_modules', 'owner-pkg', 'package.json'))
+    expect(reported.esm).toBe(pathToFileURL(join(pathsLib, 'src.js')).href)
+    // CommonJS search paths name the selected package directory, so Node's exports still select lib.js.
+    expect(reported.cjs).toBe(join(pathsLib, 'lib.js'))
+  }, 60_000)
 
   it('routes a scoped CommonJS package through its containing node_modules directory', async () => {
     const f = fixture('@scope/resolution-lib')

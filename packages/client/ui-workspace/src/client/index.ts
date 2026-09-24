@@ -10,7 +10,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { RemoteHostFacts } from '@deepseek-ai/dsh-api-remotes/client'
-import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { ISessions, SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { IWorkspaces, WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { HostObservable, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls the Controller service merges.
@@ -23,9 +23,13 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 // Type-only: pulls the Session root standard-hook merge.
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceBrowserInjected, WorkspacePickerInjected } from './contract/slots.ts'
 import { UiWorkspaceService } from './navigation.ts'
+import { pageSearch, parseSessionQuery, replaceSessionQuery } from './session-query.ts'
 import { createWorkspaceViewStore } from './stores.ts'
+import { UnknownSessionHint, type UnknownSessionHintInjected } from './UnknownSessionHint.tsx'
 import { WorkspaceBrowser } from './rows/WorkspaceBrowser.tsx'
 import { WorkspacePicker } from './WorkspacePicker.tsx'
 import { en, zh, type WorkspaceKey } from './locales.ts'
@@ -81,6 +85,28 @@ export function apply(ctx: Context): void {
   const workspaces = ctx.get('workspaces') as IWorkspaces
   const uiWorkspace = new UiWorkspaceService(
     ctx, ctx.remote.directoryPicker, workspaces, sessions)
+  const unknownSession = createSnapshotStore(false)
+  // A document opened on a well-formed `?session=` starts focused: collapsing
+  // here, while this entry activates and before the frame's first render, is
+  // what keeps the reader from watching the sidebar animate away once the Host
+  // list settles. Whether the id is listed is not known yet; an unusable link
+  // still raises its notice, over that rail.
+  if (parseSessionQuery(pageSearch()).kind === 'id') {
+    ctx.layout.collapseSidebar()
+  }
+  ctx.effect(
+    () => bindSessionUrl(uiWorkspace, sessions, unknownSession),
+    'ui-workspace: session query',
+  )
+  ctx.effect(() => ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+    name: 'shell.overlay',
+    id: 'workspace-unknown-session',
+    locale: NS,
+    inject: (): UnknownSessionHintInjected => ({
+      hooks: { unknownSession },
+      dismiss: () => { unknownSession.set(false) },
+    }),
+  }, UnknownSessionHint)), 'ui-workspace: unknown session overlay')
   ctx.slots.provideRoot({ hooks: { workspaces: workspaces.list } })
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-workspace: dictionaries')
 
@@ -160,4 +186,68 @@ export function apply(ctx: Context): void {
     },
     WorkspacePicker,
   ))
+}
+
+/**
+ * Whether the Session list already projects `id`.
+ * @param ids - Host-list order.
+ * @param byId - list rows including addressed children.
+ * @param id - candidate Session id.
+ * @returns true when the id is in Host order or the row map.
+ */
+function sessionListed(ids: readonly SessionId[], byId: SessionListState['byId'], id: SessionId): boolean {
+  return ids.includes(id) || byId[id] !== undefined
+}
+
+/**
+ * Deep-link `?session=` on load, keep the query aligned with the selection,
+ * and flag an unknown or malformed Session id for the overlay.
+ * @param uiWorkspace - navigation owner.
+ * @param sessions - Client Session list.
+ * @param unknownSession - overlay store for an unusable link.
+ */
+function bindSessionUrl(
+  uiWorkspace: InstanceType<typeof UiWorkspaceService>,
+  sessions: ISessions,
+  unknownSession: { getSnapshot(): boolean; set(value: boolean): void; subscribe(listener: () => void): () => void },
+): () => void {
+  let deepLinkSettled = false
+  const reconcile = (): void => {
+    const snapshot = sessions.list.getSnapshot()
+    if (snapshot.phase !== 'ready') return
+    const query = parseSessionQuery(pageSearch())
+    const current = Object.values(snapshot.byId)
+      .find(session => (session.retainedBy.mainView ?? 0) > 0)?.id
+    if (!deepLinkSettled) {
+      if (query.kind === 'id' && sessionListed(snapshot.ids, snapshot.byId, query.id)) {
+        unknownSession.set(false)
+        if (current !== query.id) {
+          try {
+            uiWorkspace.openSession(query.id)
+          } catch {
+            unknownSession.set(true)
+            deepLinkSettled = true
+            return
+          }
+        }
+        replaceSessionQuery(query.id)
+        deepLinkSettled = true
+        return
+      }
+      if (query.kind === 'malformed' || query.kind === 'id') {
+        unknownSession.set(true)
+        deepLinkSettled = true
+        return
+      }
+      deepLinkSettled = true
+    }
+    if (current !== undefined) {
+      unknownSession.set(false)
+      replaceSessionQuery(current)
+      return
+    }
+    if (!unknownSession.getSnapshot()) replaceSessionQuery(undefined)
+  }
+  reconcile()
+  return sessions.list.subscribe(reconcile)
 }

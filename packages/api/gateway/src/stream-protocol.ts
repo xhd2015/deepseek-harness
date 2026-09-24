@@ -11,6 +11,9 @@ export const REMOTE_EVENT_STREAM_ENDPOINT = '$events'
 /** Gateway-internal unary endpoint returning one Client Remote Event outcome. */
 export const REMOTE_EVENT_RESULT_ENDPOINT = '$events/result'
 
+/** Gateway-internal logical stream carrying exactly one unary Remote result. */
+export const REMOTE_UNARY_STREAM_ENDPOINT = '$invoke'
+
 /** Empty standard Remote payload used to open the forwarded-event stream. */
 export const REMOTE_EVENT_STREAM_PAYLOAD = { args: {} } as const
 

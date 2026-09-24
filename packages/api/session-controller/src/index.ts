@@ -1,7 +1,7 @@
 /** Session Remote owner: cold reads, explicit Agent commands, and live control state. */
 
 import { hostname } from 'node:os'
-import { Context } from '@deepseek-ai/cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-client-file-upload'
@@ -17,6 +17,7 @@ import {
 } from './agent.ts'
 import { SessionCommandController } from './commands.ts'
 import { SessionControlController } from './control.ts'
+import { SessionDraftController } from './drafts.ts'
 import { SessionHistoryController } from './history.ts'
 import { SessionFileReferences } from './file-references.ts'
 import { ApiSessionList } from './list.ts'
@@ -33,6 +34,9 @@ import type {
   SessionControlFrame,
   SessionCreateRequest,
   SessionCreateValue,
+  SessionDraftRequest,
+  SessionDraftValue,
+  SessionSetDraftRequest,
   SessionFollowFrame,
   SessionFollowRequest,
   SessionForkRequest,
@@ -94,6 +98,7 @@ export class SessionController extends TypertRemoteService {
     'sessions',
     'sessionProjections',
     'sessionQuery',
+    'storageDomain',
     'typert',
     'workspaceRegistry',
   ]
@@ -105,6 +110,7 @@ export class SessionController extends TypertRemoteService {
   private readonly agents: ApiSessionAgentController
   private readonly commands: SessionCommandController
   private readonly controlState: SessionControlController
+  private readonly drafts: SessionDraftController
   private readonly history: SessionHistoryController
   private readonly listState: ApiSessionList
   private readonly openPath: (path: string, signal: AbortSignal) => Promise<void>
@@ -120,6 +126,7 @@ export class SessionController extends TypertRemoteService {
   constructor(ctx: Context, config: Config, internals: SessionControllerInternals = {}) {
     super(ctx, 'sessionController', { namespace: 'session' })
     installModelSelectionProjection(ctx)
+    this.drafts = new SessionDraftController(ctx)
     this.agents = new ApiSessionAgentController(ctx)
     this.commands = new SessionCommandController(ctx, this.agents, process.cwd())
     ctx.effect(() => ctx.fileUploads.registerAgentResolver(async (sessionId) => {
@@ -168,6 +175,11 @@ export class SessionController extends TypertRemoteService {
       if (event.type !== 'user/message' || event.data.source.kind !== 'user') return
       ctx.emit('api-session/activity', session.id, event.time)
     })
+  }
+
+  /** Open durable composer storage before publishing the Session Remote service. */
+  protected async [Service.init](): Promise<void> {
+    await this.drafts.open()
   }
 
   private promote(observation: SessionObservation): void {
@@ -244,6 +256,26 @@ export class SessionController extends TypertRemoteService {
   @Remote('create')
   create(request: SessionCreateRequest): Promise<SessionCreateValue> {
     return this.commands.create(request)
+  }
+
+  /**
+   * Read durable composer text without resuming the Session or changing its transcript.
+   * @param request - Session identity.
+   * @returns saved text, or empty text when no draft exists.
+   */
+  @Remote('getDraft')
+  getDraft(request: SessionDraftRequest): Promise<SessionDraftValue> {
+    return this.drafts.get(request)
+  }
+
+  /**
+   * Replace durable composer text without admitting a prompt; dependent writes must be serialized by callers.
+   * @param request - Session identity and text; empty text clears the record.
+   * @returns the text after this write is durable.
+   */
+  @Remote('setDraft')
+  setDraft(request: SessionSetDraftRequest): Promise<SessionDraftValue> {
+    return this.drafts.set(request)
   }
 
   /**

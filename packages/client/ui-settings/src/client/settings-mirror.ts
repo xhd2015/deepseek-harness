@@ -38,6 +38,15 @@ export interface SettingsMirrorSnapshot {
 }
 
 /**
+ * Why a non-loopback page holds no settings view. The Host keeps the settings
+ * document and the credentials it carries for a browser on its own machine, so
+ * this is a decision rather than a transient failure — and it is the reason
+ * every `unavailable` snapshot reports.
+ */
+export const NON_LOOPBACK_SETTINGS_REASON
+  = 'this page is not on the machine running the harness, which keeps settings for a loopback browser'
+
+/**
  * The mirror as cross-namespace surfaces consume it: current answer,
  * subscription, first-use read, and the write-answer fold. `load` stays off
  * this face — invalidation refreshes belong to the mirror's owning plugin.
@@ -88,7 +97,11 @@ export class SettingsDescribeMirror implements SettingsDescribeFace {
     this.store = createSnapshotStore<SettingsMirrorSnapshot>({
       status: persistence === 'host' ? 'idle' : 'unavailable',
       view: undefined,
-      error: null,
+      // A non-loopback page is terminal, not pending: no read will ever be
+      // issued, so say why rather than leaving the reason null. Surfaces that
+      // render `error ?? <fallback>` otherwise blame the browser for a
+      // condition that no retry can change.
+      error: persistence === 'host' ? null : NON_LOOPBACK_SETTINGS_REASON,
     })
   }
 

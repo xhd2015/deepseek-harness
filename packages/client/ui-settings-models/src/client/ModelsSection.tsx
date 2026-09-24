@@ -76,6 +76,8 @@ interface EditorTarget extends ProviderIdentity {
   credentialRef?: string
   /** The adapter reports this route as one it does not ship (see {@link ProviderEditorProps.declared}). */
   declared?: boolean
+  /** Adapter refusals by model id, shown on the matching model row (see {@link ProviderEditorProps.modelErrors}). */
+  modelErrors?: Record<string, string>
 }
 
 /** Values that vary around the shared provider-editor rendering. */
@@ -94,6 +96,7 @@ function renderProviderEditor({ target, ...props }: ProviderEditorRenderProps): 
       displayName={target.displayName}
       settingsPath={target.settingsPath}
       {...target.declared === true ? { declared: true } : {}}
+      {...target.modelErrors === undefined ? {} : { modelErrors: target.modelErrors }}
       {...props}
     />
   )
@@ -172,6 +175,7 @@ function targetOf(row: ProviderRow): EditorTarget {
     ...credentialRef === undefined ? {} : { credentialRef },
     // Only declared routes may expose route-owned fields.
     ...row.entry.declared === true ? { declared: true } : {},
+    ...row.modelErrors === undefined ? {} : { modelErrors: row.modelErrors },
   }
 }
 
@@ -265,6 +269,15 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
   if (state.status === 'error') {
     /* v8 ignore next -- an error status always carries text; the fallback satisfies the nullable type */
     const errorText = state.error ?? ''
+    // A terminal failure has a cause no reload can change, so it explains the
+    // cause instead of offering a retry that would fail identically.
+    if (state.terminal) {
+      return (
+        <div className={styles['section']}>
+          <p className={styles['error']}>{t('settingsUnavailableRemote')}</p>
+        </div>
+      )
+    }
     return (
       <div className={styles['section']}>
         <p className={styles['error']}>{`${t('loadFailed')}: ${errorText}`}</p>
@@ -303,7 +316,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
   // Hand-declared routes live in the pi-ai namespace, which is also the only
   // one whose schema names the protocols one may speak; without it mounted
   // there is nothing to declare and the entry point stays disabled.
-  const protocols = protocolChoices(state.namespaces.get('llm-pi-ai'), schema)
+  const protocols = protocolChoices(state.namespaces.get('llm-proxy-providers'), schema)
 
   return (
     <div className={styles['section']}>
@@ -493,7 +506,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                   taken={state.rows.map(row => row.entry.provider)}
                   protocols={protocols}
                   /* v8 ignore next -- the card only opens from a button disabled without this namespace */
-                  revision={state.namespaces.get('llm-pi-ai')?.revision ?? 0}
+                  revision={state.namespaces.get('llm-proxy-providers')?.revision ?? 0}
                   operations={operations}
                   t={t}
                   readOnly={!state.writable}
@@ -529,7 +542,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                     {t('add')}
                   </button>
                 )}
-                {state.namespaces.has('llm-pi-ai') && (
+                {state.namespaces.has('llm-proxy-providers') && (
                   <button
                     type="button"
                     className={styles['addButton']}

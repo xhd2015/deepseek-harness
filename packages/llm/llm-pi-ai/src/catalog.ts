@@ -84,6 +84,14 @@ const THINKING_LEVEL_GATE: Record<ModelThinkingLevel, true> = {
 /** Every pi-ai thinking level a profile may declare, in escalation order. */
 export const THINKING_LEVELS = Object.keys(THINKING_LEVEL_GATE) as readonly ModelThinkingLevel[]
 
+/**
+ * Membership test for a level key read out of a document. `reasoningEfforts`
+ * admits any key at the schema boundary so resolution can report one bad model
+ * entry without refusing its siblings, which leaves this the only place the
+ * declared key set is enforced.
+ */
+const THINKING_LEVEL_SET: ReadonlySet<string> = new Set<string>(THINKING_LEVELS)
+
 /** One reasoning-dispatch wire format a profile may name. */
 export type PiAiThinkingFormat = NonNullable<OpenAICompletionsCompat['thinkingFormat']>
 
@@ -712,6 +720,14 @@ function resolveModelReasoning(
   if ((efforts as unknown) === null || Object.keys(efforts).length === 0) {
     invalid(provider, `model "${entry.id}" has an empty reasoningEfforts; declare the offered levels, set`
       + ' false for a non-reasoning model, or omit the field to keep the installed catalog\'s capability')
+  }
+  // Checked before the declared set is read, so a dict carrying only misspelled
+  // levels names the misspelling instead of reporting that it offers no level.
+  const unknownLevels = Object.keys(efforts).filter(level => !THINKING_LEVEL_SET.has(level))
+  if (unknownLevels.length > 0) {
+    invalid(provider, `model "${entry.id}" reasoningEfforts names ${unknownLevels.map(level => `"${level}"`).join(', ')},`
+      + ` which ${unknownLevels.length === 1 ? 'is not a reasoning level' : 'are not reasoning levels'}`
+      + ` pi-ai knows (${THINKING_LEVELS.join(', ')})`)
   }
   const declared = THINKING_LEVELS.flatMap((level) => {
     const wire = efforts[level]

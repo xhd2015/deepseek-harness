@@ -145,6 +145,11 @@
   color: var(--dsw-alias-state-business-primary);
 }
 
+/* A folded project holding the open Session: the leading accent separates it
+   from the other folded rows, which render no Session rows to tell them apart. */
+.projectRowCurrent {
+  box-shadow: inset 2px 0 0 var(--dsw-alias-state-business-primary);
+}
 
 /* Project leading slot: folder by default, expand arrow on row hover. */
 .projectRow .chevron { display: none; }

@@ -67,13 +67,17 @@ const DEFAULT_CONNECT_TIMEOUT_MS = 5_000
 
 /**
  * Browser globals jsdom lacks that roster plugins touch at apply or mount:
- * client-hmr opens an `EventSource`, layout components observe element size.
- * Inert stand-ins, installed only where the global is absent.
+ * client-hmr subscribes through a `SharedWorker` relay, layout components
+ * observe element size. Inert stand-ins, installed only where the global is
+ * absent.
  */
 const JSDOM_SHIMS: Readonly<Record<string, unknown>> = {
-  EventSource: class {
-    addEventListener(): void {}
-    close(): void {}
+  SharedWorker: class {
+    port = {
+      addEventListener(): void {},
+      start(): void {},
+      close(): void {},
+    }
   },
   ResizeObserver: class {
     observe(): void {}

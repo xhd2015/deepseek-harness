@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-Web 原语通过维护中的 `diff` 库生成行补丁，使用 `maxEditLength: 256`。每处精确改动两侧最多保留三行中性上下文；远距离改动分成独立 hunk，共享上下文不计入增删统计。每个片段的新增与删除行数超过 256 时，搜索停止，完整新旧片段按粗粒度替换呈现，共享行也计入显示、复制和统计。卡片与 `diffTotals` 使用同一确定性推导。这遵循[工具呈现归属决策](../architecture/2026-08-23-client-derived-tool-presentation.zh.md)，仍属于 Client 呈现，不改变持久化元数据或公开 props。
+Web 原语通过维护中的 `diff` 库生成行补丁，使用 `maxEditLength: 256`。每处精确改动两侧最多保留三行中性上下文；远距离改动分成独立 hunk，共享上下文不计入增删统计。每个片段的新增与删除行数超过 256 时，搜索停止，完整新旧片段按粗粒度替换呈现，共享行也计入显示、复制和统计。卡片与 `diffTotals` 使用同一确定性推导。已完成的文件修改卡片接受带空 justification 的已知升级模式，因为执行器会在验证理由前忽略不能拓宽有效策略的请求；未知模式或未配对字段保持通用呈现。这遵循[工具呈现归属决策](../architecture/2026-08-23-client-derived-tool-presentation.zh.md)，仍属于 Client 呈现，不改变持久化元数据或公开 props。
 
 ## Alternatives considered
 

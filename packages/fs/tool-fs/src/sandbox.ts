@@ -62,7 +62,7 @@ export class FsSandboxController {
         type: 'string',
         enum: [...this.escalationModes],
         description: 'The wider sandbox mode this file operation needs. Only valid as a one-shot retry '
-          + 'of an operation the sandbox just denied; requires justification and user approval.',
+          + 'after a result carrying the `[sandbox: escalation available` marker; requires justification and user approval.',
       },
       justification: {
         type: 'string',
@@ -75,20 +75,26 @@ export class FsSandboxController {
   /**
    * The policy to stamp onto this mutation: an approved escalation grant (a
    * strictly wider retry resolved through `ctx.approval` before anything
-   * executes), else the session's standing mode. Repeating the standing mode
-   * requires no approval. The calling session's cwd is
-   * always carried as the workspace root. Validates the escalation argument
-   * pairing first.
+   * executes), else the session's standing mode. The calling session's cwd is
+   * always carried as the workspace root. Resolves the standing policy first so
+   * the escalation arguments are validated against the mode this call runs
+   * under — an ask that mode can never widen is ignored, and only an ask that
+   * could widen still needs its pairing; a repeated ask therefore also resolves
+   * to the standing mode without approval.
    * @param toolName - the mutating tool's name, for the approval audit trail.
    * @param args - the call's escalation arguments.
    * @param exec - the tool-execution context (agent, callId, signal).
    * @returns the policy to pass to the mutation, or undefined for an
    *   unsandboxed backend.
+   * @throws Error naming the malformed pairing of an ask that could widen this call.
    */
   async resolvePolicy(toolName: string, args: FsEscalationArgs, exec: ToolExecution): Promise<SandboxExecutionPolicy | undefined> {
-    validateEscalationArgs(args.sandbox_permissions, args.justification)
     const standingPolicy = this.policy?.resolve({ ...exec.agent ? { session: exec.agent.session } : {} })
-    if (args.sandbox_permissions === undefined || args.justification === undefined) {
+    // A redundant ask (this call already runs at that mode or wider) is ignored,
+    // not refused: a model that fills every property of the schema asks on every
+    // mutation, and refusing those would make the mutation impossible.
+    const ignored = validateEscalationArgs(args.sandbox_permissions, args.justification, standingPolicy?.mode) === 'ignored'
+    if (ignored || args.sandbox_permissions === undefined || args.justification === undefined) {
       return standingPolicy
     }
     if (this.escalationModes.length === 0) {

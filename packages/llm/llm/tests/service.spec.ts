@@ -1177,6 +1177,8 @@ describe('LlmRuntime', () => {
     [{ provider: 'route', id: 'm', name: 1 }, 'non-string name'],
     [{ provider: 'route', id: 'm', name: '' }, 'empty name'],
     [{ provider: 'route', id: 'm', name: 'M', description: 1 }, 'non-string description'],
+    [{ provider: 'route', id: 'm', name: 'M', unavailable: 1 }, 'non-string unavailability'],
+    [{ provider: 'route', id: 'm', name: 'M', unavailable: '' }, 'empty unavailability'],
   ] as const)('rejects invalid model metadata (%s: %s)', async (metadata, _label) => {
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)
@@ -1185,6 +1187,19 @@ describe('LlmRuntime', () => {
       [metadata as unknown as LlmModelInfo],
     ))
     await expect(ctx.llm.listModels('route')).rejects.toMatchObject({ code: 'INVALID_CATALOG' })
+  })
+
+  it('carries a model the adapter refuses, beside the ones it serves', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    ctx.llm.registerAdapter(['route'], new CatalogAdapter({ id: 'route', name: 'Route' }, [
+      { provider: 'route', id: 'served', name: 'Served' },
+      { provider: 'route', id: 'refused', name: 'refused', unavailable: 'Names no level pi-ai knows' },
+    ]))
+    await expect(ctx.llm.listModels('route')).resolves.toEqual([
+      { provider: 'route', id: 'served', name: 'Served' },
+      { provider: 'route', id: 'refused', name: 'refused', unavailable: 'Names no level pi-ai knows' },
+    ])
   })
 
   it('rejects duplicate model ids in one provider catalog', async () => {

@@ -32,9 +32,16 @@ Start the GUI, open your browser, and start talking to the agent. The flags fine
 ```sh
 dsh --profile web
 dsh --profile web --no-open --port 8080
+dsh --profile web --browser brave
+dsh --profile web open
+dsh --profile web open ~/proj --browser brave
 ```
 
-After startup you see a `dsh web:` line whose root URL carries a fresh process token. Unless `--no-open` or an SSH session suppresses it, the default browser opens that URL, receives a signed cookie, and redirects to the clean root page. You know it worked when the page loads and you can chat with the agent. Two failures to expect: if the frontend is not built, startup stops with a build hint (`pnpm run build` in a checkout); if the browser cannot be opened, a credential-free diagnostic prints to stderr while the server keeps running — open the printed startup URL yourself.
+After startup you see a `dsh web:` line whose root URL carries a fresh process token. Unless `--no-open` or an SSH session suppresses it, the chosen browser (`--browser brave|chrome|firefox|edge|safari`, or the OS default) opens that URL, receives a signed cookie, and redirects to the clean root page. You know it worked when the page loads and you can chat with the agent. Two failures to expect: if the frontend is not built, startup stops with a build hint (`pnpm run build` in a checkout); if the browser cannot be opened, a credential-free diagnostic prints to stderr while the server keeps running — open the printed startup URL yourself.
+
+`dsh web open [dir]` talks to that already-running GUI: it registers the directory as a Workspace (reusing the existing one for the same path), creates a new Session, and opens it. The directory defaults to the invoking cwd. If no GUI is serving, the command exits nonzero and tells you to start `dsh web`. `--no-open` on this subcommand still creates the Session.
+
+Supply `-p` / `--prompt <text>` or `--prompt-file <file>` to submit an initial prompt; the two sources are mutually exclusive. Prompt files are read as UTF-8 relative to the invoking cwd, not the workspace directory, and text retains its whitespace and newlines. Unreadable files and empty or whitespace-only prompts fail before Session creation. Add `--no-submit` to save the initial text as an editable draft instead of starting a turn; it requires a prompt source and works with `--no-open`. Prompt text never enters the browser URL. Initial prompt or draft failures exit nonzero and identify the created Session. Browser-launch failure instead prints a credential-free `warning:` on stderr and exits successfully, retaining the Session.
 
 **Settings → Models** displays **DeepSeek**, using `DEEPSEEK_API_KEY`. The default is `deepseek-official` / `deepseek-flash` (DeepSeek-V41-Flash). The [DeepSeek plugin](../../llm/llm-deepseek/README.md#choose-a-protocol) defaults to Messages; set `protocol: chat-completions` in Cordis YAML to select Chat Completions. Web has no protocol selector.
 
@@ -42,7 +49,7 @@ Saved model selections override the composition default. Both protocols share `d
 
 ### Configuration
 
-Most users never set these; the command-line flags feed the four settings below — `--host`, `--port`, and `--trusted-host` come from the invocation, and `--no-open` turns the browser handoff off for that invocation:
+Most users never set these; the command-line flags feed the settings below — `--host`, `--port`, and `--trusted-host` come from the invocation, `--no-open` turns the browser handoff off for that invocation, and `--no-auth` skips process-token browser authentication when an outer reverse proxy already authenticates. `--trusted-host-for-settings` is consumed by the Connection row rather than this plugin's config, because the grant it carries is checked in the browser.
 
 | Field | Default | Meaning |
 |---|---|---|
@@ -50,12 +57,23 @@ Most users never set these; the command-line flags feed the four settings below 
 | `printUrl` | `true` | Print the `dsh web:` URL line at startup |
 | `surfaceContext` | `true` | Give the agent GUI-orientation context and expose `DSH_WEB_URL` to its shell commands |
 | `trustedHosts` | `[]` | Extra hosts allowed to reach the GUI from the network |
+| `disableAuth` | `false` | Skip process-token and cookie checks (`dsh web --no-auth`); Host/Origin trust remains |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-web-app) is the exhaustive source for every accepted field and its JSDoc.
 
 ### LAN access and trusted hosts
 
 By default the GUI accepts connections from this machine only. A deployment that binds all network interfaces also allows browsers from the LAN, and the printed URL then includes a LAN address; `--trusted-host` adds extra hosts in either case. Host and Origin checks control reachability, while the token exchange authenticates every Host API method and WebSocket stream. The LAN addresses are sampled once at startup, so a network change later is not picked up — restart the GUI to re-advertise.
+
+### Settings from a trusted host
+
+Settings live in the Host document and hold model credentials, so a page may read and write them only when it is loaded from a loopback authority — or from an authority the deployment explicitly named with `--trusted-host-for-settings`. Every entry must also be a `--trusted-host`, since the fence would otherwise refuse the page that is meant to use the grant; a violation is a usage error at startup.
+
+```sh
+dsh web --trusted-host dsh.example.com --trusted-host-for-settings dsh.example.com
+```
+
+Without the second flag an `https://` deployment keeps settings process-local: the Models page renders its "settings live on the machine that runs the harness" notice and directs the operator to the loopback GUI or an SSH forward. The named authorities reach the browser as the `__DSH_SETTINGS_TRUST__` boot global, and the page's own authority is matched against them with the same normalization the fence uses — a port-less entry covers the hostname on any port, an entry with a port must match it exactly. Naming a publicly reachable authority therefore grants settings and credential editing to anyone who can load that page and pass the deployment's authentication.
 
 ### Running over SSH
 
@@ -92,7 +110,8 @@ The URL line and browser handoff are readiness signals: supervisors RPC as soon 
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | The `web-app` glue plugin: dist resolution, LAN trust sampling, prompt sections, bash variable, URL line, browser handoff |
-| [`src/startup.ts`](src/startup.ts) | The `web-startup` provider: `--host`, `--port`, `--trusted-host`, `--no-open`, `--help` |
+| [`src/startup.ts`](src/startup.ts) | The `web-startup` provider: `--host`, `--port`, `--trusted-host`, `--no-open`, `--browser`, `open [dir]`, `--help` |
+| [`src/open.ts`](src/open.ts) | `dsh web open` client against the running GUI |
 | [`cordis.patch.yml`](cordis.patch.yml) | The web patch: restated base values, web host rows, browser roster, agent plane behind presets |
 | — | No runtime invariant companion is published; every contribution (frontend-static child plugin, prompt section, bashEnv registration) is registry-disposed with the fiber, and each owning registry's package carries that relation's invariant; the package holds no mutable state of its own to audit. |
 | [`tests/web-app.spec.ts`](tests/web-app.spec.ts) | Dist resolution, fallback seat, prompt sections, readiness |

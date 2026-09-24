@@ -4,6 +4,7 @@ import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import {
   parseRemoteStreamServerMessage,
   REMOTE_STREAM_MUX_PATH,
+  REMOTE_UNARY_STREAM_ENDPOINT,
   type RemoteStreamClientMessage,
   type RemoteStreamServerMessage,
 } from '../stream-protocol.ts'
@@ -120,6 +121,32 @@ export class RemoteStreamMuxClient {
   }
 
   /**
+   * Invoke one Gateway unary method through a one-item logical mux stream.
+   * @param endpoint - Typert Remote unary endpoint.
+   * @param payload - endpoint request encoded on the wire.
+   * @param signal - cancellation for this invocation.
+   * @returns the single result item emitted by the Host.
+   */
+  async call(endpoint: string, payload: unknown, signal: AbortSignal): Promise<unknown> {
+    const iterator = this.open(
+      REMOTE_UNARY_STREAM_ENDPOINT,
+      { args: { endpoint, payload } },
+      signal,
+    )[Symbol.asyncIterator]()
+    let ended = false
+    try {
+      const result = await iterator.next()
+      if (result.done) throw new Error('api gateway: unary Remote stream ended without a result')
+      const terminal = await iterator.next()
+      if (!terminal.done) throw new Error('api gateway: unary Remote stream emitted multiple results')
+      ended = true
+      return result.value
+    } finally {
+      if (!ended) await iterator.return(undefined)
+    }
+  }
+
+  /**
    * Permanently stop the carrier, close the physical socket, and fail every
    * active logical stream.
    * @returns once the active connection attempt has stopped.
@@ -140,7 +167,7 @@ export class RemoteStreamMuxClient {
   }
 
   private connect(): Promise<WebSocket> {
-    const socket = new WebSocket(remoteStreamUrl())
+    const socket = sharedWorkerSocket() ?? new WebSocket(remoteStreamUrl())
     const connecting = new Promise<WebSocket>((resolve, reject) => {
       let settled = false
       const rejectCandidate = (error: Error): void => {
@@ -270,6 +297,54 @@ export class RemoteStreamMuxClient {
   private send(socket: WebSocket, message: RemoteStreamClientMessage): void {
     socket.send(JSON.stringify(message))
   }
+}
+
+/** Bridge the page-local mux API onto the origin-wide Gateway SharedWorker. */
+function sharedWorkerSocket(): WebSocket | undefined {
+  if (typeof SharedWorker === 'undefined' || typeof location === 'undefined') return undefined
+  return new SharedMuxSocket(new SharedWorker(
+    new URL('/api/remote.shared-mux-worker.js', location.origin),
+    { type: 'module', name: 'dsh-gateway-mux' },
+  )) as unknown as WebSocket
+}
+
+/** Minimal WebSocket-compatible endpoint backed by one SharedWorker MessagePort. */
+class SharedMuxSocket extends EventTarget {
+  readyState: number = WebSocket.CONNECTING
+  private readonly port: MessagePort
+
+  constructor(worker: SharedWorker) {
+    super()
+    this.port = worker.port
+    this.port.addEventListener('message', ({ data }: MessageEvent<unknown>) => {
+      if (isWorkerLost(data)) {
+        this.readyState = WebSocket.CLOSED
+        this.dispatchEvent(new CloseEvent('close'))
+        return
+      }
+      this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(data) }))
+    })
+    this.port.start()
+    queueMicrotask(() => {
+      if (this.readyState !== WebSocket.CONNECTING) return
+      this.readyState = WebSocket.OPEN
+      this.dispatchEvent(new Event('open'))
+    })
+  }
+
+  send(data: string): void { this.port.postMessage(JSON.parse(data)) }
+
+  close(): void {
+    if (this.readyState === WebSocket.CLOSED) return
+    this.readyState = WebSocket.CLOSED
+    this.port.postMessage({ type: 'disconnect' })
+    this.port.close()
+    this.dispatchEvent(new CloseEvent('close'))
+  }
+}
+
+function isWorkerLost(value: unknown): value is { readonly type: 'lost' } {
+  return typeof value === 'object' && value !== null && (value as { type?: unknown }).type === 'lost'
 }
 
 class StreamInbox {

@@ -150,6 +150,33 @@ describe('workspace browser rows', () => {
     expect(onToggle).toHaveBeenCalledOnce()
   })
 
+  it('marks a folded project holding the open Session and no other fold', () => {
+    const group: GroupNode = {
+      key: 'project', workspaceId: wid('project'), cwd: '/projects/project', createdAt: 0, label: 'Project',
+      sessionCount: 1, expanded: false, containsCurrent: true, sessions: [],
+    }
+    const view = render(<ProjectRowItem group={group} onToggle={vi.fn()} onCreate={vi.fn()} t={t} />)
+    const folded = screen.getByRole('treeitem')
+    expect(folded.getAttribute('aria-expanded')).toBe('false')
+    expect(folded.getAttribute('aria-current')).toBe('true')
+    expect(folded.querySelector('[class*="folderActive"]')).not.toBeNull()
+    expect(folded.className).toContain('projectRowCurrent')
+
+    // Open, the row keeps the current marker but drops the folded-only accent.
+    view.rerender(<ProjectRowItem group={{ ...group, expanded: true }} onToggle={vi.fn()} onCreate={vi.fn()} t={t} />)
+    const open = screen.getByRole('treeitem')
+    expect(open.getAttribute('aria-current')).toBe('true')
+    expect(open.className).not.toContain('projectRowCurrent')
+
+    view.rerender(
+      <ProjectRowItem group={{ ...group, containsCurrent: false }} onToggle={vi.fn()} onCreate={vi.fn()} t={t} />,
+    )
+    const other = screen.getByRole('treeitem')
+    expect(other.getAttribute('aria-current')).toBeNull()
+    expect(other.querySelector('[class*="folderActive"]')).toBeNull()
+    expect(other.className).not.toContain('projectRowCurrent')
+  })
+
   it('renders and opens a selected running Session row', () => {
     const node: SessionNode = {
       id: sid('session'), title: 'Session', blank: false, running: true,
