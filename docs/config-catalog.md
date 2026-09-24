@@ -449,8 +449,17 @@ export interface ConnectionConfig {
    * an entry here. A non-canonical or non-bare authority fails plugin load.
    */
   trustedHosts?: string[]
+  /**
+   * Subset of {@link trustedHosts} whose page is marked settings-trusted.
+   * The list reaches the browser as the `__DSH_SETTINGS_TRUST__` boot global.
+   * Entries are validated exactly like {@link trustedHosts} and must also appear there.
+   * Settings persistence itself stays on the Host document for every authenticated browser.
+   */
+  trustedHostsForSettings?: string[]
   /** Absolute browser and API cookie lifetime in days. Default: 30. */
   cookieMaxAgeDays?: number
+  /** Skip process-token and cookie checks. Host/Origin trust remains. Default: false. */
+  disableAuth?: boolean
   /** Maximum buffered JSON body for every `/api` request. Default: 300 MiB. */
   maxRequestBodyBytes?: number
 }

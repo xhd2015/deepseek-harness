@@ -52,6 +52,7 @@ export {
   serverResponseSchema,
 } from './rpc-schema.ts'
 export { HostConnectionService } from './rpc-host.ts'
+export { assertTrustedAuthority } from './api-request-trust.ts'
 
 export { API_PATH } from './api-path.ts'
 
@@ -103,6 +104,13 @@ export interface ConnectionConfig {
    * an entry here. A non-canonical or non-bare authority fails plugin load.
    */
   trustedHosts?: string[]
+  /**
+   * Subset of {@link trustedHosts} whose page is marked settings-trusted.
+   * The list reaches the browser as the `__DSH_SETTINGS_TRUST__` boot global.
+   * Entries are validated exactly like {@link trustedHosts} and must also appear there.
+   * Settings persistence itself stays on the Host document for every authenticated browser.
+   */
+  trustedHostsForSettings?: string[]
   /** Absolute browser and API cookie lifetime in days. Default: 30. */
   cookieMaxAgeDays?: number
   /** Skip process-token and cookie checks. Host/Origin trust remains. Default: false. */
@@ -114,6 +122,7 @@ export interface ConnectionConfig {
 export const Config: z<ConnectionConfig> = z.object({
   recovery: ConnectionRecoveryConfigSchema.default({}),
   trustedHosts: z.array(String).default([]),
+  trustedHostsForSettings: z.array(String).default([]),
   cookieMaxAgeDays: z.natural().min(1).default(30),
   disableAuth: z.boolean().default(false),
   maxRequestBodyBytes: z.natural().min(1).default(DEFAULT_MAX_REQUEST_BODY_BYTES),
@@ -130,11 +139,21 @@ export async function apply(ctx: Context, config?: ConnectionConfig): Promise<vo
   const recovery = resolveConnectionConfig(config?.recovery)
   // The Loader resolves schema defaults; hand-built test contexts may pass none.
   const trustedHosts = config?.trustedHosts ?? []
+  const trustedHostsForSettings = config?.trustedHostsForSettings ?? []
   const cookieMaxAgeDays = config?.cookieMaxAgeDays ?? 30
   const maxRequestBodyBytes = config?.maxRequestBodyBytes ?? DEFAULT_MAX_REQUEST_BODY_BYTES
   // Config boundary: a malformed entry fails the load loudly here rather than
   // silently authorizing its hostname prefix at request time.
   for (const entry of trustedHosts) assertTrustedAuthority(entry)
+  for (const entry of trustedHostsForSettings) {
+    assertTrustedAuthority(entry)
+    // The settings grant is strictly narrower than the fence: an authority the
+    // fence rejects can never load the page that would use it, so the pair is a
+    // misconfiguration rather than a grant with no effect.
+    if (!trustedHosts.includes(entry)) {
+      throw new Error(`client-connection: trustedHostsForSettings entry ${JSON.stringify(entry)} is not also a trustedHosts authority`)
+    }
+  }
   assertImageBodyCapacity(ctx, maxRequestBodyBytes)
   const connection = new HostConnectionService(
     ctx,
@@ -145,6 +164,10 @@ export async function apply(ctx: Context, config?: ConnectionConfig): Promise<vo
     assertImageBodyCapacity(webCtx, maxRequestBodyBytes)
     webCtx.on('webserver/index-inject', (table) => {
       table.push({ kind: 'global', name: '__DSH_CONNECTION_RECOVERY__', value: recovery })
+      // The browser decides settings persistence from the page authority, so
+      // the deployment's settings-trusted names have to reach it; the fence
+      // list itself stays Host-side.
+      table.push({ kind: 'global', name: '__DSH_SETTINGS_TRUST__', value: { trustedHosts: trustedHostsForSettings } })
     })
     const fetchHandler = connection.createSharedFetchHandler(API_PATH)
     const route: WebRoute = {

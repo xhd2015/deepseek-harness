@@ -65,6 +65,7 @@ The `minimal` agent preset uses a persistent shell, the `read_image` tool, and a
 | `publicUrl` | Unset | Advertised HTTP(S) application root; otherwise announce the bind-address URL |
 | `trustedHosts` | `[]` | Extra hosts allowed to reach the GUI from the network |
 | `disableAuth` | `false` | Skip process-token and cookie checks (`dsh web --no-auth`); Host/Origin trust remains |
+| `trustedHostsForSettings` | `[]` | Authorities whose page is settings-trusted; each must also be a trusted host |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-web-app) lists this runtime plugin's accepted fields and their JSDoc. The shipped composition inserts the `schedule` service row and the `ui-schedule` task page row, while the clock reading and the four reminder tools belong to the `standard`, `cordis`, and `ptc` presets. The `tool-subagent` and `tool-subagent-fork` rows in those presets deny the four tools, so a delegated child's scope never lists them.
 
@@ -90,6 +91,16 @@ Without `--public-url`, mapped IPv6 loopback binds such as `::ffff:127.0.0.1` ad
 Neither the advertised URL nor the browser-trust fence protects the port itself, so restrict the port to the trusted proxy or network.
 
 The printed URL contains a process credential; share it only with intended users. `printUrl: false` suppresses the line with or without `--public-url`, and the credential never appears in the model context or in `DSH_WEB_URL`.
+
+### Settings from a trusted host
+
+Settings live in the Host document and hold model credentials, so a page may read and write them only when it is loaded from a loopback authority — or from an authority the deployment explicitly named with `--trusted-host-for-settings`. Every entry must also be a `--trusted-host`, since the fence would otherwise refuse the page that is meant to use the grant; a violation is a usage error at startup.
+
+```sh
+dsh web --trusted-host dsh.example.com --trusted-host-for-settings dsh.example.com
+```
+
+Without the second flag an `https://` deployment keeps settings process-local: the Models page renders its "settings live on the machine that runs the harness" notice and directs the operator to the loopback GUI or an SSH forward. The named authorities reach the browser as the `__DSH_SETTINGS_TRUST__` boot global, and the page's own authority is matched against them with the same normalization the fence uses — a port-less entry covers the hostname on any port, an entry with a port must match it exactly. Naming a publicly reachable authority therefore grants settings and credential editing to anyone who can load that page and pass the deployment's authentication.
 
 ### Running over SSH
 

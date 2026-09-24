@@ -244,6 +244,8 @@
         # deployment values, for example: ['app.internal', ...ctx.webStartup.trustedHosts].
         # The listener's bind IP is accepted separately from this list.
         trustedHosts: !!js ctx.webStartup.trustedHosts
+        # Subset of the fence authorities whose page is settings-trusted.
+        trustedHostsForSettings: !!js ctx.webStartup.trustedHostsForSettings
         disableAuth: !!js ctx.webStartup.disableAuth === true
 
     # Raw Blob and ReadableStream uploads run independently of Connection's

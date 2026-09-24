@@ -27,7 +27,7 @@ afterEach(() => { vi.unstubAllGlobals() })
 // so browser-language detection never runs and a fresh LocaleRuntime opens on
 // FALLBACK_LOCALE (en); bench stages zh explicitly on the locale instead.
 
-async function bench(mock = RemoteMock.create().load(remoteDefaultResponses), services: object = {}) {
+async function bench(settingsTrusted = true, mock = RemoteMock.create().load(remoteDefaultResponses), services: object = {}) {
   onTestFinished(() => { mock.assertNoUnmatched() })
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
@@ -49,6 +49,7 @@ async function bench(mock = RemoteMock.create().load(remoteDefaultResponses), se
     settings: mock.remote.settings,
     session: { initializeDefaultModel: vi.fn(async () => ({ ok: true, value: undefined })) },
   })
+  remote.$host = { home: undefined, isLoopback: settingsTrusted, settingsTrusted }
   await ctx.plugin({ inject: [...settingsInject], apply: settingsApply }).await()
   return { ctx, slots: ctx.get('slots') as SlotRegistry, locale, remote }
 }

@@ -35,7 +35,7 @@ The shipped apps own these command lines:
 
 | Profile | Arguments |
 |---|---|
-| `web` | `--host`, `--port`, `--tls-cert`, `--tls-key`, `--public-url`, repeatable `--trusted-host`, `--no-open`, `--browser`, `open [dir]` |
+| `web` | `--host`, `--port`, `--tls-cert`, `--tls-key`, `--public-url`, repeatable `--trusted-host`, repeatable `--trusted-host-for-settings`, `--no-open`, `--browser`, `open [dir]` |
 | `headless` | the task text, as the positional argument |
 | `sdk` | no options; stdio carries the JSON-RPC protocol |
 | `sdk-minimal` | no options; stdio carries the same JSON-RPC protocol |
@@ -125,7 +125,7 @@ dsh web --dump-config
 dsh web --help
 ```
 
-The production Web runner needs built package and frontend artifacts (`pnpm run build`). It prints the advertised `--public-url` when configured, otherwise the listener's bind-address URL with the listener's scheme (default `http://127.0.0.1:3080`, or `https://` when TLS is configured). The Host/Origin fence accepts the bind IP directly; a proxy or DNS authority still needs `--trusted-host`. The startup line and default-browser handoff wait for the complete Loader tree. A non-empty inherited `SSH_CONNECTION` or `SSH_TTY` suppresses browser opening, not the startup line. Immediately before a browser handoff it prints `dsh web: opening the default browser; pass --no-open to disable`; if the operating-system handoff fails, stderr names the reason and points to the startup URL while the server keeps running.
+The production Web runner needs built package and frontend artifacts (`pnpm run build`). It prints the advertised `--public-url` when configured, otherwise the listener's bind-address URL with the listener's scheme (default `http://127.0.0.1:3080`, or `https://` when TLS is configured). The Host/Origin fence accepts the bind IP directly; a proxy or DNS authority still needs `--trusted-host`. `--trusted-host-for-settings` names authorities whose page is settings-trusted; each must also be a `--trusted-host`. The startup line and default-browser handoff wait for the complete Loader tree. A non-empty inherited `SSH_CONNECTION` or `SSH_TTY` suppresses browser opening, not the startup line. Immediately before a browser handoff it prints `dsh web: opening the default browser; pass --no-open to disable`; if the operating-system handoff fails, stderr names the reason and points to the startup URL while the server keeps running.
 
 Process shutdown gives the plugin tree up to five seconds to dispose. The first `SIGINT`/`SIGTERM` starts that graceful drain — `SIGTERM` is a supervisor's ordinary stop request and exits 0 on every surface, `SIGINT` reports 130; a second signal forces immediate exit. If one-shot normal completion is already stuck in disposal, the first `Ctrl+C` is the escalation and exits immediately instead of being swallowed.
 
