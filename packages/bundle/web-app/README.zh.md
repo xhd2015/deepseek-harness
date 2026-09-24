@@ -49,7 +49,7 @@ dsh --profile web open ~/proj --browser brave
 
 ### 配置
 
-大多数用户不需要设置这些；命令行 flag 会提供给下面四个设置——`--host`、`--port` 与 `--trusted-host` 来自本次调用，`--no-open` 仅对本次调用关闭浏览器交接：
+大多数用户不需要设置这些；命令行 flag 会提供给下面四个设置——`--host`、`--port` 与 `--trusted-host` 来自本次调用，`--no-open` 仅对本次调用关闭浏览器交接。`--trusted-host-for-settings` 由 Connection 行消费，而不是本插件的 config，因为它携带的授权是在浏览器中判定的：
 
 | 字段 | 默认值 | 含义 |
 |---|---|---|
@@ -57,12 +57,23 @@ dsh --profile web open ~/proj --browser brave
 | `printUrl` | `true` | 启动时打印 `dsh web:` URL 行 |
 | `surfaceContext` | `true` | 给 agent 提供 GUI 定位上下文，并把 `DSH_WEB_URL` 暴露给其 shell 命令 |
 | `trustedHosts` | `[]` | 允许从网络访问 GUI 的额外主机 |
+| `disableAuth` | `false` | 跳过进程 token 与 cookie 校验（`dsh web --no-auth`）；Host/Origin 信任仍然生效 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-web-app)是每个受支持字段及其 JSDoc 的穷尽式真源。
 
 ### LAN 访问与可信主机
 
 默认情况下 GUI 只接受本机的连接。绑定所有网络接口的部署也会允许 LAN 内的浏览器访问，此时打印的 URL 会附带一个 LAN 地址；`--trusted-host` 在两种情况下都能添加额外主机。Host 与 Origin 检查控制可达性，token 交换则认证每个 Host API 方法与 WebSocket 流。LAN 地址只在启动时采样一次，因此之后的网络变化不会被感知——重启 GUI 以重新公告。
+
+### 从受信主机编辑设置
+
+设置保存在 Host 文档中并包含模型凭据，因此只有当页面由 loopback authority 加载时——或由部署通过 `--trusted-host-for-settings` 显式指定的 authority 加载时——才能读写它们。每一项必须同时是 `--trusted-host`，否则栅栏会拒绝那个本应使用该授权的页面；违反这一点会在启动时报用法错误。
+
+```sh
+dsh web --trusted-host dsh.example.com --trusted-host-for-settings dsh.example.com
+```
+
+不指定第二个 flag 时，通过 `https://` 访问的部署会让设置保持在进程本地：Models 页面会显示"设置位于运行 Harness 的机器上"的提示，并引导操作者改用 loopback GUI 或 SSH 端口转发。被指定的 authority 会以 `__DSH_SETTINGS_TRUST__` 启动全局量送达浏览器，页面自身的 authority 会用与栅栏相同的归一化规则与之匹配——不带端口的条目匹配任意端口上的该主机名，带端口的条目必须精确匹配。因此，把一个公网可达的 authority 列在这里，就等于允许任何能加载该页面并通过该部署认证的人编辑设置与凭据。
 
 ### 通过 SSH 运行
 
@@ -99,7 +110,7 @@ URL 行与浏览器交接都是就绪信号：监督方一观察到该行就发�
 | 文件 | 职责 |
 |---|---|
 | [`src/index.ts`](src/index.ts) | `web-app` 粘合插件：dist 解析、LAN 信任采样、提示词段落、bash 变量、URL 行、浏览器交接 |
-| [`src/startup.ts`](src/startup.ts) | `web-startup` 提供方：`--host`、`--port`、`--trusted-host`、`--no-open`、`--browser`、`open [dir]`、`--help` |
+| [`src/startup.ts`](src/startup.ts) | `web-startup` 提供方：`--host`、`--port`、`--trusted-host`、`--trusted-host-for-settings`、`--no-open`、`--browser`、`open [dir]`、`--help` |
 | [`src/open.ts`](src/open.ts) | 对接正在运行的 GUI 的 `dsh web open` 客户端 |
 | [`cordis.patch.yml`](cordis.patch.yml) | Web patch：重述的基础值、Web 宿主行、浏览器名录、由 preset 承载的 agent 层 |
 | — | 不发布运行时不变式伴生入口；每项贡献（frontend-static 子插件、提示词段落、bashEnv 注册）都会随 fiber 由注册表释放，且每个所属注册表的包负责该关系的不变式；本包不持有需要审计的可变状态。 |

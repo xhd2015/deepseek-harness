@@ -21,7 +21,7 @@ import { apply as hostApply } from '../src/index.ts'
 // so browser-language detection never runs and a fresh LocaleRuntime opens on
 // FALLBACK_LOCALE (en); bench stages zh explicitly on the locale instead.
 
-async function bench(isLoopback = true, mock = RemoteMock.create().load(remoteDefaultResponses), services: object = {}) {
+async function bench(settingsTrusted = true, mock = RemoteMock.create().load(remoteDefaultResponses), services: object = {}) {
   onTestFinished(() => { mock.assertNoUnmatched() })
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
@@ -43,7 +43,9 @@ async function bench(isLoopback = true, mock = RemoteMock.create().load(remoteDe
     settings: mock.remote.settings,
   })
   // The fixed Host facts the settings provider reads its persistence from.
-  remote.$host = { home: undefined, isLoopback }
+  // `settingsTrusted: false` is the remote-browser case: a non-loopback page
+  // whose authority the deployment did not name as settings-trusted.
+  remote.$host = { home: undefined, isLoopback: settingsTrusted, settingsTrusted }
   await ctx.plugin({ inject: [...settingsInject], apply: settingsApply }).await()
   return { ctx, slots: ctx.get('slots') as SlotRegistry, locale, remote }
 }

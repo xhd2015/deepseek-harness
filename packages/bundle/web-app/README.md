@@ -49,7 +49,7 @@ Saved model selections override the composition default. Both protocols share `d
 
 ### Configuration
 
-Most users never set these; the command-line flags feed the settings below — `--host`, `--port`, and `--trusted-host` come from the invocation, `--no-open` turns the browser handoff off for that invocation, and `--no-auth` skips process-token browser authentication when an outer reverse proxy already authenticates:
+Most users never set these; the command-line flags feed the settings below — `--host`, `--port`, and `--trusted-host` come from the invocation, `--no-open` turns the browser handoff off for that invocation, and `--no-auth` skips process-token browser authentication when an outer reverse proxy already authenticates. `--trusted-host-for-settings` is consumed by the Connection row rather than this plugin's config, because the grant it carries is checked in the browser.
 
 | Field | Default | Meaning |
 |---|---|---|
@@ -64,6 +64,16 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 ### LAN access and trusted hosts
 
 By default the GUI accepts connections from this machine only. A deployment that binds all network interfaces also allows browsers from the LAN, and the printed URL then includes a LAN address; `--trusted-host` adds extra hosts in either case. Host and Origin checks control reachability, while the token exchange authenticates every Host API method and WebSocket stream. The LAN addresses are sampled once at startup, so a network change later is not picked up — restart the GUI to re-advertise.
+
+### Settings from a trusted host
+
+Settings live in the Host document and hold model credentials, so a page may read and write them only when it is loaded from a loopback authority — or from an authority the deployment explicitly named with `--trusted-host-for-settings`. Every entry must also be a `--trusted-host`, since the fence would otherwise refuse the page that is meant to use the grant; a violation is a usage error at startup.
+
+```sh
+dsh web --trusted-host dsh.example.com --trusted-host-for-settings dsh.example.com
+```
+
+Without the second flag an `https://` deployment keeps settings process-local: the Models page renders its "settings live on the machine that runs the harness" notice and directs the operator to the loopback GUI or an SSH forward. The named authorities reach the browser as the `__DSH_SETTINGS_TRUST__` boot global, and the page's own authority is matched against them with the same normalization the fence uses — a port-less entry covers the hostname on any port, an entry with a port must match it exactly. Naming a publicly reachable authority therefore grants settings and credential editing to anyone who can load that page and pass the deployment's authentication.
 
 ### Running over SSH
 

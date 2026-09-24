@@ -10,6 +10,7 @@ import {
 } from './connection.ts'
 import { createWebConnectionRpc, type RpcFetch, type RpcStreamOpen } from './rpc.ts'
 import { isLoopbackHostname } from '../loopback-hostname.ts'
+import { isTrustedAuthority, parseAuthority } from '../api-request-trust.ts'
 import type { ClientConnectionRpc } from '../rpc.ts'
 import { resolveConnectionConfig } from '../recovery-config.ts'
 
@@ -110,11 +111,14 @@ export interface ClientTransportHooks {
 interface ClientTransportGlobal {
   __DSH_TRANSPORT__?: ClientTransportHooks
   __DSH_CONNECTION_RECOVERY__?: unknown
+  __DSH_SETTINGS_TRUST__?: unknown
 }
 
-/** Browser location fields used to classify loopback authority. */
+/** Browser location fields used to classify loopback and settings-trusted authority. */
 export interface ConnectionLocation {
   readonly hostname: string
+  /** Page authority including an explicit non-default port; defaults to {@link hostname}. */
+  readonly host?: string
 }
 
 /** Instance-local inputs for installing a Connection service. */
@@ -125,6 +129,8 @@ export interface ConnectionInstallOptions {
   readonly recovery?: ConnectionRecoveryConfig
   /** Page location; omit for a non-browser composition. */
   readonly location?: ConnectionLocation
+  /** Deployment authorities whose page may read and write Host settings. */
+  readonly settingsTrustedHosts?: readonly string[]
 }
 
 /**
@@ -138,6 +144,12 @@ export interface ConnectionHandle {
    * ({@link ClientTransportHooks.ownsHost}), or the context is not a browser.
    */
   readonly isLoopback: boolean
+  /**
+   * Whether this page may read and write the Host settings document.
+   * {@link isLoopback} always qualifies; a non-loopback page qualifies only when
+   * its authority is one the deployment named as settings-trusted.
+   */
+  readonly settingsTrusted: boolean
   /** Current Remote event generation and the Host facts carried by its opening frame. */
   readonly generation: ConnectionGenerationState
   /** Current recovery lifecycle for connection-specific consumers. */
@@ -244,8 +256,10 @@ export function installConnection(ctx: Context, options: ConnectionInstallOption
     publishGeneration(undefined)
     publishState(undefined)
   }
+  const isLoopback = transport?.ownsHost === true || pageLocation === undefined || isLoopbackHostname(pageLocation.hostname)
   const handle: ConnectionHandle = {
-    isLoopback: transport?.ownsHost === true || pageLocation === undefined || isLoopbackHostname(pageLocation.hostname),
+    isLoopback,
+    settingsTrusted: isLoopback || matchesSettingsAuthority(pageLocation, options.settingsTrustedHosts ?? []),
     generation: {
       getSnapshot: () => generation,
       subscribe: (listener) => {
@@ -311,6 +325,39 @@ export function installConnection(ctx: Context, options: ConnectionInstallOption
 }
 
 /**
+ * Read the injected settings-trust list, tolerating an absent or malformed
+ * global: a page served without the boot row (a shell that assembles its own
+ * transport, a stale cached index) keeps settings process-local rather than
+ * failing the whole client.
+ * @param value - the raw `__DSH_SETTINGS_TRUST__` global.
+ * @returns the declared authorities, or an empty list.
+ */
+function resolveSettingsTrust(value: unknown): string[] {
+  if (typeof value !== 'object' || value === null) return []
+  const { trustedHosts } = value as { trustedHosts?: unknown }
+  if (!Array.isArray(trustedHosts)) return []
+  return trustedHosts.filter((entry): entry is string => typeof entry === 'string')
+}
+
+/**
+ * Whether the page authority is one the deployment named as settings-trusted.
+ * The comparison reuses the fence's own authority matching, so a port-less
+ * entry covers the hostname on any port and an entry with a port must match it
+ * exactly.
+ * @param pageLocation - the served page's location, absent outside a browser.
+ * @param settingsTrustedHosts - deployment-declared settings authorities.
+ * @returns true when the page may read and write Host settings.
+ */
+function matchesSettingsAuthority(pageLocation: ConnectionLocation | undefined, settingsTrustedHosts: readonly string[]): boolean {
+  if (pageLocation === undefined || settingsTrustedHosts.length === 0) return false
+  const authority = pageLocation.host ?? pageLocation.hostname
+  if (authority === '') return false
+  const pageUrl = parseAuthority(authority)
+  if (pageUrl === undefined) return false
+  return isTrustedAuthority(pageUrl, settingsTrustedHosts)
+}
+
+/**
  * Client plugin body: read the page composition and install its Connection service.
  * @param ctx - client Cordis context.
  */
@@ -321,6 +368,7 @@ export function apply(ctx: Context): void {
   installConnection(ctx, {
     ...(transport === undefined ? {} : { transport }),
     recovery: resolveConnectionConfig(globals.__DSH_CONNECTION_RECOVERY__),
+    settingsTrustedHosts: resolveSettingsTrust(globals.__DSH_SETTINGS_TRUST__),
     ...(pageLocation === undefined ? {} : { location: pageLocation }),
   })
 }

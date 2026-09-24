@@ -404,8 +404,20 @@ export interface ConnectionConfig {
    * bind. An entry that is not a bare, canonical authority fails plugin load.
    */
   trustedHosts?: string[]
+  /**
+   * Subset of {@link trustedHosts} whose page may also read and write the Host
+   * settings document, credentials included. A page served from any other
+   * authority keeps settings process-local (`memory`), which is why an
+   * `https://` deployment cannot edit models until its authority is named here.
+   * The list reaches the browser as the `__DSH_SETTINGS_TRUST__` boot global;
+   * an empty list leaves the loopback-only behavior unchanged. Entries are
+   * validated exactly like {@link trustedHosts}.
+   */
+  trustedHostsForSettings?: string[]
   /** Absolute browser-session lifetime in days. Default: 30. */
   cookieMaxAgeDays?: number
+  /** Skip process-token and cookie checks. Host/Origin trust remains. Default: false. */
+  disableAuth?: boolean
   /** Maximum buffered JSON body for every `/api` request. Default: 300 MiB. */
   maxRequestBodyBytes?: number
 }
@@ -428,7 +440,7 @@ export interface ConnectionRecoveryConfig {
 }
 ```
 
-Source: [`packages/client/connection/src/index.ts:87`](../packages/client/connection/src/index.ts)
+Source: [`packages/client/connection/src/index.ts:88`](../packages/client/connection/src/index.ts)
 
 <a id="deepseek-aidsh-client-hmr"></a>
 

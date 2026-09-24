@@ -120,6 +120,12 @@ export interface RemoteHostFacts {
   readonly home: string | undefined
   /** Whether the carrier connects to the local Host. */
   readonly isLoopback: boolean
+  /**
+   * Whether this page may read and write the Host settings document. True for
+   * a loopback page, and for a non-loopback page whose authority the deployment
+   * named as settings-trusted; false leaves settings process-local.
+   */
+  readonly settingsTrusted: boolean
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -191,10 +197,15 @@ class ClientRemoteService extends Service implements ClientRemote {
   get $host(): RemoteHostFacts {
     // Identity-stable: readers (useSyncExternalStore snapshots, memo inputs)
     // compare by reference, so a fresh object is minted only when the fact
-    // itself changed. isLoopback is fixed for the page lifetime.
+    // itself changed. isLoopback and settingsTrusted are fixed for the page
+    // lifetime.
     const home = this.connection.generation.getSnapshot()?.host.home
     if (this.hostFacts === undefined || this.hostFacts.home !== home) {
-      this.hostFacts = { home, isLoopback: this.connection.isLoopback }
+      this.hostFacts = {
+        home,
+        isLoopback: this.connection.isLoopback,
+        settingsTrusted: this.connection.settingsTrusted,
+      }
     }
     return this.hostFacts
   }
