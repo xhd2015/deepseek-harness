@@ -26,8 +26,9 @@ function header(headers: ConnectionTrustRequest['headers'], name: string): strin
  * stripped, IPv6 bracketed), or undefined when unparsable.
  * @param authority - `host` or `host:port` text.
  * @param scheme - special scheme to parse under; its default port is the one stripped.
+ * @returns the parsed URL, or undefined when the value is not an authority.
  */
-function parseAuthority(authority: string, scheme: 'http:' | 'https:' = 'http:'): URL | undefined {
+export function parseAuthority(authority: string, scheme: 'http:' | 'https:' = 'http:'): URL | undefined {
   try {
     // http: and https: are WHATWG "special schemes": parsing yields a non-empty hostname or throws.
     return new URL(`${scheme}//${authority}`)
@@ -72,9 +73,19 @@ function canonicalAuthority(entry: string, entryUrl: URL): string {
  * Whether the request authority matches a `trustedHosts` entry. An entry with
  * an explicit port matches that exact authority; a port-less entry matches the
  * hostname on any port. Both sides compare through WHATWG normalization,
- * so case and a redundant scheme-default port never decide trust.
+ * so case and a redundant scheme-default port never decide trust. Callers
+ * outside the fence reuse it to match the page's own authority against the
+ * same configured entries.
+ * @param hostUrl - parsed authority to test, from a Host header or the page location.
+ * @param trustedHosts - configured entries to match against.
+ * @param protocol - scheme whose default port is stripped. Defaults to the authority's own scheme.
+ * @returns true when some entry covers the authority.
  */
-function isTrustedAuthority(hostUrl: URL, trustedHosts: readonly string[], protocol: 'http:' | 'https:'): boolean {
+export function isTrustedAuthority(
+  hostUrl: URL,
+  trustedHosts: readonly string[],
+  protocol: 'http:' | 'https:' = hostUrl.protocol === 'https:' ? 'https:' : 'http:',
+): boolean {
   return trustedHosts.some((entry) => {
     const entryUrl = parseAuthority(entry, protocol)
     if (entryUrl === undefined) return false

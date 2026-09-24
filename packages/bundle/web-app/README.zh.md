@@ -65,6 +65,7 @@ dsh --profile web open ~/proj --browser brave
 | `publicUrl` | 未设置 | 对外公告的 HTTP(S) 应用根；否则公告绑定地址 URL |
 | `trustedHosts` | `[]` | 允许从网络访问 GUI 的额外主机 |
 | `disableAuth` | `false` | 跳过进程令牌与 cookie 检查（`dsh web --no-auth`）；Host/Origin 信任仍然生效 |
+| `trustedHostsForSettings` | `[]` | 页面被标为 settings-trusted 的 authority；每一项也必须是 trusted host |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-web-app)列出了本运行时插件接受的字段及其 JSDoc。随发行版交付的组合插入 `schedule` 服务行与 `ui-schedule` 任务页面行，时钟读数与四个提醒工具则属于 `standard`、`cordis` 与 `ptc` 三个 preset。这三个 preset 的 `tool-subagent` 与 `tool-subagent-fork` 两行都 deny 这四个工具，因此被委派子 agent 的作用域不会列出它们。
 
@@ -90,6 +91,16 @@ dsh --profile web --no-open --host "$(hostname -i | awk '{print $1}')" --public-
 无论是公告 URL 还是浏览器信任栅栏都不保护端口本身，因此请把端口限制在可信代理或网络内。
 
 打印的 URL 包含进程凭据，只应与预期用户分享。`printUrl: false` 无论是否配置 `--public-url` 都会抑制该行，凭据也绝不会出现在模型上下文或 `DSH_WEB_URL` 中。
+
+### 从受信主机编辑设置
+
+设置保存在 Host 文档中并包含模型凭据，因此只有当页面由 loopback authority 加载时——或由部署通过 `--trusted-host-for-settings` 显式指定的 authority 加载时——才能读写它们。每一项必须同时是 `--trusted-host`，否则栅栏会拒绝那个本应使用该授权的页面；违反这一点会在启动时报用法错误。
+
+```sh
+dsh web --trusted-host dsh.example.com --trusted-host-for-settings dsh.example.com
+```
+
+不指定第二个 flag 时，通过 `https://` 访问的部署会让设置保持在进程本地：Models 页面会显示"设置位于运行 Harness 的机器上"的提示，并引导操作者改用 loopback GUI 或 SSH 端口转发。被指定的 authority 会以 `__DSH_SETTINGS_TRUST__` 启动全局量送达浏览器，页面自身的 authority 会用与栅栏相同的归一化规则与之匹配——不带端口的条目匹配任意端口上的该主机名，带端口的条目必须精确匹配。因此，把一个公网可达的 authority 列在这里，就等于允许任何能加载该页面并通过该部署认证的人编辑设置与凭据。
 
 ### 通过 SSH 运行
 

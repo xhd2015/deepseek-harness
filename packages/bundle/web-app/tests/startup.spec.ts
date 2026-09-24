@@ -66,6 +66,7 @@ export const apply = ctx => globalThis.__webStartupApply(ctx)
     '    publicUrl: !!js ctx.webStartup.publicUrl',
     '    trustedHosts: !!js ctx.webStartup.trustedHosts',
     '    tls: !!js ctx.webStartup.tls',
+    '    trustedHostsForSettings: !!js ctx.webStartup.trustedHostsForSettings',
     '    disableAuth: !!js ctx.webStartup.disableAuth === true',
     '- id: provider',
     `  name: ${pathToFileURL(join(dir, 'provider.mjs')).href}`,
@@ -104,6 +105,7 @@ describe('web command-line provider', () => {
       '--trusted-host', '10.0.0.9',
       '--tls-cert', 'fullchain.pem',
       '--tls-key', 'private-key.pem',
+      '--trusted-host-for-settings', 'lab.internal',
     ])
     expect(values).toEqual({
       mode: 'serve',
@@ -112,6 +114,7 @@ describe('web command-line provider', () => {
       port: 8080,
       trustedHosts: ['lab.internal', 'lab-2.internal', '10.0.0.9'],
       tls: { certFile: 'fullchain.pem', keyFile: 'private-key.pem' },
+      trustedHostsForSettings: ['lab.internal'],
       disableAuth: false,
     })
     expect(observed.readerConfig).toEqual({
@@ -120,6 +123,7 @@ describe('web command-line provider', () => {
       port: 8080,
       trustedHosts: ['lab.internal', 'lab-2.internal', '10.0.0.9'],
       tls: { certFile: 'fullchain.pem', keyFile: 'private-key.pem' },
+      trustedHostsForSettings: ['lab.internal'],
       disableAuth: false,
     })
     expect(observed.exits).toEqual([])
@@ -137,14 +141,38 @@ describe('web command-line provider', () => {
 
   it('leaves deployment values to each consumer when flags omit them', async () => {
     const { values, observed } = await bootProvider([])
-    expect(values).toEqual({ mode: 'serve', openBrowser: true, trustedHosts: [], disableAuth: false })
+    expect(values).toEqual({
+      mode: 'serve',
+      openBrowser: true,
+      trustedHosts: [],
+      trustedHostsForSettings: [],
+      disableAuth: false,
+    })
     expect(observed.readerConfig).toEqual({
       host: '127.0.0.1',
       openBrowser: true,
       port: 3080,
       trustedHosts: [],
+      trustedHostsForSettings: [],
       disableAuth: false,
     })
+  })
+
+  it('rejects a settings authority that is not also a --trusted-host', async () => {
+    const { values, observed } = await bootProvider(['--trusted-host-for-settings', 'lab.internal'])
+    expect(observed.out).toContain('is not also a --trusted-host')
+    expect(values).toBeUndefined()
+    expect(observed.exits).toEqual([1])
+  })
+
+  it('rejects a settings authority that is not a bare host[:port]', async () => {
+    const { values, observed } = await bootProvider([
+      '--trusted-host', 'https://lab.internal/x',
+      '--trusted-host-for-settings', 'https://lab.internal/x',
+    ])
+    expect(observed.out).toContain('expects a bare host or host:port')
+    expect(values).toBeUndefined()
+    expect(observed.exits).toEqual([1])
   })
 
   it('publishes disableAuth from --no-auth', async () => {
@@ -155,6 +183,7 @@ describe('web command-line provider', () => {
       openBrowser: true,
       port: 3080,
       trustedHosts: [],
+      trustedHostsForSettings: [],
       disableAuth: true,
     })
   })
@@ -271,6 +300,7 @@ describe('web command-line provider', () => {
       openBrowser: true,
       publicUrl: 'https://web.example/ui',
       trustedHosts: ['lab.internal'],
+      trustedHostsForSettings: [],
       disableAuth: false,
     })
     expect(observed.readerConfig).toEqual({
@@ -279,6 +309,7 @@ describe('web command-line provider', () => {
       port: 3080,
       publicUrl: 'https://web.example/ui',
       trustedHosts: ['lab.internal'],
+      trustedHostsForSettings: [],
       disableAuth: false,
     })
     expect(observed.exits).toEqual([])

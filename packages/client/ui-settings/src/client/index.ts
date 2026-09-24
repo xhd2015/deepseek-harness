@@ -37,6 +37,7 @@ export function apply(ctx: Context): void {
   const schema = new SettingsSchemaService(ctx)
   // Persistence policy: every authenticated browser persists through the Host document
   // (.agents/notes/implemented/bug-fix/2026-09-15-authenticated-browser-host-preferences.md).
+  // `settingsTrusted` still names loopback and `--trusted-host-for-settings` pages.
   const mirror = new SettingsDescribeMirror(ctx)
   ctx.effect(() => {
     const disposers = [

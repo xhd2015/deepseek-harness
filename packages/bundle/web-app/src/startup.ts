@@ -1,9 +1,10 @@
 /**
  * The web app's command-line provider: it parses the `dsh --profile web` flag
- * family (`--host`, `--port`, `--public-url`, `--trusted-host`, `--no-open`,
- * `--no-auth`, `--browser`, TLS) and the `open [dir]` subcommand, then provides the
- * immutable values as {@link WEB_STARTUP_SERVICE}. Ordinary rows inject that
- * service before reading it from lazy config.
+ * family (`--host`, `--port`, `--public-url`, `--trusted-host`,
+ * `--trusted-host-for-settings`, `--no-open`, `--no-auth`, `--browser`, TLS) and
+ * the `open [dir]` subcommand, then provides the immutable values as
+ * {@link WEB_STARTUP_SERVICE}. Ordinary rows inject that service before reading
+ * it from lazy config.
  * @module @deepseek-ai/dsh-web-app/startup
  */
 
@@ -11,6 +12,7 @@ import { Command } from 'commander'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
+import { assertTrustedAuthority } from '@deepseek-ai/dsh-client-connection'
 import { parseCmdline } from '@deepseek-ai/dsh-cmdline'
 import { isWildcardHost, type TlsConfig } from '@deepseek-ai/dsh-host-webserver'
 import { isWebBrowserId, WEB_BROWSER_IDS, type WebBrowserId } from './browsers.ts'
@@ -50,6 +52,12 @@ export interface WebStartupValues {
   trustedHosts: string[]
   /** Server certificate chain and unencrypted private key supplied together. */
   tls?: TlsConfig
+  /**
+   * Explicit `--trusted-host-for-settings` authorities, in argument order.
+   * Each must also appear in {@link trustedHosts}: the settings grant rides the
+   * same fence that admits the page's `/api` traffic.
+   */
+  trustedHostsForSettings: string[]
   /** When true, skip process-token and cookie checks (outer reverse-proxy auth). */
   disableAuth: boolean
 }
@@ -63,6 +71,7 @@ interface ServeOptions {
   trustedHost?: string[]
   tlsCert?: string
   tlsKey?: string
+  trustedHostForSettings?: string[]
   browser?: string
   auth: boolean
 }
@@ -91,6 +100,31 @@ function requireBrowser(program: Command, value: string | undefined): WebBrowser
 }
 
 /**
+ * Validate `--trusted-host-for-settings` entries at parse time, before any
+ * server binds. Each entry must be a bare authority in the canonical form the
+ * fence compares against, and must also be a `--trusted-host`: a settings grant
+ * for an authority the fence rejects could never load a page to use it, so the
+ * combination is a misconfiguration rather than a narrower grant.
+ * @param program - commander command that owns the flag.
+ * @param entries - raw flag values, in argument order.
+ * @param trustedHosts - the invocation's `--trusted-host` authorities.
+ * @returns the accepted authorities, in argument order.
+ */
+function requireSettingsAuthorities(program: Command, entries: string[], trustedHosts: readonly string[]): string[] {
+  for (const entry of entries) {
+    try {
+      assertTrustedAuthority(entry)
+    } catch {
+      program.error(`error: --trusted-host-for-settings expects a bare host or host:port, got ${JSON.stringify(entry)}`)
+    }
+    if (!trustedHosts.includes(entry)) {
+      program.error(`error: --trusted-host-for-settings ${JSON.stringify(entry)} is not also a --trusted-host; add --trusted-host ${entry}`)
+    }
+  }
+  return entries
+}
+
+/**
  * This app's command: its flags, its description, and its help text.
  * @returns a fresh program, so one process can parse more than once (tests).
  */
@@ -107,6 +141,7 @@ function webCommand(): Command {
     .option('--trusted-host <authority...>', 'extra authority the /api browser-trust fence accepts (host or host:port; repeatable)')
     .option('--tls-cert <file>', 'PEM server certificate chain; requires --tls-key')
     .option('--tls-key <file>', 'unencrypted PEM private key; requires --tls-cert')
+    .option('--trusted-host-for-settings <authority...>', 'authority whose page may also read and write Host settings, including credentials (host or host:port; repeatable; each must also be a --trusted-host)')
     .option('--no-auth', 'disable process-token browser authentication (use when an outer reverse proxy already authenticates)')
     .option('--browser <name>', `browser to open (${WEB_BROWSER_IDS.join(', ')})`)
     .addHelpText('after', `
@@ -121,6 +156,8 @@ Examples:
   dsh --profile web --tls-cert ./server-chain.pem --tls-key ./server-key.pem
                                              serve HTTPS with an existing certificate and key
   dsh --profile web --no-auth                serve behind an outer authenticating reverse proxy
+  dsh --profile web --trusted-host app.internal \\
+      --trusted-host-for-settings app.internal   let app.internal edit models and credentials
   dsh --profile web open                     new session for cwd in the running GUI
   dsh --profile web open ~/proj --browser brave
 `)
@@ -164,6 +201,8 @@ function publishServe(ctx: Context, program: Command): void {
     }
   }
   const browser = requireBrowser(program, options.browser)
+  const trustedHosts = options.trustedHost ?? []
+  const trustedHostsForSettings = requireSettingsAuthorities(program, options.trustedHostForSettings ?? [], trustedHosts)
   delete process.env.DSH_WEB_OPEN
   ctx.provide(WEB_STARTUP_SERVICE, {
     mode: 'serve',
@@ -173,7 +212,8 @@ function publishServe(ctx: Context, program: Command): void {
     ...options.port !== undefined && { port: Number(options.port) },
     ...options.publicUrl !== undefined && { publicUrl: options.publicUrl },
     ...tls !== undefined && { tls },
-    trustedHosts: options.trustedHost ?? [],
+    trustedHosts,
+    trustedHostsForSettings,
     disableAuth: options.auth === false,
   } satisfies WebStartupValues)
 }
@@ -198,6 +238,7 @@ function publishOpen(ctx: Context, program: Command, dir: string | undefined, op
     ...initialPrompt !== undefined && { initialPrompt },
     ...browser !== undefined && { browser },
     trustedHosts: [],
+    trustedHostsForSettings: [],
     disableAuth: false,
   } satisfies WebStartupValues)
 }
