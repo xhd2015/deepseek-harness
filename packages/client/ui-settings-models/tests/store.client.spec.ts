@@ -2,7 +2,9 @@
 import { describe, expect, it } from 'vitest'
 import type { RpcResponse } from '@deepseek-ai/dsh-api-remotes/client'
 import { RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
-import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
+import {
+  NON_LOOPBACK_SETTINGS_REASON, SettingsDescribeMirror,
+} from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
 import { settingsSchema } from './settings-schema.client.ts'
 import { joinProviderDirectory, ModelsSettingsStore } from '../src/client/store.ts'
 
@@ -294,7 +296,21 @@ describe('edge joins', () => {
     await store.load()
     expect(store.store.getSnapshot()).toMatchObject({
       status: 'error',
-      error: 'settings are unavailable in this browser',
+      error: NON_LOOPBACK_SETTINGS_REASON,
+      // Terminal, so the surface explains the cause instead of offering a
+      // retry that would fail identically.
+      terminal: true,
+    })
+  })
+
+  it('keeps a retryable load failure retryable', async () => {
+    const { ctx } = api({ providers: () => Promise.resolve(fail('directory down')) })
+    const store = new ModelsSettingsStore(ctx, settingsSchema, new SettingsDescribeMirror(ctx))
+    await store.load()
+    expect(store.store.getSnapshot()).toMatchObject({
+      status: 'error',
+      error: 'directory down',
+      terminal: false,
     })
   })
 

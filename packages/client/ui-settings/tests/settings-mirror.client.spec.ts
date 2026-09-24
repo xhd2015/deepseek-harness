@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
 import { RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
-import { SettingsDescribeMirror, type SettingsDescribeView } from '../src/client/settings-mirror.ts'
+import {
+  NON_LOOPBACK_SETTINGS_REASON, SettingsDescribeMirror, type SettingsDescribeView,
+} from '../src/client/settings-mirror.ts'
 
 /** What a Remote call answers with: no carrier envelope, and a typed failure. */
 type Answer<T> =
@@ -99,7 +101,12 @@ describe('SettingsDescribeMirror', () => {
     const mirror = new SettingsDescribeMirror(ctxWith(describeCall), 'memory')
     await mirror.ensure()
     await mirror.load()
-    expect(mirror.getSnapshot()).toEqual({ status: 'unavailable', view: undefined, error: null })
+    // The reason travels with the snapshot: a surface rendering
+    // `error ?? <fallback>` must not blame the browser for a condition that is
+    // really "this page is not on the harness host".
+    expect(mirror.getSnapshot()).toEqual({
+      status: 'unavailable', view: undefined, error: NON_LOOPBACK_SETTINGS_REASON,
+    })
     expect(describeCall).not.toHaveBeenCalled()
   })
 

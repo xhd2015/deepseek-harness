@@ -1400,6 +1400,27 @@ describe('ModelsSection', () => {
     await waitFor(() => { expect(screen.queryByText(/directory down/)).toBeNull() })
   })
 
+  it('explains a terminal settings failure instead of offering a retry', async () => {
+    const face = scriptedFace()
+    // `memory` persistence is the non-loopback verdict: this page is not on the
+    // harness host, so no load will ever succeed and a retry control would be a
+    // dead end.
+    const ctx = ctxWith(face.face)
+    const controller = new ModelsSettingsStore(ctx, settingsSchema, new SettingsDescribeMirror(ctx, 'memory'))
+    await controller.load()
+    render(<ModelsSection
+      controller={controller}
+      useSnapshot={bindSnapshotSelector(controller.store)}
+      operations={operationsWith(face.face)}
+      schema={settingsSchema}
+      t={t}
+      renderSlot={() => null}
+    />)
+    expect(screen.getByText(en.settingsUnavailableRemote)).toBeTruthy()
+    expect(screen.queryByText(en.retry)).toBeNull()
+    expect(screen.queryByText(en.loadFailed, { exact: false })).toBeNull()
+  })
+
   it('shows the read-only notice and disables mutations for a read-only provider', async () => {
     const { face } = await mountSection()
     face.settings.describe.mockImplementation(() => Promise.resolve(remoteOk({

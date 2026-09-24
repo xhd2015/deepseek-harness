@@ -101,6 +101,12 @@ export interface ModelsSettingsState {
   status: 'idle' | 'loading' | 'ready' | 'error'
   /** Whole-load failure text; row-level write failures stay in the editor. */
   error: string | null
+  /**
+   * Whether the whole-load failure is terminal, so offering a retry would be a
+   * dead end. The mirror reports this by holding no view while terminally
+   * unavailable (a page that is not on the harness host), which no reload fixes.
+   */
+  terminal: boolean
   /** Credential enrichment failure; provider/settings rows remain usable. */
   credentialError: string | null
   /** Whether the settings provider accepts writes. */
@@ -159,7 +165,7 @@ function apiKeyEnvOf(
 export class ModelsSettingsStore {
   /** The snapshot the section renders from (uSES-safe store). */
   readonly store: SnapshotStore<ModelsSettingsState> = createSnapshotStore<ModelsSettingsState>({
-    status: 'idle', error: null, credentialError: null, writable: false, rows: [], namespaces: new Map(),
+    status: 'idle', error: null, terminal: false, credentialError: null, writable: false, rows: [], namespaces: new Map(),
   })
 
   /** Latest load wins; an older response never overwrites a newer one. */
@@ -197,7 +203,11 @@ export class ModelsSettingsStore {
     if (!declared.ok) { this.failLoad(generation, declared.error.message); return }
     const mirrored = this.describeFace.getSnapshot()
     if (mirrored.view === undefined) {
-      this.failLoad(generation, mirrored.error ?? 'settings are unavailable in this browser')
+      // `unavailable` is the mirror's terminal state (this page is not on the
+      // harness host), so the surface explains it instead of offering a retry
+      // that cannot change the outcome.
+      const terminal = mirrored.status === 'unavailable'
+      this.failLoad(generation, mirrored.error ?? 'settings are unavailable in this browser', terminal)
       return
     }
     const providers = joinProviderDirectory(registered.value, declared.value)
@@ -252,11 +262,12 @@ export class ModelsSettingsStore {
   }
 
   /** Publish one load's failure text, unless a newer load already took over. */
-  private failLoad(generation: number, message: string): void {
+  private failLoad(generation: number, message: string, terminal = false): void {
     if (generation !== this.generation) return
     this.store.update((s) => {
       s.status = 'error'
       s.error = message
+      s.terminal = terminal
     })
   }
 }
