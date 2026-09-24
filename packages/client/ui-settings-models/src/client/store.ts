@@ -113,6 +113,12 @@ export interface ModelsSettingsState {
   status: 'idle' | 'loading' | 'ready' | 'error'
   /** Whole-load failure text; row-level write failures stay in the editor. */
   error: string | null
+  /**
+   * Whether the whole-load failure is terminal, so offering a retry would be a
+   * dead end. The mirror reports this by holding no view while terminally
+   * unavailable (a page that is not on the harness host), which no reload fixes.
+   */
+  terminal: boolean
   /** Credential enrichment failure; provider/settings rows remain usable. */
   credentialError: string | null
   /** Whether the settings provider accepts writes. */
@@ -193,7 +199,7 @@ function apiKeyEnvOf(
 export class ModelsSettingsStore {
   /** The snapshot the section renders from (uSES-safe store). */
   readonly store: SnapshotStore<ModelsSettingsState> = createSnapshotStore<ModelsSettingsState>({
-    status: 'idle', error: null, credentialError: null, writable: false, rows: [], namespaces: new Map(),
+    status: 'idle', error: null, terminal: false, credentialError: null, writable: false, rows: [], namespaces: new Map(),
   })
 
   /** Latest load wins; an older response never overwrites a newer one. */
@@ -329,10 +335,11 @@ export class ModelsSettingsStore {
   }
 
   /** Publish the current joined read's failure text. */
-  private failLoad(message: string): void {
+  private failLoad(message: string, terminal = false): void {
     this.store.update((s) => {
       s.status = 'error'
       s.error = message
+      s.terminal = terminal
     })
   }
 }
