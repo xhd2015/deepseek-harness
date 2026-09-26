@@ -150,6 +150,16 @@ export const internals: {
 }
 
 /**
+ * Whether this invocation is the `dsh web open` client rather than a serving
+ * GUI. A hand-built tree that provides no `webStartup` serves.
+ * @param ctx - plugin context that may carry the web-startup values.
+ * @returns true for the open client.
+ */
+function isOpenClient(ctx: Context): boolean {
+  return (ctx.get(WEB_STARTUP_SERVICE) as WebStartupValues | undefined)?.mode === 'open'
+}
+
+/**
  * Record this process's origin for `dsh web open`, with the launch token when
  * browser authentication is enabled.
  * @param authenticatedUrl - URL that includes the process token; without
@@ -169,6 +179,12 @@ function publishListenRecord(authenticatedUrl: string): void {
 /**
  * Mount the Web runtime: dist serving, surface prompt, the bash runtime
  * variable, the URL line, and the default-browser handoff.
+ *
+ * A `dsh web open` invocation is a client of the serving GUI, not a server:
+ * it resolves `webRuntime` for the transport rows a composition may still
+ * mount, and mounts nothing that would advertise this process as a GUI of its
+ * own. Rows it must not mount at all are disabled through `DSH_WEB_OPEN` in the
+ * bundle patch.
  * @param ctx - plugin context carrying the webServer service.
  * @param config - validated {@link Config}.
  */
@@ -180,6 +196,7 @@ export function apply(ctx: Context, config: Config): void {
   const handoffBrowser = config.openBrowser && !launchedThroughSsh(launchEnvironmentOf(ctx))
   // Release dependent rows only after bind-dependent trust has been sampled once.
   ctx.provide(WEB_RUNTIME_SERVICE, runtime)
+  if (isOpenClient(ctx)) return
   ctx.plugin(FrontendStatic, { distIndex: internals.resolveDistIndex() })
   if (config.surfaceContext) {
     ctx.inject(['systemPrompt'], (promptCtx) => {

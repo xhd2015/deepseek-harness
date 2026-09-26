@@ -16,7 +16,7 @@ Operators already keep `dsh web` running, then want a single command from a proj
 
 Token exchange redirects to `/?session=<id>` when that query is a single safe Session id. The workspace client opens that Session once it appears in the Host list, keeps `?session=` in sync with the selected Session so a copied URL restores it, and shows a localized overlay when the id is missing or malformed. API authentication accepts the same process launch token as Bearer in addition to the browser cookie.
 
-Required Web rows (`webserver`, `web-runtime`, `modules`, `connection`) are disabled when `webStartup.mode === 'open'` so the client invocation cannot fail the required-startup audit or bind a second port.
+`dsh web open` binds no port and serves no page, no `/api`, and no plugin bundle, so the bundle patch keeps every browser-serving row unmounted through `process.env.DSH_WEB_OPEN === '1'`: `webserver`, `web-runtime`, `modules`, `connection`, and the rows that only feed them (`client-hmr`, `session-log-download`, `open-in-app`, `directory-picker`, `session-controller`, `file-upload`, `ui-deliverables`). Unmounting them is also what keeps the activation audit quiet: a row left enabled waits forever for `webServer`, `webRuntime`, or `connection`, and the audit reports every inactive row.
 
 ## Alternatives considered
 

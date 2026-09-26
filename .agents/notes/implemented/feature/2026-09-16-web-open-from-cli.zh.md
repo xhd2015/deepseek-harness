@@ -16,7 +16,7 @@ Status: implemented
 
 token 交换在 query 中仅有一个安全 Session id 时重定向到 `/?session=<id>`。workspace 客户端在 Host 列表出现该 Session 后打开它，并把 `?session=` 与当前选中 Session 保持同步，以便复制 URL 即可恢复；id 缺失或非法时显示本地化提示。API 认证在浏览器 cookie 之外，还接受同一进程 launch token 作为 Bearer。
 
-当 `webStartup.mode === 'open'` 时，禁用必选 Web 行（`webserver`、`web-runtime`、`modules`、`connection`），避免客户端调用触发必选启动审计或占用第二个端口。
+`dsh web open` 不绑定端口，也不提供页面、`/api` 或插件 bundle，因此 bundle patch 通过 `process.env.DSH_WEB_OPEN === '1'` 让所有面向浏览器的行保持未挂载：`webserver`、`web-runtime`、`modules`、`connection`，以及只为它们供数的行（`client-hmr`、`session-log-download`、`open-in-app`、`directory-picker`、`session-controller`、`file-upload`、`ui-deliverables`）。卸载它们同时也是让启动审计保持安静的原因：仍启用的行会永远等待 `webServer`、`webRuntime` 或 `connection`，而审计会报告每一个未激活行。
 
 ## Alternatives considered
 

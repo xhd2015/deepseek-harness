@@ -39,7 +39,7 @@ dsh --profile web open ~/proj --browser brave
 
 启动后你会看到 `dsh web:` 行，其根 URL 携带新的进程 token；以 `--no-auth` 启动的服务器则打印不带 token 的 URL，因为它接受任何 loopback 请求而无需凭据。除非 `--no-open` 或 SSH 会话抑制，否则选定浏览器（`--browser brave|chrome|firefox|edge|safari`，或操作系统默认）会打开该 URL、取得签名 cookie，再重定向到不含认证参数的根页面。页面加载且你可以与 agent 对话，就说明成功了。两种可预期的失败：前端未构建时，启动会以构建提示停止（checkout 中运行 `pnpm run build`）；浏览器无法打开时，stderr 会打印不含凭据的诊断，但服务器会继续运行——请自行打开已打印的启动 URL。
 
-`dsh web open [dir]` 对接已经在跑的 GUI：把该目录登记为 Workspace（同一路径则复用），创建新 Session 并打开。目录默认为调用时的 cwd。服务进程把如何连到它记录在 `$DSH_HOME/web-listen.json`：origin，以及启用浏览器认证时的进程 token；以 `--no-auth` 启动的服务器不记录 token，客户端随后以不带凭据的方式调用。若没有 GUI 在服务，命令以非零退出，给出它读取的 listen 记录路径，并提示先执行 `dsh web`。该子命令上的 `--no-open` 仍会创建 Session。
+`dsh web open [dir]` 对接已经在跑的 GUI：把该目录登记为 Workspace（同一路径则复用），创建新 Session 并打开。该调用不绑定端口、也不自行提供任何页面，因此只有正在运行的 GUI 响应 HTTP。目录默认为调用时的 cwd。服务进程把如何连到它记录在 `$DSH_HOME/web-listen.json`：origin，以及启用浏览器认证时的进程 token；以 `--no-auth` 启动的服务器不记录 token，客户端随后以不带凭据的方式调用。若没有 GUI 在服务，命令以非零退出，给出它读取的 listen 记录路径，并提示先执行 `dsh web`。该子命令上的 `--no-open` 仍会创建 Session。
 
 通过 `-p` / `--prompt <text>` 或 `--prompt-file <file>` 提交初始提示词；两种来源互斥。提示词文件按 UTF-8 读取，相对路径基于调用时的 cwd，而非工作区目录，文本保留空白和换行。无法读取的文件以及空白提示词会在创建 Session 前报错。添加 `--no-submit` 可将初始文本保存为可编辑草稿，而不启动轮次；此选项需要提示词来源，并可与 `--no-open` 同用。提示词文本不会进入浏览器 URL。初始提示词或草稿失败时以非零退出，并标明已创建的 Session。浏览器启动失败则在 stderr 打印不含凭据的 `warning:`，成功退出并保留 Session。
 
