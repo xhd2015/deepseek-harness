@@ -2,7 +2,7 @@
 
 import { EventEmitter } from 'node:events'
 import { spawn, type ChildProcess } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
@@ -20,10 +20,15 @@ vi.mock('node:child_process', async importOriginal => ({
 }))
 
 let dist: string | undefined
+let home: string
 
 beforeEach(() => {
   vi.stubEnv('SSH_CONNECTION', '')
   vi.stubEnv('SSH_TTY', '')
+  // Readiness publication writes $DSH_HOME/web-listen.json: keep every record
+  // this suite writes in a throwaway home instead of the developer's.
+  home = mkdtempSync(join(tmpdir(), 'dsh-web-app-home-'))
+  vi.stubEnv('DSH_HOME', home)
 })
 
 afterEach(() => {
@@ -34,7 +39,14 @@ afterEach(() => {
   internals.openBrowser = originalOpenBrowser
   if (dist !== undefined) rmSync(dist, { recursive: true, force: true })
   dist = undefined
+  rmSync(home, { recursive: true, force: true })
 })
+
+/** The listen record the isolated home holds, or undefined when none was written. */
+function listenRecord(): unknown {
+  const path = join(home, 'web-listen.json')
+  return existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) as unknown : undefined
+}
 
 const originalResolve = internals.resolveDistIndex
 const originalOpenBrowser = internals.openBrowser
@@ -69,14 +81,19 @@ function fakeHttpServer(host = '127.0.0.1'): { server: WebServer } {
   return { server: server as WebServer }
 }
 
-/** Deterministic Host Connection face for URL publication and frontend injection. */
-function provideConnection(ctx: Context): void {
+/**
+ * Deterministic Host Connection face for URL publication and frontend injection.
+ * @param ctx - context receiving the service.
+ * @param launchToken - token the connection adds to launch URLs; `null`
+ * models `--no-auth`, whose URLs carry none.
+ */
+function provideConnection(ctx: Context, launchToken: string | null = 'test-token'): void {
   ctx.provide('connection', {
     // Adds the process token to the given canonical root, preserving any
     // public mount prefix the caller passed.
     authenticatedUrl(baseUrl: string) {
       const url = new URL(baseUrl)
-      url.searchParams.set('token', 'test-token')
+      if (launchToken !== null) url.searchParams.set('token', launchToken)
       return url.href
     },
     authorizeIndex: () => true,
@@ -139,6 +156,11 @@ describe('web-app runtime glue', () => {
     const webRuntime = contributions.find(contribution => contribution.name === 'web-runtime')
     expect(webRuntime?.resolve()).toEqual({ DSH_WEB_URL: 'http://127.0.0.1:4567' })
     expect(ctx.webApp.getAdvertisedUrl()).toBe('http://127.0.0.1:4567')
+    expect(listenRecord()).toEqual({
+      pid: process.pid,
+      origin: 'http://127.0.0.1:4567',
+      token: 'test-token',
+    })
   })
 
   it('advertises and opens the configured public root behind a prefix-stripping proxy', async () => {
@@ -177,6 +199,20 @@ describe('web-app runtime glue', () => {
     expect(urlContribution?.resolve()).toEqual({ DSH_WEB_URL: 'https://proxy.example:8443/web/' })
     // The service advertises the row's effective publicUrl, whether it came from --public-url or a profile override.
     expect(ctx.webApp.getAdvertisedUrl()).toBe('https://proxy.example:8443/web/')
+  })
+
+  it('publishes a tokenless listen record when the connection disabled browser authentication', async () => {
+    stageDist()
+    const ctx = new Context()
+    ctx.provide('webServer', fakeHttpServer().server)
+    provideConnection(ctx, null)
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    apply(ctx, new Config({ openBrowser: false, printUrl: true, surfaceContext: false, trustedHosts: [] }))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(log).toHaveBeenCalledWith('dsh web: http://127.0.0.1:4567/')
+    expect(listenRecord()).toEqual({ pid: process.pid, origin: 'http://127.0.0.1:4567' })
+    await ctx.fiber.dispose()
+    expect(listenRecord()).toBeUndefined()
   })
 
   it('publishes no readiness side effect when printing and browser opening are disabled', async () => {

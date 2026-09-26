@@ -109,11 +109,10 @@ function resolveDistIndex(): string {
  */
 function publishListenRecord(authenticatedUrl: string, origin: string): void {
   const token = new URL(authenticatedUrl).searchParams.get('token')
-  if (token === null) return
   writeWebListenFile({
     pid: process.pid,
     origin,
-    token,
+    ...token === null ? {} : { token },
   })
 }
 

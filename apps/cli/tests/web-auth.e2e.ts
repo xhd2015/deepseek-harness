@@ -1,13 +1,12 @@
-/** Real `dsh web` authentication against a temporary Harness home. */
+/** Real `dsh web` authentication and `dsh web open` pairing against a temporary Harness home. */
 
 import type { ChildProcess } from 'node:child_process'
 import { spawn } from 'node:child_process'
-import { stat } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat } from 'node:fs/promises'
 import { request as httpRequest } from 'node:http'
 import { createRequire } from 'node:module'
 import { createServer } from 'node:net'
 import type { AddressInfo } from 'node:net'
-import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -64,14 +63,18 @@ function cleanEnvironment(root: string, dshHome: string): NodeJS.ProcessEnv {
   }
 }
 
-/** Start the public source CLI and wait for its authenticated readiness URL. */
-async function startWeb(root: string, dshHome: string, port: number): Promise<RunningWeb> {
+/**
+ * Start the public source CLI and wait for its readiness URL.
+ * @param extraArgs - additional `dsh web` flags, for example `--no-auth`.
+ */
+async function startWeb(root: string, dshHome: string, port: number, extraArgs: readonly string[] = []): Promise<RunningWeb> {
   const child = spawn(process.execPath, [
     '--import', TSX_LOADER,
     DSH_SOURCE_BIN,
     'web',
     '--no-open',
     '--port', String(port),
+    ...extraArgs,
   ], {
     cwd: root,
     env: cleanEnvironment(root, dshHome),
@@ -119,19 +122,29 @@ async function stopWeb(running: RunningWeb): Promise<void> {
   clearTimeout(forced)
 }
 
-/** POST one real Remote envelope while controlling the wire Host header. */
-function describeSettings(port: number, host: string, cookie?: string): Promise<HttpResult> {
+/**
+ * POST one real Remote envelope with the exact wire Host and cookie the caller controls.
+ * @returns the HTTP status and decoded body.
+ */
+function postApi(
+  port: number,
+  host: string,
+  rpcId: string,
+  method: string,
+  args: Record<string, unknown>,
+  cookie?: string,
+): Promise<HttpResult> {
   const body = JSON.stringify({
     type: 'client-request',
-    rpcId: 'web-auth-real-cli',
-    method: 'settings/describe',
-    payload: { args: {} },
+    rpcId,
+    method,
+    payload: { args },
   })
   return new Promise((resolve, reject) => {
     const req = httpRequest({
       hostname: '127.0.0.1',
       port,
-      path: '/api/settings/describe',
+      path: `/api/${method}`,
       method: 'POST',
       headers: {
         host,
@@ -149,6 +162,39 @@ function describeSettings(port: number, host: string, cookie?: string): Promise<
     req.once('error', reject)
     req.end(body)
   })
+}
+
+/** POST one `settings/describe` envelope while controlling the wire Host header. */
+function describeSettings(port: number, host: string, cookie?: string): Promise<HttpResult> {
+  return postApi(port, host, 'web-auth-real-cli', 'settings/describe', {}, cookie)
+}
+
+/**
+ * Unwrap the value of a successful Remote response.
+ * @param result - HTTP result whose body carries one `server-response` envelope.
+ * @returns the decoded value, failing the test when the server reported an error.
+ */
+function rpcValue(result: HttpResult): unknown {
+  const body = JSON.parse(result.body) as { result: { ok: boolean; value?: unknown } }
+  expect(body.result.ok, result.body).toBe(true)
+  return body.result.value
+}
+
+/**
+ * Read a file the booting process publishes just after its readiness line.
+ * @param path - file to read.
+ * @returns the file's text.
+ */
+async function waitForFile(path: string): Promise<string> {
+  const deadline = Date.now() + 30_000
+  for (;;) {
+    try {
+      return await readFile(path, 'utf8')
+    } catch (error) {
+      if (Date.now() > deadline) throw error
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+  }
 }
 
 describe('dsh web authentication through the real CLI', () => {
@@ -204,6 +250,46 @@ describe('dsh web authentication through the real CLI', () => {
     } finally {
       if (second !== undefined) await stopWeb(second)
       if (first !== undefined) await stopWeb(first)
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('publishes a credential-free record and serves the open client RPCs when browser auth is disabled', { timeout: 180_000 }, async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-web-open-no-auth-'))
+    const dshHome = join(root, '.dsh')
+    const workspace = join(root, 'workspace')
+    const port = await freePort()
+    const host = `127.0.0.1:${String(port)}`
+    let web: RunningWeb | undefined
+    try {
+      await mkdir(workspace)
+      web = await startWeb(root, dshHome, port, ['--no-auth'])
+      expect(new URL(web.launchUrl).searchParams.get('token')).toBeNull()
+
+      const recordPath = join(dshHome, 'web-listen.json')
+      expect(JSON.parse(await waitForFile(recordPath)) as unknown).toEqual({
+        pid: web.child.pid,
+        origin: `http://127.0.0.1:${String(port)}`,
+      })
+      expect((await stat(recordPath)).mode & 0o777).toBe(0o600)
+
+      // The exact RPC sequence `dsh web open` sends, with no Authorization
+      // header: a --no-auth server must accept the unauthenticated pairing.
+      const createdWorkspace = await postApi(port, host, 'web-open-no-auth-cli', 'workspace/create', { request: { path: workspace } })
+      expect(createdWorkspace.status).toBe(200)
+      const workspaceId = (rpcValue(createdWorkspace) as { workspace: { workspaceId: string } }).workspace.workspaceId
+      const createdSession = await postApi(port, host, 'web-open-no-auth-cli', 'session/create', { request: { workspaceId } })
+      expect(createdSession.status).toBe(200)
+      const sessionId = (rpcValue(createdSession) as { sessionId: string }).sessionId
+
+      const listed = await postApi(port, host, 'web-open-no-auth-cli', 'session/list', { _request: {} })
+      expect(listed.status).toBe(200)
+      const items = (rpcValue(listed) as { items: Array<{ sessionId: string }> }).items
+      expect(items.map(item => item.sessionId)).toContain(sessionId)
+    } catch (error) {
+      throw new Error(`${error instanceof Error ? error.message : String(error)}\n${redact(web?.output() ?? '')}`, { cause: error })
+    } finally {
+      if (web !== undefined) await stopWeb(web)
       await rm(root, { recursive: true, force: true })
     }
   })
