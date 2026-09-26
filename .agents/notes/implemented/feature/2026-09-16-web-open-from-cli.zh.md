@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-`dsh web open [dir]` 是 web profile 的第二次调用，不绑定服务器。正在服务的进程在 Connection 就绪后写入 `$DSH_HOME/web-listen.json`（pid、origin、launch token，权限 `0600`），dispose 时删除。open 客户端用 `Authorization: Bearer <token>` 依次 POST `workspace/create` 与 `session/create`，处理可选的[初始提示词或持久草稿](2026-09-20-web-runner-composer-drafts.zh.md)，除非 `--no-open`，再打开 `/?token=…&session=…`。
+`dsh web open [dir]` 是 web profile 的第二次调用，不绑定服务器。正在服务的进程在 Connection 就绪后写入 `$DSH_HOME/web-listen.json`（pid、origin，权限 `0600`），dispose 时删除；启用浏览器认证时该记录携带进程 launch token，`--no-auth` 时省略，因为此时任何 loopback 请求本来就已获授权。open 客户端在记录含 token 时用 `Authorization: Bearer <token>`、否则不带凭据头，依次 POST `workspace/create` 与 `session/create`，处理可选的[初始提示词或持久草稿](2026-09-20-web-runner-composer-drafts.zh.md)，除非 `--no-open`，再打开 `/?token=…&session=…`（无 token 时不带该参数）。
 
 `--browser brave|chrome|firefox|edge|safari` 是 serve 与 `open` 共用的 web 应用 flag，交给维护中的 `open` 包（`apps.*`，Safari 为 `Safari`）。省略则使用操作系统默认浏览器。未知名称是用法错误。
 
@@ -30,4 +30,4 @@ token 交换在 query 中仅有一个安全 Session id 时重定向到 `/?sessio
 
 ## Consequences
 
-`web-listen.json` 持有与打印 URL 中 token 同等的能力；文件权限为 `0600`，服务进程退出时删除。崩溃可能留下过期文件，`open` 在 pid 已死时忽略它。`dsh web open` 仍会启动 web profile 的其余部分（包括 agent-loop），即使 HTTP 已禁用，因此比纯粹的 HTTP 客户端更重。
+启用浏览器认证时，`web-listen.json` 持有与打印 URL 中 token 同等的能力；文件权限为 `0600`，服务进程退出时删除。`--no-auth` 服务器只记录 origin 与 pid，客户端随后无需凭据。崩溃可能留下过期文件，`open` 在 pid 已死时忽略它。`dsh web open` 仍会启动 web profile 的其余部分（包括 agent-loop），即使 HTTP 已禁用，因此比纯粹的 HTTP 客户端更重。
