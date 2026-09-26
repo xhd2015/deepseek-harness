@@ -13,6 +13,7 @@ import * as AppBoot from '@deepseek-ai/dsh-app-boot'
 import { createLaunchEnvironmentSnapshot, DSH_LAUNCH_ENVIRONMENT_KEY } from '@deepseek-ai/dsh-launch-environment'
 import { bindUrlHost, type WebServer } from '@deepseek-ai/dsh-host-webserver'
 import { apply, Config, internals } from '../src/index.ts'
+import { WEB_STARTUP_SERVICE } from '../src/startup.ts'
 
 vi.mock('node:child_process', async importOriginal => ({
   ...await importOriginal<typeof import('node:child_process')>(),
@@ -213,6 +214,33 @@ describe('web-app runtime glue', () => {
     expect(listenRecord()).toEqual({ pid: process.pid, origin: 'http://127.0.0.1:4567' })
     await ctx.fiber.dispose()
     expect(listenRecord()).toBeUndefined()
+  })
+
+  it('mounts no server surface when the invocation is the open client', async () => {
+    stageDist()
+    const ctx = new Context()
+    ctx.provide('webServer', fakeHttpServer().server)
+    ctx.provide(WEB_STARTUP_SERVICE, {
+      mode: 'open',
+      openBrowser: true,
+      directory: '/tmp',
+      trustedHosts: [],
+      trustedHostsForSettings: [],
+      disableAuth: false,
+    } as never)
+    provideConnection(ctx)
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const openBrowser = vi.fn(async () => {})
+    internals.openBrowser = openBrowser
+    apply(ctx, new Config({ openBrowser: true, printUrl: true, surfaceContext: true, trustedHosts: [] }))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    // The open client returns before the listener, so it publishes no GUI of its own.
+    expect(ctx.get('webApp')).toBeUndefined()
+    expect(ctx.get('webRuntime')).toBeUndefined()
+    expect(log).not.toHaveBeenCalled()
+    expect(openBrowser).not.toHaveBeenCalled()
+    expect(listenRecord()).toBeUndefined()
+    await ctx.fiber.dispose()
   })
 
   it('publishes no readiness side effect when printing and browser opening are disabled', async () => {
