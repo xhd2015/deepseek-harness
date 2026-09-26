@@ -1,6 +1,6 @@
 /**
  * `dsh web open` client: create a Workspace and Session on the running GUI,
- * then open the authenticated session URL.
+ * then open the session URL, authenticated only when the server requires it.
  * @module @deepseek-ai/dsh-web-app/open
  */
 
@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import { internals as cmdlineInternals } from '@deepseek-ai/dsh-cmdline'
 import { WEB_STARTUP_SERVICE, type WebStartupValues } from './startup.ts'
-import { readWebListenFile } from './listen-file.ts'
+import { readWebListenFile, webListenFilePath } from './listen-file.ts'
 import { openerInternals } from './opener.ts'
 import type { WebBrowserId } from './browsers.ts'
 
@@ -90,7 +90,7 @@ interface OpenRequest {
 export async function runOpen(request: OpenRequest): Promise<string> {
   const listen = internals.readListen()
   if (listen === undefined) {
-    throw new Error('web is not serving; start it with: dsh web')
+    throw new Error(`web is not serving; start it with: dsh web (no listen record in ${webListenFilePath()})`)
   }
   const created = await createWorkspaceAndSession(listen.origin, listen.token, request.directory, request.signal)
   if (request.initialPrompt !== undefined) {
@@ -125,7 +125,7 @@ export async function runOpen(request: OpenRequest): Promise<string> {
 
 async function createWorkspaceAndSession(
   origin: string,
-  token: string,
+  token: string | undefined,
   directory: string,
   signal: AbortSignal,
 ): Promise<{ sessionId: string }> {
@@ -148,7 +148,7 @@ async function createWorkspaceAndSession(
 
 async function rpc<T>(
   origin: string,
-  token: string,
+  token: string | undefined,
   endpoint: string,
   args: Record<string, unknown>,
   signal: AbortSignal,
@@ -160,7 +160,7 @@ async function rpc<T>(
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        authorization: `Bearer ${token}`,
+        ...token === undefined ? {} : { authorization: `Bearer ${token}` },
       },
       body: JSON.stringify({
         type: 'client-request',
@@ -175,7 +175,7 @@ async function rpc<T>(
     throw new Error('web is not serving; start it with: dsh web')
   }
   if (response.status === 401 || response.status === 403) {
-    throw new Error('web is not serving; start it with: dsh web')
+    throw new Error('web rejected the recorded launch token; restart it with: dsh web')
   }
   if (!response.ok) {
     throw new Error(`web RPC ${endpoint} failed: HTTP ${String(response.status)}`)
@@ -203,10 +203,10 @@ function rpcResult<T>(body: unknown, rpcId: string, endpoint: string): RpcResult
   return result as RpcResult<T>
 }
 
-function sessionLaunchUrl(origin: string, token: string, sessionId: string): string {
+function sessionLaunchUrl(origin: string, token: string | undefined, sessionId: string): string {
   const url = new URL(origin)
   url.pathname = '/'
-  url.searchParams.set('token', token)
+  if (token !== undefined) url.searchParams.set('token', token)
   url.searchParams.set(SESSION_QUERY, sessionId)
   return url.href
 }

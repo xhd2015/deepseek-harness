@@ -150,17 +150,19 @@ export const internals: {
 }
 
 /**
- * Record this process's origin and launch token for `dsh web open`.
- * @param authenticatedUrl - URL that includes the process token query.
+ * Record this process's origin for `dsh web open`, with the launch token when
+ * browser authentication is enabled.
+ * @param authenticatedUrl - URL that includes the process token; without
+ * `--no-auth` it always carries one, and `--no-auth` leaves every request
+ * authorized, so the record then holds no credential.
  */
 function publishListenRecord(authenticatedUrl: string): void {
   const parsed = new URL(authenticatedUrl)
   const token = parsed.searchParams.get('token')
-  if (token === null) return
   writeWebListenFile({
     pid: process.pid,
     origin: `${parsed.protocol}//${parsed.host}`,
-    token,
+    ...token === null ? {} : { token },
   })
 }
 

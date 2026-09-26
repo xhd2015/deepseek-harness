@@ -14,6 +14,7 @@ interface RpcCall {
   method: string
   request: Record<string, unknown>
   authenticated: boolean
+  authorization: string | undefined
 }
 
 interface Fixture {
@@ -22,7 +23,18 @@ interface Fixture {
   run: (args: string[]) => Promise<{ stdout: string; stderr: string; exitCode: number | undefined }>
 }
 
-async function withRunningHost(test: TestContext, inspect: (fixture: Fixture) => Promise<void>): Promise<void> {
+/**
+ * Boot the assembled `dsh web open` against one fixture host in this home.
+ * @param test - owning case, for cancellation and teardown.
+ * @param inspect - assertions against the recorded RPC calls and CLI output.
+ * @param record - listen record to publish; `token: undefined` models a
+ * `--no-auth` server, whose record carries no credential.
+ */
+async function withRunningHost(
+  test: TestContext,
+  inspect: (fixture: Fixture) => Promise<void>,
+  record: { token?: string } = { token: 'fixture-token' },
+): Promise<void> {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'dsh-web-open-expected-')))
   const home = join(root, '.dsh')
   const calls: RpcCall[] = []
@@ -36,7 +48,12 @@ async function withRunningHost(test: TestContext, inspect: (fixture: Fixture) =>
         method: string
         payload: { args: { request: Record<string, unknown> } }
       }
-      calls.push({ method: envelope.method, request: envelope.payload.args.request, authenticated: request.headers.authorization === 'Bearer fixture-token' })
+      calls.push({
+        method: envelope.method,
+        request: envelope.payload.args.request,
+        authenticated: request.headers.authorization === 'Bearer fixture-token',
+        authorization: request.headers.authorization,
+      })
       const value = envelope.method === 'workspace/create'
         ? { workspace: { workspaceId: 'fixture-workspace' } }
         : envelope.method === 'session/create'
@@ -56,7 +73,11 @@ async function withRunningHost(test: TestContext, inspect: (fixture: Fixture) =>
     const address = server.address()
     if (address === null || typeof address === 'string') throw new Error('host fixture did not bind TCP')
     await mkdir(home)
-    await writeFile(join(home, 'web-listen.json'), JSON.stringify({ pid: process.pid, origin: `http://127.0.0.1:${address.port}`, token: 'fixture-token' }))
+    await writeFile(join(home, 'web-listen.json'), JSON.stringify({
+      pid: process.pid,
+      origin: `http://127.0.0.1:${address.port}`,
+      ...record.token === undefined ? {} : { token: record.token },
+    }))
     await inspect({
       root,
       calls,
@@ -176,5 +197,21 @@ describe('dsh web open assembled prompt delivery', () => {
       expect(result.stdout).toBe('')
       expect(result.stderr).toContain('dsh: cannot read prompt file "missing.txt":')
     })
+  })
+
+  it('calls a host whose record carries no launch token without a credential', async (test) => {
+    await withRunningHost(test, async ({ calls, run }) => {
+      const result = await run(['--no-open'])
+      expect(calls.map(call => call.method)).toEqual(['workspace/create', 'session/create'])
+      expect(calls.map(call => call.authorization)).toEqual([undefined, undefined])
+      expect(result).toMatchInlineSnapshot(`
+        {
+          "exitCode": 0,
+          "stderr": "",
+          "stdout": "dsh web: created fixture-session in {{cwd}}
+        ",
+        }
+      `)
+    }, {})
   })
 })

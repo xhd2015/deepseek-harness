@@ -82,13 +82,58 @@ describe('runOpen', () => {
     expect(stderr).not.toContain('launch-token')
   })
 
-  it('fails when no listen record is present', async () => {
+  it('fails when no listen record is present, naming the file it read', async () => {
     internals.readListen = () => undefined
     await expect(runOpen({
       directory: '/tmp/proj',
       openBrowser: true,
       signal: new AbortController().signal,
-    })).rejects.toThrow('web is not serving; start it with: dsh web')
+    })).rejects.toThrow(/^web is not serving; start it with: dsh web \(no listen record in .+web-listen\.json\)$/u)
+  })
+
+  it('reports a rejected launch token separately from a missing server', async () => {
+    internals.readListen = () => ({ pid: process.pid, origin: 'http://127.0.0.1:3080', token: 'stale-token' })
+    internals.fetch = async () => new Response('unauthorized', { status: 401 })
+    await expect(runOpen({
+      directory: '/tmp/proj',
+      openBrowser: false,
+      signal: new AbortController().signal,
+    })).rejects.toThrow('web rejected the recorded launch token; restart it with: dsh web')
+  })
+
+  it('reaches a server that disabled browser authentication without a credential', async () => {
+    const headers: unknown[] = []
+    const opened: Array<{ url: string; browser?: string }> = []
+    internals.readListen = () => ({ pid: process.pid, origin: 'http://127.0.0.1:3080' })
+    openerInternals.openBrowser = async (url, browser) => {
+      opened.push(browser === undefined ? { url } : { url, browser })
+    }
+    internals.fetch = (async (_input: URL, init?: RequestInit) => {
+      headers.push(init?.headers)
+      const body = JSON.parse(init?.body as string) as { rpcId: string; method: string }
+      return Response.json({
+        type: 'server-response',
+        rpcId: body.rpcId,
+        result: {
+          ok: true,
+          value: body.method === 'workspace/create'
+            ? { workspace: { workspaceId: 'ws-1' } }
+            : { sessionId: 'session-abc' },
+        },
+      })
+    }) as typeof fetch
+
+    await expect(runOpen({
+      directory: '/tmp/proj',
+      openBrowser: true,
+      browser: 'brave',
+      signal: new AbortController().signal,
+    })).resolves.toBe('session-abc')
+    expect(headers).toEqual([
+      { 'content-type': 'application/json' },
+      { 'content-type': 'application/json' },
+    ])
+    expect(opened).toEqual([{ url: 'http://127.0.0.1:3080/?session=session-abc', browser: 'brave' }])
   })
 
   it('creates a workspace and session then opens the session URL', async () => {

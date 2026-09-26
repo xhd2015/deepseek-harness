@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -26,6 +26,21 @@ describe('web listen file', () => {
       token: 'tok',
     })
     writeWebListenFile({ pid: 2 ** 22, origin: 'http://127.0.0.1:3080', token: 'tok' }, path)
+    expect(readWebListenFile(path)).toBeUndefined()
+  })
+
+  it('round-trips a record without a launch token and rejects a malformed one', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-web-listen-'))
+    dirs.push(dir)
+    const path = join(dir, 'web-listen.json')
+    writeWebListenFile({ pid: process.pid, origin: 'http://127.0.0.1:3080' }, path)
+    expect(readWebListenFile(path)).toEqual({
+      pid: process.pid,
+      origin: 'http://127.0.0.1:3080',
+    })
+    writeFileSync(path, JSON.stringify({ pid: process.pid, origin: 'http://127.0.0.1:3080', token: '' }))
+    expect(readWebListenFile(path)).toBeUndefined()
+    writeFileSync(path, JSON.stringify({ pid: process.pid, origin: 'http://127.0.0.1:3080', token: 7 }))
     expect(readWebListenFile(path)).toBeUndefined()
   })
 
