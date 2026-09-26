@@ -127,12 +127,28 @@ export const internals: {
 }
 
 /**
+ * Whether this invocation is the `dsh web open` client rather than a serving
+ * GUI. A hand-built tree that provides no `webStartup` serves.
+ * @param ctx - plugin context that may carry the web-startup values.
+ * @returns true for the open client.
+ */
+function isOpenClient(ctx: Context): boolean {
+  return (ctx.get(WEB_STARTUP_SERVICE) as WebStartupValues | undefined)?.mode === 'open'
+}
+
+/**
  * Mount the Web runtime: dist serving, the bash runtime variable, the URL
  * line, and the default-browser handoff.
+ *
+ * A `dsh web open` invocation is a client of the serving GUI, not a server.
+ * It returns before reading the listener, so it never prints a URL, opens a
+ * browser, or publishes a listen record. Rows it must not mount at all are
+ * disabled through `DSH_WEB_OPEN` in the bundle patch.
  * @param ctx - plugin context carrying the webServer service.
  * @param config - validated {@link Config}.
  */
 export function apply(ctx: Context, config: Config): void {
+  if (isOpenClient(ctx)) return
   // The schema validates a present string; an explicit YAML `null` bypasses
   // the string transform and reaches here, meaning unset.
   const publicUrl = config.publicUrl ?? undefined
