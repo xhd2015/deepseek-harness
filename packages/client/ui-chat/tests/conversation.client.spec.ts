@@ -34,6 +34,59 @@ describe('toAssistantBlock', () => {
       .toEqual({ kind: 'other', block: { type: 'future' } })
   })
 
+  it('marks encrypted reasoning that has no summary and ignores everything else', () => {
+    const encrypted = {
+      type: 'reasoning',
+      thinkingSignature: JSON.stringify({
+        id: 'rs_1',
+        type: 'reasoning',
+        summary: [],
+        content: [],
+        encrypted_content: 'gAAAA-secret-blob',
+      }),
+    }
+    const summarized = {
+      type: 'reasoning',
+      thinkingSignature: JSON.stringify({
+        id: 'rs_2',
+        type: 'reasoning',
+        summary: [{ type: 'summary_text', text: 'already shown' }],
+        content: [],
+        encrypted_content: 'gAAAA-secret-blob',
+      }),
+    }
+    const withReasoningText = {
+      type: 'reasoning',
+      thinkingSignature: JSON.stringify({
+        id: 'rs_3',
+        type: 'reasoning',
+        summary: [],
+        content: [{ type: 'reasoning_text', text: 'raw' }],
+        encrypted_content: 'gAAAA-secret-blob',
+      }),
+    }
+    const content: ContentBlock[] = [
+      { type: 'reasoning', text: '' },
+      { type: 'reasoning', text: '' },
+      { type: 'reasoning', text: 'visible summary' },
+      { type: 'reasoning', text: '' },
+    ]
+    expect(toAssistantBlocks(content, [
+      encrypted,
+      { type: 'reasoning', thinkingSignature: 'not-json' },
+      summarized,
+      withReasoningText,
+    ])).toEqual([
+      { kind: 'reasoning', text: '', encrypted: true },
+      { kind: 'reasoning', text: '' },
+      { kind: 'reasoning', text: 'visible summary' },
+      { kind: 'reasoning', text: '' },
+    ])
+    expect(toAssistantBlocks([{ type: 'reasoning', text: '' }])).toEqual([
+      { kind: 'reasoning', text: '' },
+    ])
+  })
+
   it('creates empty streamed block projections', () => {
     expect(emptyAssistantBlock('text')).toEqual({ kind: 'text', text: '' })
     expect(emptyAssistantBlock('reasoning')).toEqual({ kind: 'reasoning', text: '' })

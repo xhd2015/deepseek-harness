@@ -13,6 +13,40 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null
 }
 
+function hasVisibleText(value: unknown): boolean {
+  if (!Array.isArray(value)) return false
+  return value.some((part) => {
+    const record = asRecord(part)
+    return record !== null && typeof record.text === 'string' && record.text.trim() !== ''
+  })
+}
+
+/** Encrypted reasoning with no summary. Kept local: the client bundle cannot value-import conversation. */
+export function isEncryptedReasoningReplay(block: unknown): boolean {
+  const replay = asRecord(block)
+  if (replay === null || replay.type !== 'reasoning') return false
+  const signature = replay.thinkingSignature
+  if (typeof signature !== 'string' || signature.length === 0) return false
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(signature) as unknown
+  } catch {
+    return false
+  }
+  const item = asRecord(parsed)
+  if (item === null || item.type !== 'reasoning') return false
+  if (typeof item.encrypted_content !== 'string' || item.encrypted_content.length === 0) return false
+  return !hasVisibleText(item.summary) && !hasVisibleText(item.content)
+}
+
+/** Replay blocks stored beside an assistant message, when the envelope has them. */
+export function replayBlocksFromSource(source: unknown): readonly unknown[] | undefined {
+  const record = asRecord(source)
+  const replay = record === null ? null : asRecord(record.replayState)
+  const blocks = replay?.blocks
+  return Array.isArray(blocks) ? blocks : undefined
+}
+
 function readString(record: Record<string, unknown>, key: string): string | null {
   const value = record[key]
   return typeof value === 'string' && value.length > 0 ? value : null
@@ -80,8 +114,11 @@ export function contextProducer(source: unknown): ContextProducerView {
  * @param content - Core content blocks.
  * @returns Trajectory blocks in source order.
  */
-export function toAssistantBlocks(content: readonly ContentBlock[]): AssistantBlock[] {
-  return content.map(toAssistantBlock)
+export function toAssistantBlocks(
+  content: readonly ContentBlock[],
+  replayBlocks?: readonly unknown[],
+): AssistantBlock[] {
+  return content.map((block, index) => toAssistantBlock(block, replayBlocks?.[index]))
 }
 
 /**
@@ -89,10 +126,12 @@ export function toAssistantBlocks(content: readonly ContentBlock[]): AssistantBl
  * @param block - Core content block.
  * @returns Trajectory block.
  */
-export function toAssistantBlock(block: ContentBlock): AssistantBlock {
+export function toAssistantBlock(block: ContentBlock, replayBlock?: unknown): AssistantBlock {
   switch (block.type) {
     case 'text': return { kind: 'text', text: block.text }
-    case 'reasoning': return { kind: 'reasoning', text: block.text }
+    case 'reasoning': return block.text.trim() === '' && isEncryptedReasoningReplay(replayBlock)
+      ? { kind: 'reasoning', text: block.text, encrypted: true }
+      : { kind: 'reasoning', text: block.text }
     case 'image': return { kind: 'image', attachment: block.attachment }
     case 'tool-call': return { kind: 'tool-call', callId: String(block.id), name: block.name, argsRaw: block.arguments }
     default: return { kind: 'other', block }
