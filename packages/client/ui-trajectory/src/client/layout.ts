@@ -749,24 +749,29 @@ function expandAssistant(
     .map(block => block.kind === 'text' ? block.text : '')
     .join('\n\n')
   const thinkingText = node.blocks
-    .filter(block => block.kind === 'reasoning' && (!streaming || block.text !== ''))
+    .filter(block => block.kind === 'reasoning' && block.encrypted !== true && (!streaming || block.text !== ''))
     .map(block => block.kind === 'reasoning' ? block.text : '')
     .join('\n\n')
+  const encryptedCount = node.blocks.filter(block => block.kind === 'reasoning' && block.encrypted === true).length
+  const encryptedLabel = encryptedCount === 0
+    ? ''
+    : t(encryptedCount === 1 ? 'layout.encryptedReasoning' : 'layout.encryptedReasoningCount', { count: encryptedCount })
+  const thinkingShown = thinkingText !== '' ? thinkingText : encryptedLabel
   const message: TrajectoryCellProps = {
     index: ++index,
     recordId: `assistant\u0000${node.turn}\u0000${node.step}`,
     kind: 'message',
     sourceSeq: node.seq,
-    text: messageText !== '' || thinkingText !== ''
+    text: messageText !== '' || thinkingShown !== ''
       ? ''
       : summarizeAssistantActivity(node.blocks, t),
     ...(messageText !== ''
       ? { previewMarkdown: messageText }
-      : thinkingText !== ''
-        ? { previewMarkdown: thinkingText }
+      : thinkingShown !== ''
+        ? { previewMarkdown: thinkingShown }
         : {}),
     ...(messageText !== '' ? { outputDetail: messageText } : {}),
-    ...(thinkingText !== '' ? { thinkingDetail: thinkingText } : {}),
+    ...(thinkingShown !== '' ? { thinkingDetail: thinkingShown } : {}),
     sourceBlocks: node.blocks.map(block => assistantSourceBlock(block)),
     ...(node.interrupted === true ? { isError: true } : {}),
     timeSeconds: messageDuration,

@@ -91,20 +91,38 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
           />,
         )
         break
-      case 'reasoning':
-        if (block.text.trim() === '') break
+      case 'reasoning': {
+        if (block.encrypted !== true && block.text.trim() === '') break
+        const start = i
+        let encryptedCount = block.encrypted === true ? 1 : 0
+        if (encryptedCount === 1) {
+          while (i + 1 < blocks.length) {
+            const next = blocks[i + 1]
+            if (next?.kind !== 'reasoning' || next.encrypted !== true) break
+            encryptedCount += 1
+            i += 1
+          }
+        }
         rendered.push(
           <ProcessReasoning
-            key={i}
+            key={start}
             hidden={reasoningHidden}
             reveal={revealProcess}
             useGroupAction={useGroupAction}
           >
-            <ReasoningRow text={block.text} running={streaming && i === last} usePresentation={usePresentation}
-              useDisclosure={useDisclosure} renderSlot={renderSlot} t={t} />
+            <ReasoningRow
+              text={block.text}
+              {...encryptedCount > 0 ? { encryptedCount } : {}}
+              running={streaming && i === last}
+              usePresentation={usePresentation}
+              useDisclosure={useDisclosure}
+              renderSlot={renderSlot}
+              t={t}
+            />
           </ProcessReasoning>,
         )
         break
+      }
       case 'image': {
         // Consecutive image blocks share one gallery so several images tile
         // into rows instead of each opening a one-image group of its own.

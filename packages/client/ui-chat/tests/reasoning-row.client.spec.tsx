@@ -300,6 +300,42 @@ describe('ReasoningRow', () => {
     expect(settledSummary.closest('[data-streaming]')).toBeNull()
   })
 
+  it('collapses a run of encrypted reasoning into one row and keeps a real summary', () => {
+    const encrypted = { kind: 'reasoning' as const, text: '', encrypted: true as const }
+    const view = render(
+      <AssistantMarkdown
+        renderSlot={renderSlot}
+        useDisclosure={useDisclosure}
+        useGroupAction={useSearchableHidden}
+        usePresentation={useDetailedPresentation}
+        t={t}
+        blocks={[encrypted, encrypted, encrypted]}
+        streaming={false}
+      />,
+    )
+    expect(view.getAllByRole('button')).toHaveLength(1)
+    expect(view.getByText('加密推理 · 3')).toBeTruthy()
+    expect(view.container.querySelector('[data-encrypted-count="3"]')).toBeTruthy()
+    expect(view.container.textContent).not.toContain('gAAAA')
+    fireEvent.click(view.getByText('思考'))
+    expect(view.getByText('Codex 没有为这些片段提供摘要。')).toBeTruthy()
+
+    view.rerender(
+      <AssistantMarkdown
+        renderSlot={renderSlot}
+        useDisclosure={useDisclosure}
+        useGroupAction={useSearchableHidden}
+        usePresentation={useDetailedPresentation}
+        t={t}
+        blocks={[{ kind: 'reasoning', text: 'Inspect the session' }, encrypted, encrypted]}
+        streaming={false}
+      />,
+    )
+    expect(view.getAllByRole('button')).toHaveLength(2)
+    expect(view.getByText('Inspect the session')).toBeTruthy()
+    expect(view.getByText('加密推理 · 2')).toBeTruthy()
+  })
+
   it('expands from either Think or the reasoning summary', () => {
     const view = render(
       <AssistantMarkdown renderSlot={renderSlot} useDisclosure={useDisclosure} useGroupAction={useSearchableHidden}

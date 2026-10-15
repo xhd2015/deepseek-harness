@@ -44,6 +44,19 @@ describe('Trajectory event projection', () => {
     expect(toAssistantBlocks(content).map(block => block.kind))
       .toEqual(['text', 'reasoning', 'image', 'tool-call', 'other'])
     expect(toAssistantBlock(content[0]!)).toEqual({ kind: 'text', text: 'a' })
+    const encrypted = {
+      type: 'reasoning',
+      thinkingSignature: JSON.stringify({
+        type: 'reasoning', summary: [], content: [], encrypted_content: 'gAAAA-secret-blob',
+      }),
+    }
+    expect(toAssistantBlocks(
+      [{ type: 'reasoning', text: '' }, { type: 'reasoning', text: 'kept' }] as ContentBlock[],
+      [encrypted, encrypted],
+    )).toEqual([
+      { kind: 'reasoning', text: '', encrypted: true },
+      { kind: 'reasoning', text: 'kept' },
+    ])
     expect(['text', 'reasoning', 'tool-call', 'future'].map(emptyAssistantBlock))
       .toEqual([
         { kind: 'text', text: '' },
