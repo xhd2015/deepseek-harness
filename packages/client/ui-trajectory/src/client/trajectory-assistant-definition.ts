@@ -81,7 +81,7 @@ function compactBlocks(blocks: readonly (AssistantBlock | undefined)[]): Assista
 function blockIsVisible(block: AssistantBlock | undefined): boolean {
   if (block === undefined || block.kind === 'tool-call') return false
   if (block.kind === 'text') return block.text.trim() !== ''
-  if (block.kind === 'reasoning') return block.encrypted === true || block.text.trim() !== ''
+  if (block.kind === 'reasoning') return block.encrypted === true || block.opaque === true || block.text.trim() !== ''
   return true
 }
 

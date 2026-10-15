@@ -38,7 +38,8 @@ function latestCompletedParagraphFirstLine(text: string): string {
  * when a paragraph's first line completes. Mode changes toggle CSS display without unmounting
  * collapsed summaries.
  * @param props.text - complete or streaming reasoning text.
- * @param props.encryptedCount - consecutive encrypted segments with no summary, when set.
+ * @param props.hint - ciphertext-only reasoning, when the block has no readable summary.
+ * @param props.hintCount - consecutive segments of that same hint, when set.
  * @param props.running - whether this block is the streaming tail.
  * @param props.usePresentation - live display-policy selector for this reasoning row.
  * @param props.useDisclosure - independent open state with enclosing-Turn resets.
@@ -47,21 +48,24 @@ function latestCompletedParagraphFirstLine(text: string): string {
  * @returns the reasoning disclosure.
  */
 export const ReasoningRow = memo(function ReasoningRow({
-  text, encryptedCount, running, usePresentation, useDisclosure, renderSlot, t,
+  text, hint, hintCount, running, usePresentation, useDisclosure, renderSlot, t,
 }: {
   text: string
-  encryptedCount?: number
+  hint?: 'codex' | 'opaque'
+  hintCount?: number
   running: boolean
   useDisclosure: UseDisclosure
   usePresentation: UsePresentation
   t: ChatViewSlotProps['t']
 } & Pick<PropsRenderSlots<'conversation.chat.reasoning.body'>, 'renderSlot'>) {
   const { expanded, toggle } = useDisclosure()
-  const encrypted = encryptedCount !== undefined
-  const summaryText = encrypted
-    ? t(encryptedCount === 1 ? 'message.think.encrypted' : 'message.think.encryptedCount', { count: encryptedCount })
+  const hinted = hint !== undefined && hintCount !== undefined
+  const summaryText = hinted
+    ? t(hint === 'codex'
+      ? (hintCount === 1 ? 'message.think.encrypted' : 'message.think.encryptedCount')
+      : (hintCount === 1 ? 'message.think.opaque' : 'message.think.opaqueCount'), { count: hintCount })
     : (running ? latestCompletedParagraphFirstLine(text) : firstLine(text))
-  const summary = useMemo(() => encrypted ? summaryText : summaryText.replaceAll('**', ''), [encrypted, summaryText])
+  const summary = useMemo(() => hinted ? summaryText : summaryText.replaceAll('**', ''), [hinted, summaryText])
   const preview = usePresentation(policy => !expanded && summary !== ''
     && (running || policy.settledReasoningPreview))
   const collapsedContent = useMemo(() => (
@@ -76,19 +80,25 @@ export const ReasoningRow = memo(function ReasoningRow({
   ), [running, summary])
   const content = useMemo(() => expanded ? (
     <div className={css.thinkBody}>
-      {encrypted
-        ? t('message.think.encryptedBody')
+      {hinted
+        ? (
+          <p className={css.hint} data-reasoning-hint={hint}>
+            {t(hint === 'codex' ? 'message.think.encryptedBody' : 'message.think.opaqueBody')}
+          </p>
+        )
         : renderSlot('conversation.chat.reasoning.body', { text, running })}
     </div>
-  ) : undefined, [encrypted, expanded, renderSlot, running, t, text])
+  ) : undefined, [expanded, hint, hinted, renderSlot, running, t, text])
 
   return (
     <div
       className={css.root}
       data-variant="think"
       data-state={running ? 'running' : 'ok'}
-      data-encrypted={encrypted || undefined}
-      data-encrypted-count={encrypted ? encryptedCount : undefined}
+      data-encrypted={hint === 'codex' || undefined}
+      data-encrypted-count={hint === 'codex' ? hintCount : undefined}
+      data-opaque={hint === 'opaque' || undefined}
+      data-opaque-count={hint === 'opaque' ? hintCount : undefined}
       data-expanded={expanded || undefined}
       data-preview={preview || undefined}
     >
