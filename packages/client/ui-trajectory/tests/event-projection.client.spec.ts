@@ -47,15 +47,22 @@ describe('Trajectory event projection', () => {
     const encrypted = {
       type: 'reasoning',
       thinkingSignature: JSON.stringify({
-        type: 'reasoning', summary: [], content: [], encrypted_content: 'gAAAA-secret-blob',
+        type: 'reasoning', summary: [], content: [], encrypted_content: 'gAAAAA-secret-blob',
+      }),
+    }
+    const opaque = {
+      type: 'reasoning',
+      thinkingSignature: JSON.stringify({
+        type: 'reasoning', summary: [], encrypted_content: 'o5/Pvqf-secret',
       }),
     }
     expect(toAssistantBlocks(
-      [{ type: 'reasoning', text: '' }, { type: 'reasoning', text: 'kept' }] as ContentBlock[],
-      [encrypted, encrypted],
+      [{ type: 'reasoning', text: '' }, { type: 'reasoning', text: 'kept' }, { type: 'reasoning', text: '' }] as ContentBlock[],
+      [encrypted, encrypted, opaque],
     )).toEqual([
       { kind: 'reasoning', text: '', encrypted: true },
       { kind: 'reasoning', text: 'kept' },
+      { kind: 'reasoning', text: '', opaque: true },
     ])
     expect(['text', 'reasoning', 'tool-call', 'future'].map(emptyAssistantBlock))
       .toEqual([

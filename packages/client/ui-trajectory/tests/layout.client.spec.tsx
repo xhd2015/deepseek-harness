@@ -487,10 +487,27 @@ describe('deriveTrajectoryLayout', () => {
     const message = deriveTrajectoryLayout({ nodes, partial: null, runningCalls: [] })[0]
       ?.groups.flatMap(group => group.cells)
       .find(cell => cell.kind === 'message')
-    expect(message?.thinkingDetail).toBe('Encrypted reasoning · 3')
     expect(message?.previewMarkdown).toBe('Encrypted reasoning · 3')
+    expect(message?.thinkingDetail).toBe('Codex did not send a summary for these segments.')
+    expect(message?.thinkingHint).toBe(true)
     expect(message?.text).toBe('')
     expect(JSON.stringify(message)).not.toContain('gAAAA')
+  })
+
+  it('labels non-Codex ciphertext that has no summary as an anomaly hint', () => {
+    const nodes = [{
+      kind: 'assistant', seq: 1, time: 5_000, turn: 1, step: 0,
+      blocks: [
+        { kind: 'reasoning', text: '', opaque: true },
+        { kind: 'reasoning', text: '', opaque: true },
+      ],
+    }] as unknown as LegacyConversationSlice['nodes']
+    const message = deriveTrajectoryLayout({ nodes, partial: null, runningCalls: [] })[0]
+      ?.groups.flatMap(group => group.cells)
+      .find(cell => cell.kind === 'message')
+    expect(message?.previewMarkdown).toBe('Encrypted, no summary · 2')
+    expect(message?.thinkingDetail).toBe('Encrypted reasoning arrived without a readable summary.')
+    expect(message?.thinkingHint).toBe(true)
   })
 
   it('keeps a visible summary when encrypted segments follow it', () => {

@@ -21,22 +21,34 @@ function hasVisibleText(value: unknown): boolean {
   })
 }
 
-/** Encrypted reasoning with no summary. Kept local: the client bundle cannot value-import conversation. */
-export function isEncryptedReasoningReplay(block: unknown): boolean {
+/** OpenAI Fernet token. Codex ciphertext starts with this; other providers do not. */
+const CODEX_ENCRYPTED_PREFIX = 'gAAAAA'
+
+/** Which empty-summary ciphertext a reasoning replay carries, if either. */
+export type CiphertextReasoning = 'codex' | 'opaque'
+
+/**
+ * Classify a reasoning replay that has ciphertext and no readable summary.
+ * Kept local: the client bundle cannot value-import conversation.
+ * @param block - Replay block stored beside the assistant content block.
+ * @returns `codex` for an OpenAI Fernet blob, `opaque` for any other ciphertext, or null.
+ */
+export function ciphertextReasoning(block: unknown): CiphertextReasoning | null {
   const replay = asRecord(block)
-  if (replay === null || replay.type !== 'reasoning') return false
+  if (replay === null || replay.type !== 'reasoning') return null
   const signature = replay.thinkingSignature
-  if (typeof signature !== 'string' || signature.length === 0) return false
+  if (typeof signature !== 'string' || signature.length === 0) return null
   let parsed: unknown
   try {
     parsed = JSON.parse(signature) as unknown
   } catch {
-    return false
+    return null
   }
   const item = asRecord(parsed)
-  if (item === null || item.type !== 'reasoning') return false
-  if (typeof item.encrypted_content !== 'string' || item.encrypted_content.length === 0) return false
-  return !hasVisibleText(item.summary) && !hasVisibleText(item.content)
+  if (item === null || item.type !== 'reasoning') return null
+  if (typeof item.encrypted_content !== 'string' || item.encrypted_content.length === 0) return null
+  if (hasVisibleText(item.summary) || hasVisibleText(item.content)) return null
+  return item.encrypted_content.startsWith(CODEX_ENCRYPTED_PREFIX) ? 'codex' : 'opaque'
 }
 
 /** Replay blocks stored beside an assistant message, when the envelope has them. */
@@ -109,6 +121,14 @@ export function contextProducer(source: unknown): ContextProducerView {
   }
 }
 
+function reasoningBlock(text: string, replayBlock: unknown): AssistantBlock {
+  if (text.trim() !== '') return { kind: 'reasoning', text }
+  const hint = ciphertextReasoning(replayBlock)
+  if (hint === 'codex') return { kind: 'reasoning', text, encrypted: true }
+  if (hint === 'opaque') return { kind: 'reasoning', text, opaque: true }
+  return { kind: 'reasoning', text }
+}
+
 /**
  * Classify finalized Assistant content for Trajectory rendering.
  * @param content - Core content blocks.
@@ -129,9 +149,7 @@ export function toAssistantBlocks(
 export function toAssistantBlock(block: ContentBlock, replayBlock?: unknown): AssistantBlock {
   switch (block.type) {
     case 'text': return { kind: 'text', text: block.text }
-    case 'reasoning': return block.text.trim() === '' && isEncryptedReasoningReplay(replayBlock)
-      ? { kind: 'reasoning', text: block.text, encrypted: true }
-      : { kind: 'reasoning', text: block.text }
+    case 'reasoning': return reasoningBlock(block.text, replayBlock)
     case 'image': return { kind: 'image', attachment: block.attachment }
     case 'tool-call': return { kind: 'tool-call', callId: String(block.id), name: block.name, argsRaw: block.arguments }
     default: return { kind: 'other', block }
