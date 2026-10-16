@@ -69,10 +69,10 @@ export interface CustomProviderCardProps {
   taken: readonly string[]
   /** Wire protocols the adapter can serve, in the order it reports them. */
   protocols: readonly string[]
-  /** Reasoning levels the adapter's schema accepts, in escalation order; empty shows no reasoning control. */
-  reasoningLevels: readonly string[]
   /** Settings namespace this card writes. Defaults to `llm-proxy-providers`. */
   settingsNs?: string
+  /** Reasoning levels the adapter's schema accepts, in escalation order; empty shows no reasoning control. */
+  reasoningLevels: readonly string[]
   /**
    * Revision of the `llm-proxy-providers` user section this card opened at, sent with
    * the create so a route another tab declared meanwhile is a refusal rather

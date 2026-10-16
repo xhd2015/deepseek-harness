@@ -7092,6 +7092,8 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionDraftValue',
     declaration: 'export interface SessionDraftValue {\n    readonly text: string;\n}',
+  },
+  {
     name: 'SessionEndInput',
     declaration: 'export interface SessionEndInput {\n    reason: \'clear\' | \'logout\' | \'prompt_input_exit\' | \'resume\' | \'other\';\n    sessionId: string;\n}',
   },
@@ -7466,6 +7468,8 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionSetDraftRequest',
     declaration: 'export interface SessionSetDraftRequest extends SessionDraftRequest {\n    readonly text: string;\n}',
+  },
+  {
     name: 'SessionStartInput',
     declaration: 'export interface SessionStartInput {\n    cwd: string;\n    surface: string | null;\n    isInteractive: boolean;\n}',
   },

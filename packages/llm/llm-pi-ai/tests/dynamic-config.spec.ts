@@ -133,12 +133,14 @@ describe('request-level dynamic profiles', () => {
     const server = await mockServer([{ events: textEvents }])
     const known = getBuiltinModels('openrouter').find(model => model.api === 'openai-completions')!
     await writeFile(join(dir, '.credentials.yaml'), 'version: 1\nrefs:\n  PI_DYNAMIC_KEY: fake-key\n', { mode: 0o600 })
+    const efforts: LlmPiAi.PiAiReasoningEfforts = { low: 'low' }
+    Object.assign(efforts, { ultra: 'ultra' })
     const ctx = await boot(dir, { providers: {
       openrouter: {
         apiKeyEnv: 'PI_DYNAMIC_KEY',
         baseURL: server.url,
         api: 'openai-completions',
-        models: [{ id: known.id }, { id: '111', reasoningEfforts: { low: 'low', ultra: 'ultra' } }],
+        models: [{ id: known.id }, { id: '111', reasoningEfforts: efforts }],
       },
       deepseek: { apiKeyEnv: 'PI_DYNAMIC_KEY', baseURL: server.url },
     } })

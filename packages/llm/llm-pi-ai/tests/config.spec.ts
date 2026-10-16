@@ -32,7 +32,7 @@ describe('reasoning schema boundary', () => {
     // The document admits the key so resolution can refuse one model entry
     // instead of the whole namespace; the write still refuses it, naming the
     // model and the legal levels rather than one schema union of them.
-    const unknown = configWith({ reasoningEfforts: { ultra: 'x' } })() as Config
+    const unknown = configWith({ reasoningEfforts: { ultra: 'x' } })() as Options
     expect(() => { assertServiceable(unknown) })
       .toThrow(/model "m" reasoningEfforts names "ultra".*off, minimal, low, medium, high, xhigh, max/s)
     expect(configWith({ reasoningEfforts: { high: 42 } })).toThrow()

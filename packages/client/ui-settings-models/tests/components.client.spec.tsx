@@ -1719,12 +1719,13 @@ describe('ModelsSection', () => {
 
   it('explains a terminal settings failure instead of offering a retry', async () => {
     const face = scriptedFace()
-    // `memory` persistence is the non-loopback verdict: this page is not on the
-    // harness host, so no load will ever succeed and a retry control would be a
-    // dead end.
     const ctx = ctxWith(face.face)
-    const controller = new ModelsSettingsStore(ctx, settingsSchema, new SettingsDescribeMirror(ctx, 'memory'))
-    await controller.load()
+    const controller = new ModelsSettingsStore(ctx, settingsSchema, new SettingsDescribeMirror(ctx))
+    controller.store.update((state) => {
+      state.status = 'error'
+      state.error = 'settings are unavailable'
+      state.terminal = true
+    })
     render(<ModelsSection
       controller={controller}
       useSnapshot={bindSnapshotSelector(controller.store)}

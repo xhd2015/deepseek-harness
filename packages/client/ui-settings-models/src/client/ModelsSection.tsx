@@ -688,8 +688,8 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                     <CustomProviderCard
                       taken={state.rows.map(row => row.entry.provider)}
                       protocols={protocols}
-                      reasoningLevels={reasoningLevels}
                       settingsNs={piAiNs}
+                      reasoningLevels={reasoningLevels}
                       revision={piAi.revision}
                       operations={operations}
                       t={t}
