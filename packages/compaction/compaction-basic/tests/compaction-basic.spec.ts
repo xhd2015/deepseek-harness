@@ -225,7 +225,7 @@ function endedOrphanCallsThenPairedTail(): {
   session.append('turn/start', { turn: 1 })
   const checkpoint = session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: 'checkpoint '.repeat(40) }],
-    source: { kind: 'plugin', plugin: 'compact' },
+    source: { kind: 'user' },
   }), { surfaceOp: 'append' })
   session.append('step/start', { turn: 1, step: 1 })
   session.append('request/header', {

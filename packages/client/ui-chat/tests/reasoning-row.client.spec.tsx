@@ -311,6 +311,7 @@ describe('ReasoningRow', () => {
         t={t}
         blocks={[encrypted, encrypted, encrypted]}
         streaming={false}
+        loadImage={unusedImageLoader}
       />,
     )
     expect(view.getAllByRole('button')).toHaveLength(1)
@@ -331,6 +332,7 @@ describe('ReasoningRow', () => {
         t={t}
         blocks={[{ kind: 'reasoning', text: 'Inspect the session' }, encrypted, encrypted]}
         streaming={false}
+        loadImage={unusedImageLoader}
       />,
     )
     expect(view.getAllByRole('button')).toHaveLength(2)
@@ -350,6 +352,7 @@ describe('ReasoningRow', () => {
         t={t}
         blocks={[opaque, opaque, encrypted]}
         streaming={false}
+        loadImage={unusedImageLoader}
       />,
     )
     expect(view.getAllByRole('button')).toHaveLength(2)

@@ -132,7 +132,7 @@ describe('tool-pairing boundaries', () => {
     const session = Session.create(SessionId('ended-orphan-calls'))
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'checkpoint' }],
-      source: { kind: 'plugin', plugin: 'compact' },
+      source: { kind: 'user' },
     }), SURFACE)
     session.append('turn/start', { turn: 1 })
     session.append('step/start', { turn: 1, step: 1 })

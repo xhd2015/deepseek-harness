@@ -208,7 +208,7 @@ describe('web-app runtime glue', () => {
     ctx.provide('webServer', fakeHttpServer().server)
     provideConnection(ctx, null)
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    apply(ctx, new Config({ openBrowser: false, printUrl: true, surfaceContext: false, trustedHosts: [] }))
+    apply(ctx, new Config({ openBrowser: false, printUrl: true, surfaceContext: false }))
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(log).toHaveBeenCalledWith('dsh web: http://127.0.0.1:4567/')
     expect(listenRecord()).toEqual({ pid: process.pid, origin: 'http://127.0.0.1:4567' })
@@ -232,7 +232,7 @@ describe('web-app runtime glue', () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
     const openBrowser = vi.fn(async () => {})
     internals.openBrowser = openBrowser
-    apply(ctx, new Config({ openBrowser: true, printUrl: true, surfaceContext: true, trustedHosts: [] }))
+    apply(ctx, new Config({ openBrowser: true, printUrl: true, surfaceContext: true }))
     await new Promise(resolve => setTimeout(resolve, 0))
     // The open client returns before the listener, so it publishes no GUI of its own.
     expect(ctx.get('webApp')).toBeUndefined()
