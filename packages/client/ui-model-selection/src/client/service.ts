@@ -82,6 +82,26 @@ export class ModelDirectoryResolver extends Service {
       (name, attributes) => this.ctx.get('productAnalytics')?.track(name, attributes),
     )
     live.directories.set(binding, directory)
+    // The composer cannot read this plugin (the dependency runs one way), so
+    // the block is pushed. Only the selected model's own refusal stops input.
+    // A provider that left the catalog, or a selection the catalog no longer
+    // lists, stays usable: catalog membership is advisory, and a missing
+    // catalog must not lock a working composer.
+    const conversation = this.ctx.get('conversation')
+    if (conversation !== undefined) {
+      const publish = (): void => {
+        const reason = directory.store.getSnapshot().unavailableReason
+        conversation.blocks.set(sessionId, reason === undefined ? undefined : { reason })
+      }
+      publish()
+      actx.effect(() => {
+        const stop = directory.store.subscribe(publish)
+        return () => {
+          stop()
+          conversation.blocks.set(sessionId, undefined)
+        }
+      }, 'ui-model-selection: composer block')
+    }
     actx.effect(() => () => {
       directory.dispose()
       live.directories.delete(binding)

@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-09-18-redundant-escalation-ask-ignored.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-18-redundant-escalation-ask-ignored.md
+/agent-note-a-redundant-escalation-ask-is-ignored-not-refused:
+  en: e631bc0a50636436
+  zh: 991e3677e8f6962f
+/agent-note-a-redundant-escalation-ask-is-ignored-not-refused/problem:
+  en: 06e59328847064a6
+  zh: 2a7cd86ff9e8904e
+/agent-note-a-redundant-escalation-ask-is-ignored-not-refused/decision:
+  en: c104910047ba7f6c
+  zh: f3932bb85ca32ec9
+/agent-note-a-redundant-escalation-ask-is-ignored-not-refused/alternatives-considered:
+  en: b059b947e1c1c67a
+  zh: 41655deee6f3b466
+/agent-note-a-redundant-escalation-ask-is-ignored-not-refused/consequences:
+  en: 6aca1e56cc433332
+  zh: ca729575bf5413f4

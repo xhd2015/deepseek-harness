@@ -1575,13 +1575,17 @@ function MarkdownRecordContent({
             <IconChevronRightOutlineRegular className={css.thinkingChevron} size={12} />
           </button>
           {thinkingExpanded && (
-            <MarkdownFragment
-              text={record.cell.thinkingDetail}
-              rendered={rendered}
-              preview={preview}
-              variant="compact"
-              t={t}
-            />
+            record.cell.thinkingHint === true
+              ? <p className={css.thinkingHint} data-reasoning-hint="">{record.cell.thinkingDetail}</p>
+              : (
+                <MarkdownFragment
+                  text={record.cell.thinkingDetail}
+                  rendered={rendered}
+                  preview={preview}
+                  variant="compact"
+                  t={t}
+                />
+              )
           )}
         </div>
         {record.cell.outputDetail && (

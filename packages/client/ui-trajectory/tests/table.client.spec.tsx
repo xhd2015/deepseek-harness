@@ -339,6 +339,31 @@ describe('TrajectoryTable', () => {
     expect(screen.getByRole('heading', { name: 'Answer heading' })).toBeTruthy()
   })
 
+  it('renders a missing-summary note as a hint instead of thinking markdown', () => {
+    const turns: readonly TrajectoryTurnModel[] = [{
+      turn: 1,
+      groups: [{
+        title: 'Step 1',
+        cells: [{
+          index: 1,
+          kind: 'message',
+          text: '',
+          previewMarkdown: 'Encrypted, no summary',
+          thinkingDetail: 'Encrypted reasoning arrived without a readable summary.',
+          thinkingHint: true,
+          timeSeconds: 1,
+        }],
+      }],
+    }]
+    render(<TrajectoryTable turns={turns} {...FOLD_PROPS} />)
+    fireEvent.click(screen.getByRole('row', { name: /ASSISTANT/ }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Preview' }))
+    const hint = screen.getByText('Encrypted reasoning arrived without a readable summary.')
+    expect(hint.tagName).toBe('P')
+    expect(hint.getAttribute('data-reasoning-hint')).toBe('')
+    expect(hint.closest('[data-markdown-variant]')).toBeNull()
+  })
+
   it('opens thinking on another record after collapsing the selected record', () => {
     const turns: readonly TrajectoryTurnModel[] = [{
       turn: 1,

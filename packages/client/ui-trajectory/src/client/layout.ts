@@ -749,24 +749,43 @@ function expandAssistant(
     .map(block => block.kind === 'text' ? block.text : '')
     .join('\n\n')
   const thinkingText = node.blocks
-    .filter(block => block.kind === 'reasoning' && (!streaming || block.text !== ''))
+    .filter(block => block.kind === 'reasoning' && block.encrypted !== true && block.opaque !== true && (!streaming || block.text !== ''))
     .map(block => block.kind === 'reasoning' ? block.text : '')
     .join('\n\n')
+  const encryptedCount = node.blocks.filter(block => block.kind === 'reasoning' && block.encrypted === true).length
+  const opaqueCount = node.blocks.filter(block => block.kind === 'reasoning' && block.opaque === true).length
+  const encryptedLabel = encryptedCount === 0
+    ? ''
+    : t(encryptedCount === 1 ? 'layout.encryptedReasoning' : 'layout.encryptedReasoningCount', { count: encryptedCount })
+  const opaqueLabel = opaqueCount === 0
+    ? ''
+    : t(opaqueCount === 1 ? 'layout.opaqueReasoning' : 'layout.opaqueReasoningCount', { count: opaqueCount })
+  const hintLabel = [encryptedLabel, opaqueLabel].filter(label => label !== '').join('\n')
+  const readableThinking = thinkingText.trim() !== ''
+  const thinkingShown = readableThinking ? thinkingText : hintLabel
+  const thinkingHint = !readableThinking && hintLabel !== ''
+    ? [encryptedCount > 0 ? t('layout.encryptedReasoningBody') : '', opaqueCount > 0 ? t('layout.opaqueReasoningBody') : '']
+      .filter(body => body !== '').join('\n\n')
+    : ''
   const message: TrajectoryCellProps = {
     index: ++index,
     recordId: `assistant\u0000${node.turn}\u0000${node.step}`,
     kind: 'message',
     sourceSeq: node.seq,
-    text: messageText !== '' || thinkingText !== ''
+    text: messageText !== '' || thinkingShown !== ''
       ? ''
       : summarizeAssistantActivity(node.blocks, t),
     ...(messageText !== ''
       ? { previewMarkdown: messageText }
-      : thinkingText !== ''
-        ? { previewMarkdown: thinkingText }
+      : thinkingShown !== ''
+        ? { previewMarkdown: thinkingShown }
         : {}),
     ...(messageText !== '' ? { outputDetail: messageText } : {}),
-    ...(thinkingText !== '' ? { thinkingDetail: thinkingText } : {}),
+    ...(readableThinking
+      ? { thinkingDetail: thinkingText }
+      : thinkingHint !== ''
+        ? { thinkingDetail: thinkingHint, thinkingHint: true as const }
+        : {}),
     sourceBlocks: node.blocks.map(block => assistantSourceBlock(block)),
     ...(node.interrupted === true ? { isError: true } : {}),
     timeSeconds: messageDuration,
