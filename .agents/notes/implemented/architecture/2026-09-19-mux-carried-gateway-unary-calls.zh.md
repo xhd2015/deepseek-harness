@@ -14,7 +14,7 @@ Gateway Client 的一元 Remote 调用使用既有的已认证 mux 连接。`Rem
 
 Client 要求恰好一个 item，随后是 `end`。缺少结果、第二个 item、畸形结果数据、carrier 故障或取消都会使调用失败。取消使用既有的 logical-stream cancel frame。mux 丢失后，已发出的一元调用绝不重放；领域既有的重连 baseline 机制负责安全的重试。
 
-浏览器的 `$events/result` 回复也使用同一个一元 mux 操作。进程内 transport 保留既有的 `connection.rpc.call()` 路径，Connection 的 HTTP RPC bridge 仍供非-Gateway consumer 使用。
+浏览器的 `$events/result` 回复也使用同一个一元 mux 操作。生成 codec 带有 `encode()` 的一元结果改走 Connection HTTP FormData：mux 只承载 JSON，且仍不支持二进制流条目。进程内 transport 对每次一元调用仍使用 `connection.rpc.call()`，Connection 的 HTTP RPC bridge 仍供非-Gateway consumer 使用。
 
 ## Alternatives considered
 
@@ -28,4 +28,4 @@ Client 要求恰好一个 item，随后是 `end`。缺少结果、第二个 item
 
 ## Consequences
 
-Gateway 拥有一个额外的内部 mux endpoint，并在与 Remote 流相同的物理连接上承载浏览器一元结果。Session Controller 保持 transport 无关，并继续调用生成的 `ctx.remote` 方法。真实 WebSocket Host 测试与浏览器 Client mux 测试固定 wrapper、单结果规则、取消所有权，以及 Gateway 一元调用不再使用浏览器 HTTP RPC。
+Gateway 拥有一个额外的内部 mux endpoint，并在与 Remote 流相同的物理连接上承载浏览器 JSON 一元结果。Session Controller 保持 transport 无关，并继续调用生成的 `ctx.remote` 方法。真实 WebSocket Host 测试与浏览器 Client mux 测试固定 wrapper、单结果规则、取消所有权，以及 JSON Gateway 一元调用不再使用浏览器 HTTP RPC。带 `encode()` 的一元结果固定走 Connection HTTP FormData。
