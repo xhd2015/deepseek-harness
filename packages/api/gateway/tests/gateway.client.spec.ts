@@ -2423,6 +2423,51 @@ describe('Client Typert API', () => {
     })
   })
 
+  it('carries unary results with byte attachments on HTTP RPC', async () => {
+    await withFakeWebSocket('https://harness.example', async () => {
+      const data = new Uint8Array([0, 128, 255])
+      const call = vi.fn<ConnectionHandle['rpc']['call']>().mockResolvedValue({
+        ok: true, value: { data, offset: 2 },
+      })
+      const ctx = await bench(call, 'web')
+      const schema = z.object({ data: z.instanceof(Uint8Array), offset: z.number() })
+      const dispose = await ctx.remote.$mount({
+        package: '@fixture/binary',
+        descriptors: [{
+          id: '@fixture/probe#probe/bytes',
+          service: 'probe', namespace: 'probe', method: 'bytes',
+          invocation: { kind: 'direct' }, parameters: [],
+          cancellation: { parameter: 'signal' },
+          result: {
+            mode: 'strict', typeSymbol: '@fixture#Bytes',
+            create: () => schema,
+            decode: value => schema.parse(value),
+            encode: (value, writeBytes) => {
+              const result = value as { readonly data: Uint8Array; readonly offset: number }
+              return { data: writeBytes(result.data, ['data']), offset: result.offset }
+            },
+          },
+        }],
+      })
+      try {
+        await expect(ctx.remote.probe.bytes()).resolves.toEqual({ ok: true, value: { data, offset: 2 } })
+        expect(call).toHaveBeenCalledExactlyOnceWith(
+          '/api', 'probe/bytes', { args: {} }, expect.any(AbortSignal),
+        )
+        for (const socket of FakeWebSocket.sockets) {
+          for (const raw of socket.sent) {
+            const message = parseRemoteStreamClientMessage(raw)
+            if (message.type === 'open' && message.endpoint === '$invoke') {
+              expect(message.payload).not.toMatchObject({ args: { endpoint: 'probe/bytes' } })
+            }
+          }
+        }
+      } finally {
+        await dispose()
+      }
+    })
+  })
+
   it('multiplexes Remote streams without using the Connection RPC caller', async () => {
     const originalWebSocket = globalThis.WebSocket
     const documentDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'document')

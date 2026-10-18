@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-19-mux-carried-gateway-unary-calls.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-19-mux-carried-gateway-unary-calls.md
-2026-09-19-mux-carried-gateway-unary-calls.md: 9bcef29b213bd752a9f76bb67d24b796691cd87d
-2026-09-19-mux-carried-gateway-unary-calls.zh.md: 72e6c34c5a717efb1cea8424cb760f3aaf107ac8
+/agent-note-mux-carried-gateway-unary-calls:
+  en: 2743221417484c5a
+  zh: d45ba4eb27e4b43b
+/agent-note-mux-carried-gateway-unary-calls/problem:
+  en: 76117a32ca801ba1
+  zh: 03c9ad34df3075f5
+/agent-note-mux-carried-gateway-unary-calls/decision:
+  en: 9b1e7d5dc90f9e03
+  zh: d0e3506dab18ef68
+/agent-note-mux-carried-gateway-unary-calls/alternatives-considered:
+  en: 4d0b63ec90fafc1c
+  zh: 72f502f73d8b8ffd
+/agent-note-mux-carried-gateway-unary-calls/consequences:
+  en: 837e685553b517d4
+  zh: 2c7254804c4436f3

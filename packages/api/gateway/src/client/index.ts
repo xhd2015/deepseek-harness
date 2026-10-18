@@ -258,15 +258,21 @@ class ClientRemoteService extends Service implements ClientRemote {
       : normalizeConnectionStream(local)
   }
 
+  /**
+   * Dispatch one unary Remote call. `binaryResult` selects HTTP FormData so Connection can restore `Uint8Array` attachments; JSON results stay on the mux.
+   */
   private async callRemote(
     endpoint: string,
     payload: unknown,
     signal: AbortSignal,
+    binaryResult = false,
     noConnection = `client api: ${endpoint} has no active Connection`,
   ): Promise<ConnectionRpcResult<unknown>> {
     const connection = this.ownerCtx.get('connection') as ConnectionHandle | undefined
     if (connection === undefined) throw new Error(noConnection)
-    if (connection.rpc.open !== undefined) return connection.rpc.call('/api', endpoint, payload, signal)
+    if (connection.rpc.open !== undefined || binaryResult) {
+      return connection.rpc.call('/api', endpoint, payload, signal)
+    }
     return parseMuxUnaryResult(await this.streams.call(endpoint, payload, signal))
   }
 
@@ -481,7 +487,12 @@ class ClientRemoteService extends Service implements ClientRemote {
       throw new Error(`client api: ${endpoint} has no active Connection`)
     }
     try {
-      const result = await this.callRemote(endpoint, { args: prepared.args }, prepared.signal)
+      const result = await this.callRemote(
+        endpoint,
+        { args: prepared.args },
+        prepared.signal,
+        usesHttpBinaryResult(descriptor.result),
+      )
       if (!mountActive(token)) return withdrawn(endpoint)
       prepared.signal.throwIfAborted()
       if (!result.ok) return { ok: false, error: rebuiltFailure(result.error) }
@@ -841,6 +852,10 @@ function requireStrictCodec(codec: TypertCodec, endpoint: string, field: string)
   if (codec.mode !== 'strict') {
     throw new Error(`client api: generated Remote ${endpoint} field ${JSON.stringify(field)} has no strict codec`)
   }
+}
+
+function usesHttpBinaryResult(codec: TypertCodec): boolean {
+  return 'encode' in codec && codec.encode !== undefined
 }
 
 function parseMuxUnaryResult(value: unknown): ConnectionRpcResult<unknown> {

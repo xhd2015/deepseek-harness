@@ -14,7 +14,7 @@ Gateway Client unary Remote calls use the existing authenticated mux connection.
 
 The Client requires exactly one item followed by `end`. An absent result, a second item, malformed result data, carrier failure, or cancellation fails the call. Cancellation uses the existing logical-stream cancel frame. A sent unary call is never replayed after a mux loss; the domain's normal reconnect baseline mechanism owns safe retries.
 
-Browser `$events/result` replies use the same unary mux operation. In-process transports keep their existing `connection.rpc.call()` path, and Connection's HTTP RPC bridge remains available to non-Gateway consumers.
+Browser `$events/result` replies use the same unary mux operation. A unary result whose generated codec has `encode()` uses Connection HTTP FormData instead: the mux is JSON-only, and binary stream items remain unsupported. In-process transports keep `connection.rpc.call()` for every unary call, and Connection's HTTP RPC bridge remains available to non-Gateway consumers.
 
 ## Alternatives considered
 
@@ -28,4 +28,4 @@ Browser `$events/result` replies use the same unary mux operation. In-process tr
 
 ## Consequences
 
-Gateway owns one additional internal mux endpoint and carries browser unary results on the same physical connection as Remote streams. The Session Controller remains transport-agnostic and continues to call generated `ctx.remote` methods. A real WebSocket host test and browser-client mux test pin the wrapper, one-result rule, cancellation ownership, and the absence of browser HTTP RPC for Gateway unary calls.
+Gateway owns one additional internal mux endpoint and carries browser JSON unary results on the same physical connection as Remote streams. The Session Controller remains transport-agnostic and continues to call generated `ctx.remote` methods. A real WebSocket host test and browser-client mux test pin the wrapper, one-result rule, cancellation ownership, and the absence of browser HTTP RPC for JSON Gateway unary calls. Encode-bearing unary results pin Connection HTTP FormData.
