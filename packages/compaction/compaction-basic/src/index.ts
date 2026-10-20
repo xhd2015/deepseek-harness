@@ -26,6 +26,7 @@ import {
 } from './config.ts'
 import {
   assertNoActiveCompaction,
+  checkpointOnlyRangePrice,
   compactSurfaceRegion,
   retainTokensForSummarizerOnSurface,
   selectCompactableRange,
@@ -263,11 +264,15 @@ export class BasicCompactionEngine extends CompactionEngine {
    * Compact for replayed step-boundary pressure or one provider-confirmed context
    * overflow. Both triggers price the latest durable routed request envelope;
    * overflow bypasses the pressure threshold and keeps only enough tail for the
-   * summarizer request to fit in the routed context window.
+   * summarizer request to fit in the routed context window. Pressure retries skip
+   * a selected span that is only a prior checkpoint when its price cannot close
+   * the remaining excess.
    * @param agent - agent whose latest durable routed request is measured.
    * @param trigger - normal step-boundary pressure or context-overflow recovery.
    * @param signal - live turn cancellation signal forwarded to summarization.
    * @returns the latest summary compaction result, or `null` when no summary ran.
+   * @throws when pressure remains above threshold after the allowed attempts, or
+   *   when a checkpoint-only span cannot close the remaining excess.
    */
   override async compactIfNeeded(
     agent: Agent,
@@ -341,6 +346,15 @@ export class BasicCompactionEngine extends CompactionEngine {
         if (result === null) return null
         /* v8 ignore next -- paired with the defensive post-success branch above. */
         break
+      }
+      const excessTokens = measurement.totalTokens - spec.thresholdTokens
+      const checkpointPrice = checkpointOnlyRangePrice(agent.session, measurement, range)
+      if (checkpointPrice !== null && checkpointPrice <= excessTokens) {
+        throw new Error(
+          'compaction still above threshold: selected range is only a prior checkpoint '
+          + `(${checkpointPrice} estimated tokens cannot close ${excessTokens} tokens `
+          + `above threshold ${spec.thresholdTokens})`,
+        )
       }
       result = await this.compactRegion(range.start, range.end, agent, signal)
       measurement = meter.measure(agent.session)

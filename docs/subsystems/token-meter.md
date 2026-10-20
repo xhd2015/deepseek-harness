@@ -38,8 +38,10 @@ interface TokenSurfaceNode {
   /**
    * Request-pressure tokens for the exact message projected by this node under
    * the measured route: image occurrences carry the route's declared visual
-   * price when the routed adapter declares one, and the fixed heuristic
-   * otherwise. Trigger, retention, and range selection all read this price.
+   * price when the routed adapter declares one; a prior assistant node whose
+   * billed replay cost was isolated from consecutive matching provider usage
+   * carries that attributed price; otherwise the fixed heuristic. Trigger,
+   * retention, and range selection all read this price.
    */
   readonly tokens: number
   /**
@@ -74,12 +76,14 @@ Replay owner for one service-wide estimator and isolated per-session folds.
  * The effective envelope's routed provider/model selects the request-image
  * pricing every node is priced under: a route whose adapter declares image
  * pricing charges each retained image its visual tokens plus its
- * model-visible text, while other routes keep the fixed heuristic. Provider
- * usage is reused only when the latest successful call's canonical request
- * envelope matches `requestHeader` and its total is no lower than that
- * call's full route-priced anchor; otherwise the complete envelope and
- * surface are repriced. The anchor includes all surface nodes immediately
- * before the assistant message, including inputs admitted after step/start.
+ * model-visible text, while other routes keep the fixed heuristic. A prior
+ * assistant node whose billed replay cost was isolated from consecutive
+ * matching provider usage carries that attributed price. Provider usage is
+ * reused only when the latest successful call's canonical request envelope
+ * matches `requestHeader` and its total is no lower than that call's full
+ * route-priced anchor; otherwise the complete envelope and surface are
+ * repriced. The anchor includes all surface nodes immediately before the
+ * assistant message, including inputs admitted after step/start.
  *
  * `requestHeader` replaces the latest logged envelope for pressure and node
  * pricing; the node set always describes the current session surface. Every
