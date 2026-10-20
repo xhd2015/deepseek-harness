@@ -1,0 +1,25 @@
+# Bilingual-pair consistency record for 2026-10-20-consecutive-compaction-checkpoint-retry.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-10-20-consecutive-compaction-checkpoint-retry.md
+/agent-note-consecutive-compaction-of-a-prior-checkpoint:
+  en: 667f49d6b4c6382f
+  zh: 50f64726da0772b8
+/agent-note-consecutive-compaction-of-a-prior-checkpoint/problem:
+  en: af54afdfb39121d9
+  zh: 8504a354c66ec68a
+/agent-note-consecutive-compaction-of-a-prior-checkpoint/decision:
+  en: a15c7c13f167e5ac
+  zh: 63bcc2ef60c2f344
+/agent-note-consecutive-compaction-of-a-prior-checkpoint/decision/skip-a-checkpoint-only-range-that-cannot-close-pressure:
+  en: 087830add126c8a1
+  zh: 85e2020ba907c2cb
+/agent-note-consecutive-compaction-of-a-prior-checkpoint/decision/calibrate-assistant-node-prices-from-consecutive-usage:
+  en: 772ca1124b8ee493
+  zh: 431c4be3b4dcd163
+/agent-note-consecutive-compaction-of-a-prior-checkpoint/alternatives-considered:
+  en: da7f0fa6609a3729
+  zh: 1ada84d856593017
+/agent-note-consecutive-compaction-of-a-prior-checkpoint/consequences:
+  en: 3c00df1c33438d3e
+  zh: 50a8336d32ac0c51
