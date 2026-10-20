@@ -54,6 +54,17 @@ describe('session-log-download browser plugin', () => {
     await b.fiber.dispose()
   })
 
+  it('writes thinking-cap auto-continue through the Session Remote', async () => {
+    const b = await bench()
+    const setThinkingCapAutoContinue = vi.fn(async () => ({ ok: true, value: { enabled: true } }))
+    Object.assign(b.ctx, { remote: { session: { setThinkingCapAutoContinue } } })
+    const entry = b.slots.entries('conversation.session.header.utilities')[0]!
+    const injected = (entry.inject as unknown as () => SessionLogDownloadHeaderInjected)()
+    injected.setThinkingCapAutoContinue(SID, true)
+    expect(setThinkingCapAutoContinue).toHaveBeenCalledWith({ sessionId: SID, enabled: true })
+    await b.fiber.dispose()
+  })
+
   it('provides one controller and removes its Header contribution on disposal', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 500 })))
     const b = await bench()

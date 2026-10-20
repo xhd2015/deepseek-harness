@@ -104,6 +104,7 @@ The loop deep-freezes each derived message identity on its first request and reu
 | [`src/tool-calls.ts`](src/tool-calls.ts) | Tool scheduling: exclusive barriers and the bounded parallel pool |
 | [`src/runtime-context.ts`](src/runtime-context.ts) | Per-step runtime-context snapshot handling |
 | [`src/constants.ts`](src/constants.ts) | `DEFAULT_MAX_PARALLEL_TOOL_CALLS` |
+| [`src/thinking-cap-auto-continue.ts`](src/thinking-cap-auto-continue.ts) | Per-Session auto-continue after a reasoning-only `max-tokens` stop |
 
 ### Creation and teardown
 
@@ -167,7 +168,7 @@ Prefix reuse requires earlier messages and declarations to stay byte-identical u
 
 #### What the model sees
 
-Accepted user messages, assistant messages, tool calls and results, injected context, and steering are logged and sent on later steps. Raw stream chunks, lifecycle boundaries, and other log-only events are excluded.
+Accepted user messages, assistant messages, tool calls and results, injected context, and steering are logged and sent on later steps. Raw stream chunks, lifecycle boundaries, and other log-only events are excluded. When the Session's thinking-cap auto-continue policy is on, a reasoning-only `max-tokens` stop queues a user message whose text is exactly `continue(auto)` as the next turn, at most twice in a row.
 
 #### Token effect
 

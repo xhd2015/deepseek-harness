@@ -16,19 +16,31 @@ export interface SessionLogDownloadHeaderInjected extends SessionLogDownloadDial
    * @param sessionId - Session whose feedback form to open.
    */
   openFeedback: (sessionId: SessionId) => void
+  /**
+   * Persist the Session-local thinking-cap auto-continue policy.
+   * @param sessionId - Session whose policy to write.
+   * @param enabled - whether a later reasoning-only `max-tokens` stop should auto-continue.
+   */
+  setThinkingCapAutoContinue: (sessionId: SessionId, enabled: boolean) => void
 }
 
 /** Session download props plus the optional feedback action. */
 export type SessionLogDownloadHeaderProps = SessionLogDownloadDialogProps & InjectFace<SessionLogDownloadHeaderInjected>
 
 /**
- * Render the Session Header menu with download and optional feedback actions.
+ * Render the Session Header menu with download, optional feedback, and thinking-cap auto-continue.
  * @param props - Session runtime, download controller, and localized copy.
  * @returns the persistent Header action and Session-scoped dialog.
  */
 export function SessionLogDownloadHeaderAction(props: SessionLogDownloadHeaderProps): ReactNode {
-  const { sessionId, useSessionLogDownload, useFeedbackAvailable, request, openFeedback, t } = props
+  const {
+    sessionId, useSessionLogDownload, useFeedbackAvailable, useSessions,
+    request, openFeedback, setThinkingCapAutoContinue, t,
+  } = props
   const feedbackAvailable = useFeedbackAvailable(value => value)
+  const autoContinue = useSessions(state => (
+    state.projectionsBySession[sessionId]?.values.thinkingCapAutoContinue === true
+  ))
   const entry = useSessionLogDownload(state => state.bySession[String(sessionId)])
   const busy = entry?.status === 'downloading'
   const [open, setOpen] = useState(false)
@@ -39,12 +51,19 @@ export function SessionLogDownloadHeaderAction(props: SessionLogDownloadHeaderPr
         open={open}
         align="end"
         dense
+        selectedIds={autoContinue ? ['auto-continue'] : []}
         onClose={() => { setOpen(false) }}
         items={[
           { id: 'download', label: t('menu.download'), icon: <IconDownloadOutlineRegular />, disabled: busy },
           ...feedbackAvailable ? [{ id: 'feedback', label: t('menu.feedback'), icon: <IconPaperPlaneOutlineRegular /> }] : [],
+          { type: 'separator', id: 'auto-continue-sep' },
+          { id: 'auto-continue', label: t('menu.autoContinueThinkingCap') },
         ]}
         onSelect={(id) => {
+          if (id === 'auto-continue') {
+            setThinkingCapAutoContinue(sessionId, !autoContinue)
+            return
+          }
           setOpen(false)
           if (id === 'feedback') openFeedback(sessionId)
           else void request(sessionId)

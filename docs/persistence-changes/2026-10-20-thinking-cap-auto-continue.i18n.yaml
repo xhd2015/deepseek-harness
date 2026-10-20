@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for 2026-10-20-thinking-cap-auto-continue.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/persistence-changes/2026-10-20-thinking-cap-auto-continue.md
+/:
+  en: 3d5a424ae7d7e46b
+  zh: c22a8e4a62d8cc1a
+/2026-10-20-thinking-cap-auto-continue:
+  en: 16090f09ae2d619a
+  zh: ad0d701ad121c5d1
+/2026-10-20-thinking-cap-auto-continue/summary:
+  en: 92c7756ef2b8bf9a
+  zh: 9dfd84e33689e0be
+/2026-10-20-thinking-cap-auto-continue/table-of-contents:
+  en: 6cf314a069ceb451
+  zh: 9adff678e9ecab3b
+/2026-10-20-thinking-cap-auto-continue/declaration:
+  en: 6907136f28e48c90
+  zh: 02f8298485f3d8e7
+/2026-10-20-thinking-cap-auto-continue/compatibility:
+  en: fa3c166e32a48ad4
+  zh: 8dbc4dd7957486f2
+/2026-10-20-thinking-cap-auto-continue/verification:
+  en: fbe97556b4b73b34
+  zh: c4c0e85d5e98923f
+/2026-10-20-thinking-cap-auto-continue/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269

@@ -24,6 +24,7 @@ import { buildModelCatalog, hasProviderApiKey } from '../src/catalog.ts'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { createSessionTestController, createSessionTestRemote } from './test-remote.ts'
+import { thinkingCapAutoContinueProjectionDefinition } from '../../../core/agent-loop/src/thinking-cap-auto-continue.ts'
 
 function request<P>(payload: P): P {
   return payload
@@ -875,6 +876,29 @@ describe('Web session model selection', () => {
       ok: false,
       error: { code: 'session/model-unavailable', message: 'string selection failure' },
     })
+    await ctx.fiber.dispose()
+  })
+
+  it('records thinking-cap auto-continue on the Session log', async () => {
+    const { ctx, agent, sessionId } = await harness()
+    const remote = createSessionTestRemote(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      cwd: '/tmp',
+    })
+    const unregister = ctx.sessionProjections.register(thinkingCapAutoContinueProjectionDefinition)
+    expect(expectValue(await remote.setThinkingCapAutoContinue({ sessionId, enabled: true }))).toEqual({ enabled: true })
+    const recorded = agent.session.snapshotEvents().filter(event => event.type === 'session/thinking-cap-auto-continue')
+    expect(recorded).toHaveLength(1)
+    expect(recorded[0]).toMatchObject({
+      type: 'session/thinking-cap-auto-continue',
+      ignorable: true,
+      data: { enabled: true },
+    })
+    expect(expectValue(await remote.setThinkingCapAutoContinue({ sessionId, enabled: true }))).toEqual({ enabled: true })
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'session/thinking-cap-auto-continue')).toHaveLength(1)
+    expect(expectValue(await remote.setThinkingCapAutoContinue({ sessionId, enabled: false }))).toEqual({ enabled: false })
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'session/thinking-cap-auto-continue')).toHaveLength(2)
+    unregister()
     await ctx.fiber.dispose()
   })
 })

@@ -20,24 +20,31 @@ function bindSnapshot<State>(store: ObservableSnapshot<State>) {
   }
 }
 
-function bench(feedbackAvailable = false) {
+function bench(feedbackAvailable = false, autoContinue = false) {
   const controller = new SessionLogDownloadController(async () => new Response('zip'), vi.fn())
   const request = vi.fn((sessionId: SessionId) => controller.download(sessionId))
   const dismiss = vi.fn((sessionId: SessionId) => { controller.dismiss(sessionId) })
   const openFeedback = vi.fn()
+  const setThinkingCapAutoContinue = vi.fn()
   const feedback = createSnapshotStore(feedbackAvailable)
   const useSessionLogDownload = bindSnapshot(controller.store)
   const props = {
     sessionId: SID,
     useSessionLogDownload,
     useFeedbackAvailable: bindSnapshot(feedback),
+    useSessions: <T,>(selector: (state: {
+      projectionsBySession: Record<string, { values: { thinkingCapAutoContinue?: boolean } }>
+    }) => T): T => selector({
+      projectionsBySession: { [SID]: { values: { thinkingCapAutoContinue: autoContinue } } },
+    }),
     openFeedback,
+    setThinkingCapAutoContinue,
     request,
     dismiss,
     t: (key: keyof typeof en): string => en[key],
   } as unknown as SessionLogDownloadHeaderProps
   const view = render(<SessionLogDownloadHeaderAction {...props} />)
-  return { controller, request, openFeedback, feedback, view }
+  return { controller, request, openFeedback, setThinkingCapAutoContinue, feedback, view }
 }
 
 afterEach(cleanup)
@@ -90,6 +97,24 @@ describe('Session export Header action', () => {
     expect(await b.view.findByRole('dialog', { name: 'Session download started' })).toBeTruthy()
   })
 
+  it('toggles thinking-cap auto-continue without closing the menu', () => {
+    const b = bench()
+    fireEvent.click(b.view.getByRole('button', { name: 'More actions' }))
+    fireEvent.click(b.view.getByRole('menuitem', { name: 'Auto-continue when thinking hits the output limit' }))
+    expect(b.setThinkingCapAutoContinue).toHaveBeenCalledExactlyOnceWith(SID, true)
+    expect(b.request).not.toHaveBeenCalled()
+    expect(b.view.getByRole('menu')).toBeTruthy()
+  })
+
+  it('shows a check on thinking-cap auto-continue when the Session flag is on', () => {
+    const b = bench(false, true)
+    fireEvent.click(b.view.getByRole('button', { name: 'More actions' }))
+    const item = b.view.getByRole('menuitem', { name: 'Auto-continue when thinking hits the output limit' })
+    expect(item.querySelector('svg')).not.toBeNull()
+    fireEvent.click(item)
+    expect(b.setThinkingCapAutoContinue).toHaveBeenCalledExactlyOnceWith(SID, false)
+  })
+
   it('closes the menu on Escape without downloading', () => {
     const b = bench()
     fireEvent.click(b.view.getByRole('button', { name: 'More actions' }))
@@ -109,7 +134,11 @@ describe('Session export Header action', () => {
       sessionId: SID,
       useSessionLogDownload,
       useFeedbackAvailable: bindSnapshot(b.feedback),
+      useSessions: <T,>(selector: (state: {
+        projectionsBySession: Record<string, { values: { thinkingCapAutoContinue?: boolean } }>
+      }) => T): T => selector({ projectionsBySession: { [SID]: { values: {} } } }),
       openFeedback: b.openFeedback,
+      setThinkingCapAutoContinue: b.setThinkingCapAutoContinue,
       request: (sessionId: SessionId) => controller.download(sessionId),
       dismiss: (sessionId: SessionId) => { controller.dismiss(sessionId) },
       t: (key: keyof typeof en): string => en[key],

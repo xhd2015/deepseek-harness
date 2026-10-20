@@ -2,6 +2,7 @@
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-commands/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -58,6 +59,9 @@ export function apply(ctx: ClientContext): void {
       dismiss: (sessionId: SessionId) => { controller.dismiss(sessionId) },
       // The feedback plugin can unload between the menu render and this click.
       openFeedback: (sessionId: SessionId) => { ctx.get('feedbackUi')?.openSession(sessionId) },
+      setThinkingCapAutoContinue: (sessionId, enabled) => {
+        void ctx.remote.session.setThinkingCapAutoContinue({ sessionId, enabled })
+      },
     }),
   }, SessionLogDownloadHeaderAction))
 }

@@ -5,6 +5,7 @@
  */
 
 import type { UserMessage } from '@deepseek-ai/dsh-llm/types'
+import type {} from '@deepseek-ai/dsh-llm'
 // Type-only: the Workspace registry's archive-admission family map this registry merges `turn` into.
 import type {} from '@deepseek-ai/dsh-workspace/types'
 import type { OptionalSessionSeq, SessionId, SessionSeq } from '@deepseek-ai/dsh-session/types'
@@ -59,11 +60,30 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionStateMap {
     /** Pending agent input reconstructed from durable inbox splices. */
     inbox: InboxState
+    /**
+     * Host fold of the thinking-cap auto-continue policy and live stop streak.
+     * Absent means the interrupt stays on.
+     */
+    thinkingCapAutoContinue: ThinkingCapAutoContinueState
   }
   interface SessionProjectionMap {
     /** Pending agent input reconstructed from durable inbox splices. */
     inbox: InboxWireState
+    /** Whether this Session auto-continues a reasoning-only `max-tokens` stop. */
+    thinkingCapAutoContinue: boolean
   }
+}
+
+/** Host fold of the per-Session thinking-cap auto-continue policy. */
+export interface ThinkingCapAutoContinueState {
+  /** Latest durable policy; `false` until an `{ enabled: true }` event. */
+  readonly enabled: boolean
+  /** Whether the latest assistant message is a reasoning-only output-cap stop. */
+  readonly lastAssistantIsThinkingCapStop: boolean
+  /** How many consecutive prior max-tokens turns were auto-continued. */
+  readonly consecutiveAutoContinues: number
+  /** Whether the latest `turn/end` was `max-tokens` and still awaits the next user message. */
+  readonly pendingMaxTokens: boolean
 }
 
 /**
@@ -100,5 +120,21 @@ declare module '@deepseek-ai/dsh-session/types' {
       inserted: UserMessage[]
       outcome?: 'canceled'
     }
+    /**
+     * Per-Session policy: auto-continue when thinking fills `max_tokens`.
+     * Log-only last-write-wins; writers mark it `ignorable` so older readers
+     * skip it and keep auto-continue off.
+     */
+    'session/thinking-cap-auto-continue': {
+      /** Whether a later reasoning-only `max-tokens` stop should auto-continue. */
+      enabled: boolean
+    }
+  }
+}
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    /** Host followup after a reasoning-only thinking-cap stop. */
+    'thinking-cap-auto-continue': { kind: 'thinking-cap-auto-continue' }
   }
 }
