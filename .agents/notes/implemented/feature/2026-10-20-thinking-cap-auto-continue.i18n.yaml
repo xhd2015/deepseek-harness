@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-10-20-thinking-cap-auto-continue.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-10-20-thinking-cap-auto-continue.md
+/agent-note-per-session-auto-continue-when-thinking-hits-the-output-cap:
+  en: 6672201101f43821
+  zh: eba90aebc63efd5b
+/agent-note-per-session-auto-continue-when-thinking-hits-the-output-cap/problem:
+  en: a837b29aebd6fac5
+  zh: ab8e8bcc8eb6c6e5
+/agent-note-per-session-auto-continue-when-thinking-hits-the-output-cap/decision:
+  en: 9d381c9f55fe1ea0
+  zh: 14b0140bd9a5cc09
+/agent-note-per-session-auto-continue-when-thinking-hits-the-output-cap/alternatives-considered:
+  en: 91e2152d28e089a6
+  zh: a0636799d85c4a2d
+/agent-note-per-session-auto-continue-when-thinking-hits-the-output-cap/consequences:
+  en: efefac21470fd259
+  zh: 737502c81a4c8326
