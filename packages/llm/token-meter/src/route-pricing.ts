@@ -39,8 +39,9 @@ export function priceSurface(
   if ((pricing === undefined || images.length === 0) && !hasFiles) {
     let surfaceTokens = 0
     const publicNodes = nodes.map((node) => {
-      surfaceTokens += node.heuristicTokens
-      return { seq: node.seq, tokens: node.heuristicTokens, heuristicTokens: node.heuristicTokens }
+      const tokens = node.calibratedTokens ?? node.heuristicTokens
+      surfaceTokens += tokens
+      return { seq: node.seq, tokens, heuristicTokens: node.heuristicTokens }
     })
     return { nodes: publicNodes, surfaceTokens }
   }
@@ -53,6 +54,10 @@ export function priceSurface(
   let cursor = 0
   let surfaceTokens = 0
   const publicNodes = nodes.map((node) => {
+    if (node.calibratedTokens !== undefined) {
+      surfaceTokens += node.calibratedTokens
+      return { seq: node.seq, tokens: node.calibratedTokens, heuristicTokens: node.heuristicTokens }
+    }
     let tokens = node.heuristicTokens
     if (fileText !== undefined && node.files.length > 0) {
       tokens -= node.fileStructuralTokens

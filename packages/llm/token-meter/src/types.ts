@@ -41,8 +41,10 @@ export interface TokenSurfaceNode {
   /**
    * Request-pressure tokens for the exact message projected by this node under
    * the measured route: image occurrences carry the route's declared visual
-   * price when the routed adapter declares one, and the fixed heuristic
-   * otherwise. Trigger, retention, and range selection all read this price.
+   * price when the routed adapter declares one; a prior assistant node whose
+   * billed replay cost was isolated from consecutive matching provider usage
+   * carries that attributed price; otherwise the fixed heuristic. Trigger,
+   * retention, and range selection all read this price.
    */
   readonly tokens: number
   /**
