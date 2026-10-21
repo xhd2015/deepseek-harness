@@ -65,6 +65,8 @@ import type {
   SessionSearchValue,
   SessionSelectModelRequest,
   SessionSelectModelValue,
+  SessionSetThinkingCapAutoContinueRequest,
+  SessionSetThinkingCapAutoContinueValue,
   SessionProjectionsRequest,
   SessionProjectionsValue,
   SessionProjectionValues,
@@ -342,6 +344,18 @@ export class SessionController extends TypertRemoteService {
   @Remote('selectModel')
   selectModel(request: SessionSelectModelRequest): Promise<SessionSelectModelValue> {
     return this.commands.selectModel(request)
+  }
+
+  /**
+   * Record whether this Session auto-continues a reasoning-only thinking-cap stop.
+   * @param request - Session identity and requested policy.
+   * @returns the policy stored on the Session log and the seq the Client applies.
+   */
+  @Remote('setThinkingCapAutoContinue')
+  setThinkingCapAutoContinue(
+    request: SessionSetThinkingCapAutoContinueRequest,
+  ): Promise<SessionSetThinkingCapAutoContinueValue> {
+    return this.commands.setThinkingCapAutoContinue(request)
   }
 
   /**

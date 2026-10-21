@@ -725,6 +725,37 @@ describe('prompt and cancel errors', () => {
   })
 })
 
+describe('setThinkingCapAutoContinue', () => {
+  it('settles the thinkingCapAutoContinue projection cell from the unary response', async ({ mock, start }) => {
+    const session = await sessionBench(mock, start, SID)
+    mock.remote.session.setThinkingCapAutoContinue.mockResolvedValue(ok({ enabled: true, seq: 9 }))
+    const result = await session.setThinkingCapAutoContinue(true)
+    expect(result).toMatchObject({ ok: true, value: { enabled: true, seq: 9 } })
+    expect(mock.log.requests('session/setThinkingCapAutoContinue')).toMatchObject([{ sessionId: SID, enabled: true }])
+    expect(session.projections.faceOf('thinkingCapAutoContinue').getSnapshot()).toBe(true)
+    session.projections.apply('thinkingCapAutoContinue', false, SessionSeq(3))
+    expect(session.projections.faceOf('thinkingCapAutoContinue').getSnapshot()).toBe(true)
+  })
+
+  it('applies the cell when the host omits seq', async ({ mock, start }) => {
+    const session = await sessionBench(mock, start, SID)
+    mock.remote.session.setThinkingCapAutoContinue.mockResolvedValue(ok({ enabled: true }))
+    const result = await session.setThinkingCapAutoContinue(true)
+    expect(result).toMatchObject({ ok: true, value: { enabled: true } })
+    expect(session.projections.faceOf('thinkingCapAutoContinue').getSnapshot()).toBe(true)
+  })
+
+  it('returns the business error without applying a projection cell', async ({ mock, start }) => {
+    const session = await sessionBench(mock, start, SID)
+    mock.remote.session.setThinkingCapAutoContinue.mockResolvedValue(
+      err(new RemoteError('gateway/internal', 'nope', {})),
+    )
+    const rejected = await session.setThinkingCapAutoContinue(true)
+    expect(rejected).toMatchObject({ ok: false, error: { code: 'gateway/internal' } })
+    expect(session.projections.faceOf('thinkingCapAutoContinue').getSnapshot()).toBeUndefined()
+  })
+})
+
 describe('rename', () => {
   it('settles the title projection cell from the unary response (higher-seq-wins vs the push frame)', async ({ mock, start }) => {
     const session = await sessionBench(mock, start, SID)

@@ -29,6 +29,8 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
     imageLimits: ImageAttachmentLimits
     /** Durable model selection already used and selected for the next request. */
     modelSelection: ModelSelectionProjection
+    /** Whether this Session auto-continues a reasoning-only `max-tokens` stop. */
+    thinkingCapAutoContinue: boolean
   }
 }
 
@@ -333,6 +335,20 @@ export interface SessionSelectModelRequest extends ModelSelection {
 /** Accepted model selection after Host resolution. */
 export interface SessionSelectModelValue {
   readonly selected: ModelSelection
+}
+
+/** Session thinking-cap auto-continue request. */
+export interface SessionSetThinkingCapAutoContinueRequest {
+  readonly sessionId: SessionId
+  /** Whether a later reasoning-only `max-tokens` stop should auto-continue. */
+  readonly enabled: boolean
+}
+
+/** Installed thinking-cap auto-continue policy. */
+export interface SessionSetThinkingCapAutoContinueValue {
+  readonly enabled: boolean
+  /** Durable event seq of the policy write, or the current log cursor when unchanged. */
+  readonly seq: number
 }
 
 /** Session rename request. */
