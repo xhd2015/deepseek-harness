@@ -211,6 +211,41 @@
   color: var(--dsw-alias-label-primary);
 }
 
+/* Independent toggle: empty and checked boxes both occupy the trailing slot. */
+.checkboxMark {
+  box-sizing: border-box;
+  flex: none;
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-xs);
+  background: transparent;
+  color: var(--dsw-alias-label-primary-foreground);
+}
+
+.checkboxMarkChecked {
+  border-color: var(--dsw-alias-brand-primary);
+  background: var(--dsw-alias-brand-primary);
+}
+
+.checkboxMark svg {
+  width: 10px;
+  height: 10px;
+}
+
+.compactList .checkboxMark {
+  width: 12px;
+  height: 12px;
+}
+
+.compactList .checkboxMark svg {
+  width: 9px;
+  height: 9px;
+}
+
 /* Selected cell keeps the plain fill (marker is the trailing check); the
  * class remains as a hook for owner-side emphasis. */
 .selected {

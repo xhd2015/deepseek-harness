@@ -25,6 +25,12 @@ export interface MenuItem {
   danger?: boolean
   /** Nested card opened to the right on hover/focus. */
   submenu?: readonly MenuItem[]
+  /**
+   * Independent on/off marker. When set, the row is a `menuitemcheckbox` with
+   * an always-visible trailing box; omit it for an ordinary action or a
+   * `selectedId`/`selectedIds` selection.
+   */
+  checked?: boolean
 }
 
 /** Hairline between item groups (not selectable). */
@@ -56,6 +62,11 @@ export interface MenuItemButtonProps {
   /** Destructive row: error-colored text/icon and danger hover fill. */
   danger?: boolean
   /**
+   * Independent on/off marker. When set, the row is a `menuitemcheckbox` with
+   * an always-visible trailing box.
+   */
+  checked?: boolean
+  /**
    * Start a new group: a hairline above this row, the same one a
    * `{ type: 'separator' }` data entry draws. It comes and goes with the row,
    * so a row that renders nothing leaves no stray line; a data separator
@@ -77,27 +88,31 @@ export interface MenuItemButtonProps {
  * @param props.icon - optional leading icon.
  * @param props.disabled - whether the row cannot be activated.
  * @param props.danger - whether to use the destructive row colors.
+ * @param props.checked - independent on/off marker; omit for an ordinary action.
  * @param props.separatorBefore - whether this row starts a new group (hairline above it).
  * @param props.onSelect - row activation callback.
  * @returns one menu-item row.
  */
 export function MenuItemButton({
-  children, shortcut, icon, disabled = false, danger = false, separatorBefore = false, onSelect,
+  children, shortcut, icon, disabled = false, danger = false, checked, separatorBefore = false, onSelect,
 }: MenuItemButtonProps) {
+  const checkbox = checked !== undefined
   return (
     <div className={css.itemWrap}>
       {separatorBefore && <div className={css.separator} role="separator" />}
       <button
         type="button"
-        role="menuitem"
+        role={checkbox ? 'menuitemcheckbox' : 'menuitem'}
         className={clsx(css.item, danger && css.danger)}
         disabled={disabled}
+        aria-checked={checkbox ? checked : undefined}
         aria-keyshortcuts={shortcut?.aria}
         onClick={onSelect}
       >
         {icon !== undefined && <span className={css.itemIcon}>{icon}</span>}
         <span className={css.itemLabel}>{children}</span>
         {shortcut !== undefined && <span aria-hidden="true" className={css.shortcut}><ShortcutKeys keys={shortcut.keys} className={css.shortcutKeys} /></span>}
+        {checkbox && <MenuCheckboxMark checked={checked} />}
       </button>
     </div>
   )
@@ -109,6 +124,21 @@ function isSeparator(entry: MenuEntry): entry is MenuSeparator {
 
 function isLabel(entry: MenuEntry): entry is MenuLabel {
   return 'type' in entry && entry.type === 'label'
+}
+
+const MENU_ROW_SELECTOR = 'button[role="menuitem"], button[role="menuitemcheckbox"]'
+
+function isMenuRow(el: Element): boolean {
+  const role = el.getAttribute('role')
+  return role === 'menuitem' || role === 'menuitemcheckbox'
+}
+
+function MenuCheckboxMark({ checked }: { checked: boolean }) {
+  return (
+    <span className={clsx(css.checkboxMark, checked && css.checkboxMarkChecked)} aria-hidden="true">
+      {checked ? <IconCheckOutlineRegular /> : null}
+    </span>
+  )
 }
 
 /** Unplaced portal list: hidden but laid out at a fixed origin so offsetWidth/offsetHeight are real. */
@@ -152,9 +182,9 @@ const MEASURE_STYLE: CSSProperties = { visibility: 'hidden', left: 0, top: 0 }
  * @param props.footer - rows pinned below the scrolling items area, separated
  * by a hairline; they stay visible while the items above scroll.
  * @param props.children - component rows rendered after `items` in the same
- * list, each a `role="menuitem"` button such as {@link MenuItemButton}; they
- * share the keyboard walk, the submenu exclusivity, and the post-selection
- * focus return.
+ * list, each a `role="menuitem"` or `role="menuitemcheckbox"` button such as
+ * {@link MenuItemButton}; they share the keyboard walk, the submenu
+ * exclusivity, and the post-selection focus return.
  * @param props.selection - how a selected row is marked: a trailing check
  * (`'check'`, default — figma .Menu_cell) or the hover fill held on the row
  * with no check (`'fill'`, for icon-labelled rows where a trailing glyph
@@ -364,7 +394,7 @@ export function Menu({ open, anchor, items = [], children, selectedId, selectedI
         // button inside an error strip) and a list with no enabled row keep the
         // browser's traversal instead of being swallowed.
         if (insideList) {
-          if (focused instanceof Element && focused.getAttribute('role') === 'menuitem') {
+          if (focused instanceof Element && isMenuRow(focused)) {
             e.preventDefault()
             selectingWithTab.current = true
             try { (focused as HTMLElement).click() }
@@ -445,6 +475,8 @@ export function Menu({ open, anchor, items = [], children, selectedId, selectedI
     }
     const hasSub = entry.submenu !== undefined && entry.submenu.length > 0
     const subOpen = hasSub && openSubmenuId === entry.id
+    const checked = entry.checked
+    const checkbox = checked !== undefined
     const selected = entry.id === selectedId || selectedIds?.includes(entry.id) === true
     return (
       <div
@@ -455,9 +487,10 @@ export function Menu({ open, anchor, items = [], children, selectedId, selectedI
       >
         <button
           type="button"
-          role="menuitem"
+          role={checkbox ? 'menuitemcheckbox' : 'menuitem'}
           className={clsx(css.item, selected && (selection === 'fill' ? css.selectedFill : css.selected), entry.danger === true && css.danger)}
           disabled={entry.disabled}
+          aria-checked={checkbox ? entry.checked : undefined}
           aria-keyshortcuts={entry.shortcut?.aria}
           aria-haspopup={hasSub ? 'menu' : undefined}
           aria-expanded={hasSub ? subOpen : undefined}
@@ -473,26 +506,33 @@ export function Menu({ open, anchor, items = [], children, selectedId, selectedI
           {entry.icon !== undefined && <span className={css.itemIcon}>{entry.icon}</span>}
           <span className={css.itemLabel}>{entry.label}</span>
           {entry.shortcut !== undefined && <span aria-hidden="true" className={css.shortcut}><ShortcutKeys keys={entry.shortcut.keys} className={css.shortcutKeys} /></span>}
-          {/* Selection marker is a trailing check (figma .Menu_cell) unless the fill mode carries it. */}
-          {selected && selection === 'check' && <IconCheckOutlineRegular className={css.check} />}
+          {checkbox
+            ? <MenuCheckboxMark checked={checked} />
+            : selected && selection === 'check' && <IconCheckOutlineRegular className={css.check} />}
         </button>
         {subOpen && entry.submenu !== undefined && (
           <MenuSurface compact={compact} className={clsx(css.submenu, compact && css.compactList)} role="menu">
-            {entry.submenu.map(sub => (
-              <button
-                key={sub.id}
-                type="button"
-                role="menuitem"
-                className={css.item}
-                disabled={sub.disabled}
-                aria-keyshortcuts={sub.shortcut?.aria}
-                onClick={() => { onSelect?.(sub.id); refocusAfterSelection() }}
-              >
-                {sub.icon !== undefined && <span className={css.itemIcon}>{sub.icon}</span>}
-                <span className={css.itemLabel}>{sub.label}</span>
-                {sub.shortcut !== undefined && <span aria-hidden="true" className={css.shortcut}><ShortcutKeys keys={sub.shortcut.keys} className={css.shortcutKeys} /></span>}
-              </button>
-            ))}
+            {entry.submenu.map((sub) => {
+              const subChecked = sub.checked
+              const subCheckbox = subChecked !== undefined
+              return (
+                <button
+                  key={sub.id}
+                  type="button"
+                  role={subCheckbox ? 'menuitemcheckbox' : 'menuitem'}
+                  className={css.item}
+                  disabled={sub.disabled}
+                  aria-checked={subCheckbox ? subChecked : undefined}
+                  aria-keyshortcuts={sub.shortcut?.aria}
+                  onClick={() => { onSelect?.(sub.id); refocusAfterSelection() }}
+                >
+                  {sub.icon !== undefined && <span className={css.itemIcon}>{sub.icon}</span>}
+                  <span className={css.itemLabel}>{sub.label}</span>
+                  {sub.shortcut !== undefined && <span aria-hidden="true" className={css.shortcut}><ShortcutKeys keys={sub.shortcut.keys} className={css.shortcutKeys} /></span>}
+                  {subCheckbox && <MenuCheckboxMark checked={subChecked} />}
+                </button>
+              )
+            })}
           </MenuSurface>
         )}
       </div>
@@ -504,7 +544,7 @@ export function Menu({ open, anchor, items = [], children, selectedId, selectedI
   // focus, data row or component row — closes the open card. A parent opens
   // its card in its own handlers; rows inside the card are not top-level rows.
   const collapseSubmenuFrom = (e: SyntheticEvent<HTMLDivElement>): void => {
-    const row = e.target instanceof Element ? e.target.closest('button[role="menuitem"]') : null
+    const row = e.target instanceof Element ? e.target.closest(MENU_ROW_SELECTOR) : null
     if (row === null || row.getAttribute('aria-haspopup') === 'menu') return
     if (row.closest('[role="menu"]') !== e.currentTarget) return
     setOpenSubmenuId(null)
@@ -528,7 +568,7 @@ export function Menu({ open, anchor, items = [], children, selectedId, selectedI
       // own handler ran; a submenu parent only opened its card.
       onClick={(e) => {
         e.stopPropagation()
-        const row = e.target instanceof Element ? e.target.closest('button[role="menuitem"]') : null
+        const row = e.target instanceof Element ? e.target.closest(MENU_ROW_SELECTOR) : null
         if (row !== null && row.getAttribute('aria-haspopup') !== 'menu') refocusAfterSelection()
       }}
       onMouseOver={collapseSubmenuFrom}
