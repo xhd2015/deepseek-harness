@@ -406,6 +406,7 @@ describe('ModelSelect reasoning effort', () => {
     }))
     const select = vi.fn().mockResolvedValue(true)
     render(<ModelSelect
+      renderSlot={renderLabel}
       locked={false}
       available
       directory={directory}
