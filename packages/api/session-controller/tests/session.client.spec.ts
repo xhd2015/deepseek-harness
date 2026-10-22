@@ -737,9 +737,9 @@ describe('setThinkingCapAutoContinue', () => {
     expect(session.projections.faceOf('thinkingCapAutoContinue').getSnapshot()).toBe(true)
   })
 
-  it('applies the cell when the host omits seq', async ({ mock, start }) => {
+  it('applies the cell when the reported seq is not a log cursor', async ({ mock, start }) => {
     const session = await sessionBench(mock, start, SID)
-    mock.remote.session.setThinkingCapAutoContinue.mockResolvedValue(ok({ enabled: true }))
+    mock.remote.session.setThinkingCapAutoContinue.mockResolvedValue(ok({ enabled: true, seq: -1 }))
     const result = await session.setThinkingCapAutoContinue(true)
     expect(result).toMatchObject({ ok: true, value: { enabled: true } })
     expect(session.projections.faceOf('thinkingCapAutoContinue').getSnapshot()).toBe(true)

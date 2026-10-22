@@ -29,7 +29,11 @@ async function bench() {
   const slots = ctx.get('slots') as SlotRegistry
   const declaration = declare(slots)
   ctx.provide('locale', new LocaleRuntime(ctx))
-  const sessions = { binding: vi.fn(() => undefined) }
+  const sessions = {
+    binding: vi.fn((): {
+      session: { setThinkingCapAutoContinue: (enabled: boolean) => Promise<{ ok: boolean }> }
+    } | undefined => undefined),
+  }
   ctx.provide('sessions', sessions as never)
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
