@@ -189,14 +189,16 @@ export class InputHub implements SessionInputResolver {
    */
   bindDraftMirror(
     id: SessionId, write: (text: string) => void, hasLocalChanges: boolean, acknowledge: (text: string) => void,
+    onLoaded?: () => void,
   ): () => void {
     const shell = this.shell(id)
     const push = (): void => { write(shell.state.getSnapshot().draft) }
     const unmirror = shell.state.subscribe(push)
-    if (!this.drafts.has(id)) {
+    let persistence = this.drafts.get(id)
+    if (persistence === undefined) {
       const remote = this.rootCtx.get('remote')
       if (remote === undefined) throw new Error('conversation.input: remote service unavailable')
-      const persistence = new DraftPersistence({
+      persistence = new DraftPersistence({
         state: shell.state,
         hasLocalChanges,
         acknowledge,
@@ -217,7 +219,17 @@ export class InputHub implements SessionInputResolver {
       })
       this.drafts.set(id, persistence)
     }
+    if (onLoaded !== undefined) void persistence.whenLoaded.then(onLoaded)
     return unmirror
+  }
+
+  /**
+   * Host draft hydrate for one Session, when persistence has started.
+   * @param id - Session id.
+   * @returns a promise that settles after the initial Host read, or `undefined`.
+   */
+  draftLoaded(id: SessionId): Promise<void> | undefined {
+    return this.drafts.get(id)?.whenLoaded
   }
 
   /**
