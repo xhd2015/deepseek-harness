@@ -10,7 +10,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import { trajectoryNode } from './trajectory-definition-common.ts'
 import type { TrajectoryPartialAssistant } from './trajectory-contract.ts'
 import {
-  displayFailure, emptyAssistantBlock, isTokenDelta, toAssistantBlock, toAssistantBlocks,
+  displayFailure, emptyAssistantBlock, isTokenDelta, replayBlocksFromSource, toAssistantBlock, toAssistantBlocks,
 } from './trajectory-event-projection.ts'
 
 /* jscpd:ignore-start -- Target-owned Definitions intentionally keep their event
@@ -80,7 +80,8 @@ function compactBlocks(blocks: readonly (AssistantBlock | undefined)[]): Assista
 
 function blockIsVisible(block: AssistantBlock | undefined): boolean {
   if (block === undefined || block.kind === 'tool-call') return false
-  if (block.kind === 'text' || block.kind === 'reasoning') return block.text.trim() !== ''
+  if (block.kind === 'text') return block.text.trim() !== ''
+  if (block.kind === 'reasoning') return block.encrypted === true || block.opaque === true || block.text.trim() !== ''
   return true
 }
 
@@ -201,12 +202,19 @@ function settleTiming(
   }
 }
 
+function settledBlocks(event: SessionEvent<'assistant/message'>): AssistantBlock[] {
+  return toAssistantBlocks(
+    event.data.message.content,
+    replayBlocksFromSource(event.data.message.source),
+  )
+}
+
 function settleMessage(
   state: AssistantState,
   match: ConversationMatch,
   event: SessionEvent<'assistant/message'>,
 ): AssistantState {
-  const blocks = toAssistantBlocks(event.data.message.content)
+  const blocks = settledBlocks(event)
   return {
     ...settleTiming(state, event),
     blocks,
@@ -262,7 +270,7 @@ function finalNode(
       time: event.time,
       turn: state.turn,
       step: state.step,
-      blocks: toAssistantBlocks(event.data.message.content),
+      blocks: settledBlocks(event),
       usage: event.data.usage,
       providerMetadata: {
         provider: event.data.message.source.provider,

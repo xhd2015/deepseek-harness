@@ -3,7 +3,9 @@ import { Context } from '@deepseek-ai/cordis'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import BasicCompactionEngine from '@deepseek-ai/dsh-compaction-basic'
 import type { BasicCompactionConfig } from '@deepseek-ai/dsh-compaction-basic'
-import { selectCompactableRange } from '@deepseek-ai/dsh-compaction-basic/src/region.ts'
+import {
+  checkpointOnlyRangePrice, retainTokensForSummarizer, selectCompactableRange,
+} from '@deepseek-ai/dsh-compaction-basic/src/region.ts'
 import { frameSummary } from '@deepseek-ai/dsh-compaction-basic/src/summarizer.ts'
 import type { SummarizationInput, SummaryResult } from '@deepseek-ai/dsh-compaction-basic/src/summarizer.ts'
 import { CompactionId, toolPairingBalancedAfter, toolPairingBalancedBefore } from '@deepseek-ai/dsh-compaction'
@@ -206,6 +208,91 @@ function toolConversation(): Session {
   }
   session.append('turn/start', { turn: 4 })
   return session
+}
+
+/**
+ * Checkpoint, then an ended failed step whose assistant tool-calls have no
+ * results, then a later closed paired step. Overflow must still be able to
+ * shadow that later history.
+ */
+function endedOrphanCallsThenPairedTail(): {
+  session: Session
+  checkpointSeq: SessionSeq
+  laterUserSeq: SessionSeq
+} {
+  const session = Session.create(SessionId('ended-orphan-then-tail'))
+  const orphanIds = [ToolCallId('orphan-a'), ToolCallId('orphan-b')] as const
+  const laterCallId = ToolCallId('later-paired')
+
+  session.append('turn/start', { turn: 1 })
+  const checkpoint = session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text: 'checkpoint '.repeat(40) }],
+    source: { kind: 'user' },
+  }), { surfaceOp: 'append' })
+  session.append('step/start', { turn: 1, step: 1 })
+  session.append('request/header', {
+    header: { config: { provider: MODEL, model: MODEL } },
+    reason: 'initial',
+  })
+  session.append('assistant/message', {
+    stream: [],
+    turn: 1,
+    step: 1,
+    message: createMessage({
+      role: 'assistant',
+      content: orphanIds.map(id => ({ type: 'tool-call' as const, id, name: 'read', arguments: '{}' })),
+      source: {
+        kind: 'model',
+        ...{ provider: MODEL, model: MODEL },
+      },
+    }),
+  }, { surfaceOp: 'append' })
+  session.append('tool/call', {
+    turn: 1, step: 1, callId: orphanIds[0], name: 'read', arguments: '{}',
+  })
+  session.append('step/end', { turn: 1, step: 1 })
+  session.append('turn/end', {
+    turn: 1,
+    reason: { kind: 'error', error: { message: "Cannot read properties of undefined (reading 'prepare')", code: 'UNKNOWN' } },
+  })
+
+  session.append('turn/start', { turn: 2 })
+  const laterUser = session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text: 'later history '.repeat(80) }],
+    source: { kind: 'user' },
+  }), { surfaceOp: 'append' })
+  session.append('step/start', { turn: 2, step: 1 })
+  session.append('assistant/message', {
+    stream: [],
+    turn: 2,
+    step: 1,
+    message: createMessage({
+      role: 'assistant',
+      content: [
+        { type: 'text', text: 'calling later '.repeat(80) },
+        { type: 'tool-call', id: laterCallId, name: 'read', arguments: '{}' },
+      ],
+      source: {
+        kind: 'model',
+        ...{ provider: MODEL, model: MODEL },
+      },
+    }),
+  }, { surfaceOp: 'append' })
+  session.append('tool/call', { turn: 2, step: 1, callId: laterCallId, name: 'read', arguments: '{}' })
+  session.append('tool/result', {
+    turn: 2,
+    step: 1,
+    message: createToolResultMessage({
+      callId: laterCallId,
+      content: [{ type: 'text', text: 'later result '.repeat(80) }],
+      isError: false,
+    }),
+  }, { surfaceOp: 'append' })
+  session.append('step/end', { turn: 2, step: 1 })
+  session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
+  session.append('turn/start', { turn: 3 })
+
+  return { session, checkpointSeq: checkpoint.seq, laterUserSeq: laterUser.seq }
 }
 
 /** One closed routed tool step followed by an open turn for rewrite events. */
@@ -876,6 +963,87 @@ describe('pressure measurement and retention', () => {
       .rejects.toThrow(/still above threshold after 1 compaction attempts/)
   })
 
+  it('does not re-summarize a prior checkpoint that cannot close remaining pressure', async () => {
+    const compact = service({
+      auto: false,
+      compactionRetries: 1,
+      thresholdRatio: 0.3,
+      retainTokens: 180,
+    })
+    compact.summary = [{ type: 'text', text: 'tiny checkpoint' }]
+    const session = conversation(4, 'bulk '.repeat(400).trim())
+
+    await expect(compactIfNeeded(compact, session))
+      .rejects.toThrow(/only a prior checkpoint/)
+    expect(compact.calls).toHaveLength(1)
+    expect(session.snapshotEvents().filter(event => event.type === 'compaction/start')).toHaveLength(1)
+
+    await expect(compactIfNeeded(compact, session))
+      .rejects.toThrow(/only a prior checkpoint/)
+    expect(compact.calls).toHaveLength(1)
+  })
+
+  it('still re-summarizes an oversized checkpoint that can close remaining pressure', async () => {
+    const compact = service({
+      auto: false,
+      compactionRetries: 1,
+      thresholdRatio: 0.3,
+      retainTokens: 180,
+    })
+    compact.summary = Array.from({ length: 7 }, (_, index) => ({
+      type: 'text',
+      text: `summary ${index}`,
+    }))
+    compact.mutateDuringSummary = () => {
+      if (compact.calls.length > 1) {
+        compact.summary = [{ type: 'text', text: 'tiny' }]
+      }
+    }
+
+    const result = await compactIfNeeded(compact, conversation(4))
+    expect(result).not.toBeNull()
+    expect(compact.calls).toHaveLength(2)
+  })
+
+  it('prices a selected span only when every node is a compaction checkpoint', async () => {
+    const ctx = createContext()
+    const compact = service({
+      auto: false,
+      compactionRetries: 0,
+      thresholdRatio: 0.5,
+      retainTokens: 180,
+    }, ctx)
+    const session = conversation(4, 'bulk '.repeat(200).trim())
+    try {
+      await compactIfNeeded(compact, session)
+    } catch (error: unknown) {
+      expect(error).toBeInstanceOf(Error)
+      expect((error as Error).message).toMatch(/still above threshold/)
+    }
+
+    const measurement = ctx.tokenMeter.measure(session)
+    const checkpoint = session.snapshotEvents().find(event =>
+      event.type === 'user/message' && event.data.source.kind === 'compact-checkpoint',
+    )
+    expect(checkpoint).toBeDefined()
+    expect(checkpointOnlyRangePrice(session, measurement, {
+      start: checkpoint!.seq,
+      end: checkpoint!.seq,
+    })).toBeGreaterThan(0)
+    expect(checkpointOnlyRangePrice(session, measurement, {
+      start: measurement.nodes[0]!.seq,
+      end: measurement.nodes[measurement.nodes.length - 1]!.seq,
+    })).toBeNull()
+    expect(() => checkpointOnlyRangePrice(session, measurement, {
+      start: SessionSeq(999_999),
+      end: SessionSeq(999_999),
+    })).toThrow(/not on the measured surface/)
+    expect(() => checkpointOnlyRangePrice(session, measurement, {
+      start: measurement.nodes[1]!.seq,
+      end: measurement.nodes[0]!.seq,
+    })).toThrow(/not on the measured surface/)
+  })
+
   it('rounds a retention cut head-ward to preserve tool-call/result pairing', async () => {
     const compact = service({
       auto: false,
@@ -939,6 +1107,49 @@ describe('pressure measurement and retention', () => {
 
     const priced = ctx.tokenMeter.measure(session)
     expect(selectCompactableRange(session, priced, 1)).toBeNull()
+  })
+
+  it('overflow range still includes later paired history after an ended step left unanswered tool-calls', () => {
+    const ctx = createContext()
+    const { session, checkpointSeq, laterUserSeq } = endedOrphanCallsThenPairedTail()
+    const range = selectCompactableRange(session, ctx.tokenMeter.measure(session), 0)
+    expect(range).not.toBeNull()
+    expect(range?.start).toBe(checkpointSeq)
+    expect(range?.end).not.toBe(checkpointSeq)
+    const startIdx = session.surface.nodes.indexOf(range!.start)
+    const endIdx = session.surface.nodes.indexOf(range!.end)
+    expect(session.surface.nodes.slice(startIdx, endIdx + 1)).toContain(laterUserSeq)
+  })
+
+  it('overflow compaction shadows later paired history after an ended step left unanswered tool-calls', async () => {
+    const compact = service(compactConfig, createContext(1_000_000))
+    const { session, checkpointSeq, laterUserSeq } = endedOrphanCallsThenPairedTail()
+    const result = await compactIfNeeded(compact, session, 'context-overflow')
+    expect(result).not.toBeNull()
+    expect(result?.shadowedSeqs[0]).toBe(checkpointSeq)
+    expect(result?.shadowedSeqs).toContain(laterUserSeq)
+    expect(result?.shadowedSeqs.length).toBeGreaterThan(1)
+  })
+
+  it('computes a summarizer-fit retain budget from overflow versus window', () => {
+    expect(retainTokensForSummarizer(1_000, 500_000, 1_000, 100)).toBe(0)
+    expect(retainTokensForSummarizer(501_179, 500_000, 376_893, 1_559))
+      .toBe(501_179 - 500_000 + Math.floor(500_000 * 0.08))
+    expect(retainTokensForSummarizer(100, 0, 100, 10)).toBe(0)
+    expect(retainTokensForSummarizer(8_000, 128, 4_000, 400)).toBe(4_000 - 400)
+  })
+
+  it('overflow keeps a summarizer-fit tail when the full surface exceeds the window', async () => {
+    const ctx = createContext(800)
+    const compact = service({ auto: false }, ctx)
+    const session = conversation(4, 'bulk '.repeat(400))
+    const measurement = ctx.tokenMeter.measure(session)
+    expect(measurement.totalTokens).toBeGreaterThan(800)
+    const last = session.surface.nodes.at(-1)!
+    const result = await compactIfNeeded(compact, session, 'context-overflow')
+    expect(result).not.toBeNull()
+    expect(result?.shadowedSeqs.length).toBeGreaterThan(0)
+    expect(result?.shadowedSeqs).not.toContain(last)
   })
 })
 

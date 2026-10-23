@@ -600,7 +600,7 @@ ask_user_question 默认保持原有阻塞行为；设置 `mode: timed` 后才�
     },
     "sandbox_permissions": {
       "type": "string",
-      "description": "Wider sandbox mode for this complete program execution; requires justification and approval.",
+      "description": "Wider sandbox mode for this complete program execution; only valid as a one-shot retry after a result carrying the `[sandbox: escalation available` marker, and requires justification and approval.",
       "enum": [
         "workspace-write",
         "danger-full-access"

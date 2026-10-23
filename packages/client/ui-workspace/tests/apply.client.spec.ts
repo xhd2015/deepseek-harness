@@ -27,6 +27,7 @@ import { RenameSessionMenuItem, SessionRenameDialog } from '../src/client/sessio
 import { RowActionToast } from '../src/client/session-actions/RowActionToast.tsx'
 import type { ArchiveToastInjected, ToastDisplayInjected } from '../src/client/contract/toast.ts'
 import { SessionIdMenuItem } from '../src/client/session-actions/SessionId.tsx'
+import { UnknownSessionHint } from '../src/client/UnknownSessionHint.tsx'
 import { WorkspacePicker } from '../src/client/WorkspacePicker.tsx'
 import { FLAT_SESSION_ORDER_KEY } from '../src/client/stores.ts'
 import { UNGROUPED_KEY } from '../src/client/tree.ts'
@@ -56,7 +57,7 @@ const workspaceState = (
 
 const ALLOWED: HostObservable<boolean> = createSnapshotStore(true)
 
-async function bench() {
+async function bench(listed?: { ids: readonly string[]; current?: string }) {
   const ctx = new Context()
   const commands = new Map<string, ShortcutCommand>()
   ctx.provide('shortcuts', {
@@ -77,7 +78,8 @@ async function bench() {
   }))
   const rename = vi.fn(async () => ({}))
   const selectPanel = vi.fn()
-  ctx.provide('layout', { selectPanel, beginNavigation: () => new AbortController().signal })
+  const collapseSidebar = vi.fn()
+  ctx.provide('layout', { selectPanel, collapseSidebar, beginNavigation: () => new AbortController().signal })
   const search = vi.fn(async () => ({
     ok: true as const,
     value: { items: [{ sessionId: 'session' as never, snippet: 'match' }], hasMore: false },
@@ -120,7 +122,16 @@ async function bench() {
   // reads at completion; a test replaces them whole, so an unchanged snapshot
   // keeps its identity between reads.
   let workspaceSnapshot = workspaceState([])
-  let sessionSnapshot = sessionState([])
+  let sessionSnapshot: SessionListState = listed === undefined
+    ? sessionState([])
+    : {
+        ids: listed.ids.map(sid),
+        byId: listed.current === undefined
+          ? {}
+          : { [sid(listed.current)]: { id: sid(listed.current), retainedBy: { mainView: 1 } } as never },
+        phase: 'ready',
+        projectionsBySession: {},
+      }
   const subscribe = () => () => {}
   const workspacesSubscribe = vi.fn(subscribe)
   const initializeDefault = vi.fn(async (): Promise<WorkspaceView | undefined> => undefined)
@@ -163,7 +174,7 @@ async function bench() {
   ctx.provide('locale', locale)
   return {
     ctx, slots: ctx.get('slots') as SlotRegistry, locale, create, rename, commands, accessSource,
-    retain, using, selectPanel, search, renameSession, binding, fork, pickDirectory, pinSession, unpinSession,
+    retain, using, selectPanel, collapseSidebar, search, renameSession, binding, fork, pickDirectory, pinSession, unpinSession,
     workspacesSubscribe, initializeDefault, history, scope, sessionOf,
     setWorkspaces: (snapshot: WorkspaceSnapshot): void => { workspaceSnapshot = snapshot },
     setSessions: (snapshot: SessionListState): void => { sessionSnapshot = snapshot },
@@ -182,6 +193,24 @@ function declare(slots: SlotRegistry, ...names: HoleName[]): () => void {
     name, { kind: name === 'shell.overlay' ? 'list' : 'single', scope: 'root' },
   ]))
   return slots.register({ name: 'root', children } as never, () => null)
+}
+
+/**
+ * Apply the plugin with `search` as the document URL: the deep link settles
+ * during apply against the supplied listed Session ids.
+ * @param search - `window.location.search` for this document.
+ * @param listed - Session ids the ready list contains, plus its current selection.
+ * @returns the bench, with the URL restored to its absent state.
+ */
+async function deepLink(search: string, listed?: { ids: readonly string[]; current?: string }) {
+  vi.stubGlobal('location', { search })
+  try {
+    const b = await bench(listed)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    return b
+  } finally {
+    vi.unstubAllGlobals()
+  }
 }
 
 /** Own the sidebar declaration independently of the frame-wide overlay in lifecycle tests. */
@@ -267,7 +296,7 @@ describe('ui-workspace apply', () => {
     // The row actions follow the browser's own declaration, whenever it lands.
     expect(after.slots.entries(MENU_ITEM)).toHaveLength(5)
     expect(after.slots.entries(ROW_ACTION)).toHaveLength(2)
-    expect(after.slots.entries('shell.overlay')).toHaveLength(3)
+    expect(after.slots.entries('shell.overlay')).toHaveLength(4)
   })
 
   it('declares the two Session row lists and registers the shipped actions and overlay surfaces into them', async () => {
@@ -295,6 +324,7 @@ describe('ui-workspace apply', () => {
       ['pin', 200, PinSessionRowButton, 'workspace'],
     ])
     expect(rows('shell.overlay')).toEqual([
+      ['workspace-unknown-session', undefined, UnknownSessionHint, 'workspace'],
       ['workspace.session-rename', undefined, SessionRenameDialog, 'workspace'],
       ['workspace.session-archive', undefined, SessionArchiveConfirmDialog, 'workspace'],
       ['workspace.row-toast', undefined, RowActionToast, undefined],
@@ -878,7 +908,7 @@ describe('ui-workspace apply', () => {
     await fiber.await()
     expect(b.slots.entries(MENU_ITEM)).toHaveLength(5)
     expect(b.slots.entries(ROW_ACTION)).toHaveLength(2)
-    expect(b.slots.entries('shell.overlay')).toHaveLength(3)
+    expect(b.slots.entries('shell.overlay')).toHaveLength(4)
     await fiber.dispose()
     expect(b.slots.entries('sidebar.workspaces')).toHaveLength(0)
     expect(b.slots.entries('conversation.hero.workspace')).toHaveLength(0)
@@ -890,5 +920,46 @@ describe('ui-workspace apply', () => {
     expect(b.slots.entries('shell.overlay')).toHaveLength(0)
     expect(b.slots.entries('workspace.toast')).toHaveLength(0)
     expect(b.slots.snapshot('factory:workspace.toast.content')).toEqual([])
+  })
+})
+
+describe('ui-workspace session deep link', () => {
+  it('collapses the sidebar before the first render when the URL names a Session', async () => {
+    const b = await deepLink('?session=linked')
+    expect(b.collapseSidebar).toHaveBeenCalledTimes(1)
+  })
+
+  it('collapses for a well-formed id the Host list does not contain', async () => {
+    // The sidebar is decided before the list settles, so an unusable link shows
+    // its notice over the same rail instead of animating the frame afterwards.
+    const b = await deepLink('?session=missing', { ids: ['other'] })
+    expect(b.collapseSidebar).toHaveBeenCalledTimes(1)
+    expect(b.retain).not.toHaveBeenCalled()
+  })
+
+  it('leaves the sidebar alone without a Session in the URL or on in-app selection', async () => {
+    const b = await deepLink('')
+    expect(b.collapseSidebar).not.toHaveBeenCalled()
+    b.ctx.uiWorkspace.openSession('picked' as never)
+    expect(b.retain).toHaveBeenCalledWith('picked', { source: 'mainView' })
+    expect(b.collapseSidebar).not.toHaveBeenCalled()
+  })
+
+  it('leaves the sidebar alone for a malformed id', async () => {
+    const malformed = await deepLink('?session=a&session=b')
+    expect(malformed.collapseSidebar).not.toHaveBeenCalled()
+    const unsafe = await deepLink('?session=../etc/passwd')
+    expect(unsafe.collapseSidebar).not.toHaveBeenCalled()
+  })
+
+  it('still opens and mirrors a listed Session', async () => {
+    const b = await deepLink('?session=linked', { ids: ['linked'] })
+    expect(b.retain).toHaveBeenCalledWith('linked', { source: 'mainView' })
+  })
+
+  it('reuses the current selection for a listed Session it already opened', async () => {
+    const b = await deepLink('?session=linked', { ids: ['linked'], current: 'linked' })
+    expect(b.retain).not.toHaveBeenCalled()
+    expect(b.collapseSidebar).toHaveBeenCalledTimes(1)
   })
 })

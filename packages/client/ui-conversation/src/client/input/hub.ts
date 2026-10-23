@@ -26,6 +26,8 @@ import type { PopupDismissFace } from './facade.ts'
 import { SessionInputShell } from './facade.ts'
 import { reportMessageSubmission } from './submission-analytics.ts'
 import { readConversationDraft } from '../stores.ts'
+import { DraftPersistence } from './draft-persistence.ts'
+import type {} from '@deepseek-ai/dsh-api-remotes/client'
 
 /** Structural command face for per-session popup resolution. */
 interface CommandFace {
@@ -54,6 +56,8 @@ interface ConversationAttachmentFace {
 /** Session-addressed input facade registry (SessionInputResolver face + composer-layer extras). */
 export class InputHub implements SessionInputResolver {
   private readonly shells = new WeakMap<SessionBinding, SessionInputShell>()
+  private readonly drafts = new Map<SessionId, DraftPersistence>()
+
 
   /**
    * @param ctx - client root context (services resolved lazily per call — boot order stays free).
@@ -96,7 +100,7 @@ export class InputHub implements SessionInputResolver {
   shellFor(binding: SessionBinding): SessionInputShell {
     const existing = this.shells.get(binding)
     if (existing !== undefined) return existing
-    const { session, ctx: actx } = binding
+    const { sessionId: id, session, ctx: actx } = binding
     const shell = new SessionInputShell({
       actx,
       submissionState: () => {
@@ -153,12 +157,16 @@ export class InputHub implements SessionInputResolver {
         actx.on('slash/input-insert-text', req =>
           shell.insertText(req.text, req.span, req.continue === true) ? true : undefined),
       ]
-      return () => {
+      return async () => {
         for (const off of offs) off()
+        const persistence = this.drafts.get(id)
+        this.drafts.delete(id)
+        const drained = persistence?.dispose()
         const drafts = shell.dispose()
         this.shells.delete(binding)
         const conversation = this.rootCtx.get('conversation') as ConversationAttachmentFace | undefined
         for (const attachmentId of drafts) conversation?.releaseDraftAttachment(attachmentId)
+        await drained
       }
     }, 'conversation.input: session shell')
     actx.inject(['inputTriggers'], (scope) => {
@@ -169,6 +177,59 @@ export class InputHub implements SessionInputResolver {
     })
     shell.setDraft(readConversationDraft(binding.sessionId))
     return shell
+  }
+
+  /**
+   * Bind browser-local recovery and start durable text synchronization once per input.
+   * @param id - Session whose composer is mounted.
+   * @param write - synchronous browser-local draft persistence.
+   * @param hasLocalChanges - whether browser recovery includes text not yet acknowledged by the Host.
+   * @param acknowledge - mark the matching browser-local value as saved.
+   * @returns the local mirror disposer; Host synchronization lasts until scope disposal.
+   */
+  bindDraftMirror(
+    id: SessionId, write: (text: string) => void, hasLocalChanges: boolean, acknowledge: (text: string) => void,
+    onLoaded?: () => void,
+  ): () => void {
+    const shell = this.shell(id)
+    const push = (): void => { write(shell.state.getSnapshot().draft) }
+    const unmirror = shell.state.subscribe(push)
+    let persistence = this.drafts.get(id)
+    if (persistence === undefined) {
+      const remote = this.rootCtx.get('remote')
+      if (remote === undefined) throw new Error('conversation.input: remote service unavailable')
+      persistence = new DraftPersistence({
+        state: shell.state,
+        hasLocalChanges,
+        acknowledge,
+        read: async () => {
+          const result = await remote.session.getDraft({ sessionId: id })
+          if (!result.ok) throw new Error(result.error.message)
+          return result.value.text
+        },
+        write: async (text) => {
+          const result = await remote.session.setDraft({ sessionId: id, text })
+          if (!result.ok) throw new Error(result.error.message)
+        },
+        adopt: (text) => {
+          write(text)
+          shell.setDraft(text)
+        },
+        failed: () => { shell.notify('error', this.t('draft.persistenceFailed')) },
+      })
+      this.drafts.set(id, persistence)
+    }
+    if (onLoaded !== undefined) void persistence.whenLoaded.then(onLoaded)
+    return unmirror
+  }
+
+  /**
+   * Host draft hydrate for one Session, when persistence has started.
+   * @param id - Session id.
+   * @returns a promise that settles after the initial Host read, or `undefined`.
+   */
+  draftLoaded(id: SessionId): Promise<void> | undefined {
+    return this.drafts.get(id)?.whenLoaded
   }
 
   /**

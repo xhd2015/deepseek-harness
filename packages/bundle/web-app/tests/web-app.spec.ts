@@ -2,7 +2,7 @@
 
 import { EventEmitter } from 'node:events'
 import { spawn, type ChildProcess } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
@@ -13,6 +13,7 @@ import * as AppBoot from '@deepseek-ai/dsh-app-boot'
 import { createLaunchEnvironmentSnapshot, DSH_LAUNCH_ENVIRONMENT_KEY } from '@deepseek-ai/dsh-launch-environment'
 import { bindUrlHost, type WebServer } from '@deepseek-ai/dsh-host-webserver'
 import { apply, Config, internals } from '../src/index.ts'
+import { WEB_STARTUP_SERVICE } from '../src/startup.ts'
 
 vi.mock('node:child_process', async importOriginal => ({
   ...await importOriginal<typeof import('node:child_process')>(),
@@ -20,10 +21,15 @@ vi.mock('node:child_process', async importOriginal => ({
 }))
 
 let dist: string | undefined
+let home: string
 
 beforeEach(() => {
   vi.stubEnv('SSH_CONNECTION', '')
   vi.stubEnv('SSH_TTY', '')
+  // Readiness publication writes $DSH_HOME/web-listen.json: keep every record
+  // this suite writes in a throwaway home instead of the developer's.
+  home = mkdtempSync(join(tmpdir(), 'dsh-web-app-home-'))
+  vi.stubEnv('DSH_HOME', home)
 })
 
 afterEach(() => {
@@ -34,7 +40,14 @@ afterEach(() => {
   internals.openBrowser = originalOpenBrowser
   if (dist !== undefined) rmSync(dist, { recursive: true, force: true })
   dist = undefined
+  rmSync(home, { recursive: true, force: true })
 })
+
+/** The listen record the isolated home holds, or undefined when none was written. */
+function listenRecord(): unknown {
+  const path = join(home, 'web-listen.json')
+  return existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) as unknown : undefined
+}
 
 const originalResolve = internals.resolveDistIndex
 const originalOpenBrowser = internals.openBrowser
@@ -43,7 +56,7 @@ type BrowserLauncher = ChildProcess & { stderr: PassThrough }
 
 /** Minimal browser-launcher process for the native handoff adapter. */
 function launcher(): BrowserLauncher {
-  return Object.assign(new EventEmitter(), { stderr: new PassThrough() }) as BrowserLauncher
+  return Object.assign(new EventEmitter(), { stderr: new PassThrough(), unref: () => {}, ref: () => {} }) as BrowserLauncher
 }
 
 /** Stage a dist fixture and point the bundle's resolver at it. */
@@ -69,14 +82,19 @@ function fakeHttpServer(host = '127.0.0.1'): { server: WebServer } {
   return { server: server as WebServer }
 }
 
-/** Deterministic Host Connection face for URL publication and frontend injection. */
-function provideConnection(ctx: Context): void {
+/**
+ * Deterministic Host Connection face for URL publication and frontend injection.
+ * @param ctx - context receiving the service.
+ * @param launchToken - token the connection adds to launch URLs; `null`
+ * models `--no-auth`, whose URLs carry none.
+ */
+function provideConnection(ctx: Context, launchToken: string | null = 'test-token'): void {
   ctx.provide('connection', {
     // Adds the process token to the given canonical root, preserving any
     // public mount prefix the caller passed.
     authenticatedUrl(baseUrl: string) {
       const url = new URL(baseUrl)
-      url.searchParams.set('token', 'test-token')
+      if (launchToken !== null) url.searchParams.set('token', launchToken)
       return url.href
     },
     authorizeIndex: () => true,
@@ -139,6 +157,11 @@ describe('web-app runtime glue', () => {
     const webRuntime = contributions.find(contribution => contribution.name === 'web-runtime')
     expect(webRuntime?.resolve()).toEqual({ DSH_WEB_URL: 'http://127.0.0.1:4567' })
     expect(ctx.webApp.getAdvertisedUrl()).toBe('http://127.0.0.1:4567')
+    expect(listenRecord()).toEqual({
+      pid: process.pid,
+      origin: 'http://127.0.0.1:4567',
+      token: 'test-token',
+    })
   })
 
   it('advertises and opens the configured public root behind a prefix-stripping proxy', async () => {
@@ -177,6 +200,47 @@ describe('web-app runtime glue', () => {
     expect(urlContribution?.resolve()).toEqual({ DSH_WEB_URL: 'https://proxy.example:8443/web/' })
     // The service advertises the row's effective publicUrl, whether it came from --public-url or a profile override.
     expect(ctx.webApp.getAdvertisedUrl()).toBe('https://proxy.example:8443/web/')
+  })
+
+  it('publishes a tokenless listen record when the connection disabled browser authentication', async () => {
+    stageDist()
+    const ctx = new Context()
+    ctx.provide('webServer', fakeHttpServer().server)
+    provideConnection(ctx, null)
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    apply(ctx, new Config({ openBrowser: false, printUrl: true, surfaceContext: false }))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(log).toHaveBeenCalledWith('dsh web: http://127.0.0.1:4567/')
+    expect(listenRecord()).toEqual({ pid: process.pid, origin: 'http://127.0.0.1:4567' })
+    await ctx.fiber.dispose()
+    expect(listenRecord()).toBeUndefined()
+  })
+
+  it('mounts no server surface when the invocation is the open client', async () => {
+    stageDist()
+    const ctx = new Context()
+    ctx.provide('webServer', fakeHttpServer().server)
+    ctx.provide(WEB_STARTUP_SERVICE, {
+      mode: 'open',
+      openBrowser: true,
+      directory: '/tmp',
+      trustedHosts: [],
+      trustedHostsForSettings: [],
+      disableAuth: false,
+    } as never)
+    provideConnection(ctx)
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const openBrowser = vi.fn(async () => {})
+    internals.openBrowser = openBrowser
+    apply(ctx, new Config({ openBrowser: true, printUrl: true, surfaceContext: true }))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    // The open client returns before the listener, so it publishes no GUI of its own.
+    expect(ctx.get('webApp')).toBeUndefined()
+    expect(ctx.get('webRuntime')).toBeUndefined()
+    expect(log).not.toHaveBeenCalled()
+    expect(openBrowser).not.toHaveBeenCalled()
+    expect(listenRecord()).toBeUndefined()
+    await ctx.fiber.dispose()
   })
 
   it('publishes no readiness side effect when printing and browser opening are disabled', async () => {
@@ -476,7 +540,7 @@ describe('web-app runtime glue', () => {
     await ctx.fiber.dispose()
   })
 
-  it('scrubs the helper environment and reports helper spawn or exit failures', async () => {
+  it('scrubs the helper environment and detaches the default-browser helper', async () => {
     vi.stubEnv('DEEPSEEK_API_KEY', 'must-not-reach-browser')
     vi.stubEnv('DSH_HOME', '/must-not-reach-browser')
     const completed = launcher()
@@ -495,34 +559,9 @@ describe('web-app runtime glue', () => {
     expect(options?.env).not.toHaveProperty('DSH_HOME')
     expect(options?.env?.PATH).toBe(process.env.PATH)
     expect(options?.stdio).toEqual(['ignore', 'inherit', 'pipe'])
-    completed.emit('close', 0)
+    completed.emit('spawn')
     await expect(completion).resolves.toBeUndefined()
     expect(completed.listenerCount('error')).toBe(0)
-
-    const completedWithStderr = launcher()
-    vi.mocked(spawn).mockReturnValueOnce(completedWithStderr)
-    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
-    const completionWithStderr = originalOpenBrowser('http://127.0.0.1:4567')
-    completedWithStderr.stderr?.write('launcher note\n')
-    completedWithStderr.emit('close', 0)
-    await expect(completionWithStderr).resolves.toBeUndefined()
-    expect(stderr).toHaveBeenCalledWith('launcher note\n')
-
-    const failedWithReason = launcher()
-    vi.mocked(spawn).mockReturnValueOnce(failedWithReason)
-    const reasonFailure = originalOpenBrowser('http://127.0.0.1:4567')
-    const reasonAssertion = expect(reasonFailure).rejects.toThrow('desktop unavailable')
-    failedWithReason.stderr?.write('Error: desktop unavailable\n    at fixture')
-    failedWithReason.emit('close', 1)
-    await reasonAssertion
-
-    const failed = launcher()
-    vi.mocked(spawn).mockReturnValueOnce(failed)
-    const failure = originalOpenBrowser('http://127.0.0.1:4567')
-    const failureAssertion = expect(failure).rejects.toThrow('exited with code 3')
-    await Promise.resolve()
-    failed.emit('close', 3)
-    await failureAssertion
 
     const errored = launcher()
     vi.mocked(spawn).mockReturnValueOnce(errored)
@@ -531,6 +570,5 @@ describe('web-app runtime glue', () => {
     await Promise.resolve()
     errored.emit('error', new Error('spawn failed'))
     await errorAssertion
-    expect(errored.listenerCount('close')).toBe(0)
   })
 })

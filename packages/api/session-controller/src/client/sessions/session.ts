@@ -378,6 +378,30 @@ export class Session implements SessionFace {
   }
 
   /**
+   * Persist thinking-cap auto-continue and settle the projection cell from the
+   * response so `useProjection('thinkingCapAutoContinue')` updates immediately.
+   * @param enabled - whether a later reasoning-only `max-tokens` stop should auto-continue.
+   * @returns the stored policy and its event seq, or the business error.
+   */
+  async setThinkingCapAutoContinue(
+    enabled: boolean,
+  ): Promise<RemoteResult<{ enabled: boolean; seq: SessionSeq }>> {
+    const result = await this.remote.session.setThinkingCapAutoContinue({
+      sessionId: this.sessionId,
+      enabled,
+    })
+    if (!result.ok) return result
+    const current = this.projections.seqOf('thinkingCapAutoContinue') ?? -1
+    const reported = result.value.seq
+    const next = typeof reported === 'number' && Number.isSafeInteger(reported) && reported >= 0
+      ? Math.max(reported, current + 1)
+      : current + 1
+    const seq = SessionSeq(next)
+    this.projections.apply('thinkingCapAutoContinue', result.value.enabled, seq)
+    return { ok: true, value: { enabled: result.value.enabled, seq } }
+  }
+
+  /**
    * Execute one slash-command line against this session's agent — pure
    * admission semantics (the host executor durably logs the lifecycle;
    * outcomes render as flow nodes, never as a response echo).

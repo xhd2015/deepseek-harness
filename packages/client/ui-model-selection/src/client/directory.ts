@@ -20,8 +20,22 @@ export interface ModelDirectoryState {
   current: ModelSelection | null
   /** Saved effort caption retained when the selected model is unavailable. */
   retainedEffort?: string
-  /** Whether the current selection is present in the available catalog; null while unresolved. */
+  /**
+   * Whether the current selection can serve a request: an adapter serves its
+   * provider, as the host reports it, AND the host did not mark that exact
+   * model refused — null before the first load, which is NOT the same as
+   * blocked. Read this rather than "current matches no group": catalog
+   * membership is advisory, so a route serving a model it stopped advertising
+   * is missing from the groups yet perfectly usable. Only an explicit refusal
+   * on the selected model itself blocks it.
+   */
   routable: boolean | null
+  /**
+   * The selected model's refusal text, when the host listed it as refused.
+   * Present exactly when {@link routable} is false for that reason; the
+   * provider-level block reads its own copy.
+   */
+  unavailableReason?: string
   /** Successfully loaded provider groups (last good load). */
   groups: readonly ModelProviderGroup[]
   /** Provider-local failures from the last load; usable groups stay usable. */
@@ -176,13 +190,20 @@ export class ModelDirectory {
       })
       return
     }
-    const selection = projected.next ?? catalog.value.default
-    const routable = catalog.value.groups.some(group => group.id === selection.provider
-      && group.models.some(model => model.id === selection.model))
+    const current = projected.next ?? catalog.value.default
+    // A refused model carries its reason onto the band the host already
+    // publishes for the route: the composer blocks with that text instead of
+    // sending a request the adapter answers with the same refusal, one durable
+    // message later.
+    const refusal = catalog.value.groups
+      .find(group => group.id === current.provider)
+      ?.models.find(model => model.id === current.model)
+      ?.unavailable
     this.store.set({
-      current: selection,
+      current,
       ...retainedEffort === undefined ? {} : { retainedEffort },
-      routable,
+      routable: refusal === undefined && catalog.value.routableProviders.includes(current.provider),
+      ...refusal === undefined ? {} : { unavailableReason: refusal },
       groups: catalog.value.groups,
       failures: catalog.value.failures,
       status: this.store.getSnapshot().status === 'selecting'

@@ -73,6 +73,14 @@ describe('Session', () => {
     expect(messages[2]).toMatchObject({ role: 'tool', content: [{ type: 'text', text: 'ok' }] })
   })
 
+  it('marks a log-only append ignorable when requested', () => {
+    const session = Session.create(SessionId('ignorable-log-only'))
+    const event = session.append('turn/start', { turn: 1 }, { ignorable: true })
+    expect(event.ignorable).toBe(true)
+    const replayed = Session.create(SessionId('ignorable-log-only-replay'), structuredClone(session.snapshotEvents()))
+    expect(replayed.snapshotEvents()[0]?.ignorable).toBe(true)
+  })
+
   it('accepts and round-trips a max-tokens turn/end reason', () => {
     // The max-tokens TurnEndReason variant carries no extra data, so it must
     // append and persist like any other reason (JSON-serializable, no fields).

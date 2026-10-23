@@ -13,6 +13,52 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null
 }
 
+function hasVisibleText(value: unknown): boolean {
+  if (!Array.isArray(value)) return false
+  return value.some((part) => {
+    const record = asRecord(part)
+    return record !== null && typeof record.text === 'string' && record.text.trim() !== ''
+  })
+}
+
+/** OpenAI Fernet token. Codex ciphertext starts with this; other providers do not. */
+const CODEX_ENCRYPTED_PREFIX = 'gAAAAA'
+
+/** Which empty-summary ciphertext a reasoning replay carries, if either. */
+export type CiphertextReasoning = 'codex' | 'opaque'
+
+/**
+ * Classify a reasoning replay that has ciphertext and no readable summary.
+ * Local: the client bundle cannot value-import conversation.
+ * @param block - Replay block stored beside the assistant content block.
+ * @returns `codex` for an OpenAI Fernet blob, `opaque` for any other ciphertext, or null.
+ */
+export function ciphertextReasoning(block: unknown): CiphertextReasoning | null {
+  const replay = asRecord(block)
+  if (replay === null || replay.type !== 'reasoning') return null
+  const signature = replay.thinkingSignature
+  if (typeof signature !== 'string' || signature.length === 0) return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(signature) as unknown
+  } catch {
+    return null
+  }
+  const item = asRecord(parsed)
+  if (item === null || item.type !== 'reasoning') return null
+  if (typeof item.encrypted_content !== 'string' || item.encrypted_content.length === 0) return null
+  if (hasVisibleText(item.summary) || hasVisibleText(item.content)) return null
+  return item.encrypted_content.startsWith(CODEX_ENCRYPTED_PREFIX) ? 'codex' : 'opaque'
+}
+
+/** Replay blocks stored beside an assistant message, when the envelope has them. */
+export function replayBlocksFromSource(source: unknown): readonly unknown[] | undefined {
+  const record = asRecord(source)
+  const replay = record === null ? null : asRecord(record.replayState)
+  const blocks = replay?.blocks
+  return Array.isArray(blocks) ? blocks : undefined
+}
+
 function readString(record: Record<string, unknown>, key: string): string | null {
   const value = record[key]
   return typeof value === 'string' && value.length > 0 ? value : null
@@ -97,13 +143,24 @@ export function skillInvocationName(source: unknown): string | null {
   return readString(record, 'name')
 }
 
+function reasoningBlock(text: string, replayBlock: unknown): AssistantBlock {
+  if (text.trim() !== '') return { kind: 'reasoning', text }
+  const hint = ciphertextReasoning(replayBlock)
+  if (hint === 'codex') return { kind: 'reasoning', text, encrypted: true }
+  if (hint === 'opaque') return { kind: 'reasoning', text, opaque: true }
+  return { kind: 'reasoning', text }
+}
+
 /**
  * Classify finalized Assistant content for Chat rendering.
  * @param content - Core content blocks.
  * @returns Chat blocks in source order.
  */
-export function toAssistantBlocks(content: readonly ContentBlock[]): AssistantBlock[] {
-  return content.map(toAssistantBlock)
+export function toAssistantBlocks(
+  content: readonly ContentBlock[],
+  replayBlocks?: readonly unknown[],
+): AssistantBlock[] {
+  return content.map((block, index) => toAssistantBlock(block, replayBlocks?.[index]))
 }
 
 /**
@@ -111,10 +168,10 @@ export function toAssistantBlocks(content: readonly ContentBlock[]): AssistantBl
  * @param block - Core content block.
  * @returns Chat block.
  */
-export function toAssistantBlock(block: ContentBlock): AssistantBlock {
+export function toAssistantBlock(block: ContentBlock, replayBlock?: unknown): AssistantBlock {
   switch (block.type) {
     case 'text': return { kind: 'text', text: block.text }
-    case 'reasoning': return { kind: 'reasoning', text: block.text }
+    case 'reasoning': return reasoningBlock(block.text, replayBlock)
     case 'image': return { kind: 'image', attachment: block.attachment }
     case 'tool-call': return { kind: 'tool-call', callId: String(block.id), name: block.name, argsRaw: block.arguments }
     default: return { kind: 'other', block }

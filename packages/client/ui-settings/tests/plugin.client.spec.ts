@@ -27,7 +27,7 @@ function bench() {
   const ctx = new Context()
   onTestFinished(() => ctx.fiber.dispose())
   const remote = new TestRemote(ctx, { settings: { describe: describeCall } })
-  remote.$host = { home: undefined, isLoopback: false }
+  remote.$host = { home: undefined, isLoopback: false, settingsTrusted: false }
   return { ctx, describeCall, remote, fiber: ctx.plugin({ inject: [...inject], apply }) }
 }
 

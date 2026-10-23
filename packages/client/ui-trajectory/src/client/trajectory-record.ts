@@ -68,6 +68,8 @@ export interface TrajectoryCellProps extends HTMLAttributes<HTMLDivElement> {
   outputDetail?: string
   /** Full assistant reasoning content for the details panel. */
   thinkingDetail?: string
+  /** `thinkingDetail` is a missing-summary hint, not model prose. */
+  thinkingHint?: true
   /** Original message blocks in source order for the details panel. */
   sourceBlocks?: readonly TrajectorySourceBlock[]
   /** Original tool result blocks in source order for the details panel. */

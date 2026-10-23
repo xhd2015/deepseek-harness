@@ -161,11 +161,14 @@ describe('diffCardModel', () => {
     })
   })
 
-  it('leaves escalation fields to the Host and accepts unrelated open-root fields', () => {
+  it('accepts a redundant escalation pair but keeps malformed fields generic', () => {
     const args = (fields: Record<string, unknown>) => JSON.stringify({
       file_path: 'notes/demo.txt', old_string: 'hello', new_string: 'hello fixture', ...fields,
     })
+    expect(diffCardModel(running({ argsRaw: args({ sandbox_permissions: 7, justification: 'Need access' }) }))).toBeNull()
+    expect(diffCardModel(running({ argsRaw: args({ sandbox_permissions: 'workspace-write' }) }))).toBeNull()
     expect(diffCardModel(running({ argsRaw: args({ sandbox_permissions: 'workspace-write', justification: '' }) }))).not.toBeNull()
+    expect(diffCardModel(running({ argsRaw: args({ sandbox_permissions: 'danger-full-access', justification: '' }) }))).not.toBeNull()
     expect(diffCardModel(running({ argsRaw: args({ extension: { version: 1 } }) }))).not.toBeNull()
   })
 })

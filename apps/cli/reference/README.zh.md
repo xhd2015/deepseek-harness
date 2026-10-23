@@ -37,13 +37,13 @@ dsh rescue
 
 | Profile | 参数 |
 |---|---|
-| `web` | `--host`、`--port`、`--tls-cert`、`--tls-key`、`--public-url`、可重复的 `--trusted-host`、`--no-open` |
+| `web` | `--host`、`--port`、`--tls-cert`、`--tls-key`、`--public-url`、可重复的 `--trusted-host`、可重复的 `--trusted-host-for-settings`、`--no-open`、`--browser`、`open [dir]` |
 | `headless` | 任务文本，作为位置参数 |
 | `sdk` | 无选项；stdio 携带 JSON-RPC 协议 |
 | `sdk-minimal` | 无选项；stdio 携带相同的 JSON-RPC 协议 |
 | `acp` | 无选项；stdio 携带 ACP（Agent Client Protocol） |
 
-一次性任务（`dsh --profile headless "run the tests"`）通过核心注册表创建一个全新的持久化 Agent（智能体），提交任务、等待完全停稳并对会话执行 flush，再从其持久化事件区间中推导最后一个非空 assistant 文本与最终 `turn/end` 原因。它在 `dsh: reasoning:` 标题下将非空的提供方推理（reasoning）增量流式写入 stderr，只在 stdout 打印最终文本，并在原因为 `completed` 时以 0 退出，否则以 1 退出；没有推理内容的成功响应会保持 stderr 为空。没有任务的调用是该应用的用法错误。随附 headless profile 不挂载浏览器 Connection、HTTP 服务器、Web 运行时或浏览器客户端，也不会打开监听端口。
+一次性任务（`dsh --profile headless "run the tests"`）通过核心注册表创建一个全新的持久化 Agent（智能体），提交任务、等待完全停稳并对会话执行 flush，再从其持久化事件区间中推导最后一个非空 assistant 文本与最终 `turn/end` 原因。 `--trusted-host-for-settings` 标出 settings-trusted 的 authority，且每一项也必须是 `--trusted-host`。它在 `dsh: reasoning:` 标题下将非空的提供方推理（reasoning）增量流式写入 stderr，只在 stdout 打印最终文本，并在原因为 `completed` 时以 0 退出，否则以 1 退出；没有推理内容的成功响应会保持 stderr 为空。没有任务的调用是该应用的用法错误。随附 headless profile 不挂载浏览器 Connection、HTTP 服务器、Web 运行时或浏览器客户端，也不会打开监听端口。
 
 可在不启动的情况下检查组合出的配置树：
 
@@ -108,7 +108,7 @@ dsh --profile tui
 
 ## Web Profile
 
-`dsh web` 使用 profile 简写。启动器先解析自身的 flag，其余 flag 属于 web 应用，由组合包中的普通提供方解析。`--host` 与 `--port` 覆盖组合的监听器取值，`--tls-cert`/`--tls-key` 则设置监听器的 `tls` 证书对。host 必须指名一个具体的本机地址，不能是通配地址（`--host 0.0.0.0` 会以用法错误退出）；`hostname -i` 可能列出多个，请只传一个。可重复的 `--trusted-host` 值会收集到 `ctx.webStartup.trustedHosts`；部署表达式可以添加自己的 authority。`--no-open` 只对本次调用关闭默认浏览器交接。客户端插件 HMR（热模块替换）接收器始终挂载，在 `pnpm run dev:web` 重建客户端 bundle 之前保持空闲；该命令先构建一次，再启动这同一个启动器并持续重建客户端 bundle，加 `--no-serve` 则只运行 watcher、配合别处启动的 `dsh web`。
+`dsh web` 使用 profile 简写。启动器先解析自身的 flag，其余 flag 属于 web 应用，由组合包中的普通提供方解析。`--host` 与 `--port` 覆盖组合的监听器取值，`--tls-cert`/`--tls-key` 则设置监听器的 `tls` 证书对。host 必须指名一个具体的本机地址，不能是通配地址（`--host 0.0.0.0` 会以用法错误退出）；`hostname -i` 可能列出多个，请只传一个。可重复的 `--trusted-host` 值会收集到 `ctx.webStartup.trustedHosts`；部署表达式可以添加自己的 authority。`--browser` 指定交接浏览器（`brave`、`chrome`、`firefox`、`edge`、`safari`）。`--no-open` 只对本次调用关闭浏览器交接。`dsh web open [dir]` 在已经运行的 GUI 上为该目录（默认：cwd）创建新 Session。客户端插件 HMR（热模块替换）接收器始终挂载，在 `pnpm run dev:web` 重建客户端 bundle 之前保持空闲；该命令先构建一次，再启动这同一个启动器并持续重建客户端 bundle，加 `--no-serve` 则只运行 watcher、配合别处启动的 `dsh web`。
 
 `--public-url <url>` 公告唯一的 HTTP(S) 应用根——可带转发前缀——替代监听器的绑定地址 URL（回环绑定时为回环地址）。它不授予信任，因此浏览器可见的 authority 仍需用 `--trusted-host` 点名；[在反向代理之后发布 Web UI](../../../docs/user/guide/public-deployments.zh.md)列出了前置代理必须提供的内容。
 
@@ -119,6 +119,9 @@ dsh web
 dsh web --host "$(hostname -i | awk '{print $1}')" --public-url https://app.example/ --trusted-host app.example
 dsh web --tls-cert ./server-chain.pem --tls-key ./server-key.pem
 dsh web --no-open
+dsh web --browser brave
+dsh web open
+dsh web open ~/proj --browser brave
 dsh web --patch ./extra.cordis.yml
 dsh web --dump-config
 dsh web --help

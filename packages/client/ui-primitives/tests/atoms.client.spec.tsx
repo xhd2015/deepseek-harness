@@ -217,6 +217,61 @@ describe('Menu', () => {
     expect(other.className).not.toMatch(/selectedFill/)
   })
 
+  it('keeps an empty trailing box on an unchecked menuitemcheckbox and fills it when on', () => {
+    const onSelect = vi.fn()
+    const { rerender } = render(
+      <Menu
+        open
+        dense
+        anchor={<span>trigger</span>}
+        items={[{ id: 'toggle', label: 'Auto', checked: false }, { id: 'a', label: 'Alpha' }]}
+        onSelect={onSelect}
+        onClose={() => {}}
+      />)
+    const off = screen.getByRole('menuitemcheckbox', { name: 'Auto' })
+    expect(off.getAttribute('aria-checked')).toBe('false')
+    expect(off.querySelector('svg')).toBeNull()
+    expect(screen.getByRole('menuitem', { name: 'Alpha' }).getAttribute('aria-checked')).toBeNull()
+    fireEvent.click(off)
+    expect(onSelect).toHaveBeenCalledWith('toggle')
+    rerender(
+      <Menu
+        open
+        dense
+        anchor={<span>trigger</span>}
+        items={[{ id: 'toggle', label: 'Auto', checked: true }, { id: 'a', label: 'Alpha' }]}
+        onSelect={onSelect}
+        onClose={() => {}}
+      />)
+    const on = screen.getByRole('menuitemcheckbox', { name: 'Auto' })
+    expect(on.getAttribute('aria-checked')).toBe('true')
+    expect(on.querySelector('svg')).not.toBeNull()
+  })
+
+  it('walks a menuitemcheckbox with Tab and paints a component-row checkbox', () => {
+    const onSelect = vi.fn()
+    const onToggle = vi.fn()
+    render(
+      <Menu
+        open
+        anchor={<button type="button">trigger</button>}
+        items={[{ id: 'toggle', label: 'Auto', checked: true }]}
+        onSelect={onSelect}
+        onClose={() => {}}
+      >
+        <MenuItemButton checked={false} onSelect={onToggle}>Quiet</MenuItemButton>
+      </Menu>)
+    const box = screen.getByRole('menuitemcheckbox', { name: 'Auto' })
+    box.focus()
+    fireEvent.keyDown(document, { key: 'Tab' })
+    expect(onSelect).toHaveBeenCalledWith('toggle')
+    const quiet = screen.getByRole('menuitemcheckbox', { name: 'Quiet' })
+    expect(quiet.getAttribute('aria-checked')).toBe('false')
+    expect(quiet.querySelector('svg')).toBeNull()
+    fireEvent.click(quiet)
+    expect(onToggle).toHaveBeenCalled()
+  })
+
   it('renders a leading icon and a separator between groups', () => {
     render(
       <Menu
@@ -462,6 +517,8 @@ describe('Menu', () => {
             label: 'New Workspace',
             submenu: [
               { id: 'ok', label: 'Create ok', icon: <svg data-testid="sub-ic" />, shortcut: { keys: ['⌘', 'N'], aria: 'Meta+N' } },
+              { id: 'pin', label: 'Pin', checked: true },
+              { id: 'hide', label: 'Hide', checked: false },
             ],
           },
         ]}
@@ -480,6 +537,10 @@ describe('Menu', () => {
     expect(screen.getByTestId('sub-ic')).toBeDefined()
     expect(screen.getByRole('menuitem', { name: 'Create ok' }).getAttribute('aria-keyshortcuts')).toBe('Meta+N')
     expect(screen.getByRole('menuitem', { name: 'Create ok' }).querySelectorAll('kbd')).toHaveLength(2)
+    const pin = screen.getByRole('menuitemcheckbox', { name: 'Pin' })
+    expect(pin.getAttribute('aria-checked')).toBe('true')
+    expect(pin.querySelector('svg')).not.toBeNull()
+    expect(screen.getByRole('menuitemcheckbox', { name: 'Hide' }).getAttribute('aria-checked')).toBe('false')
     fireEvent.click(screen.getByRole('menuitem', { name: 'Create ok' }))
     expect(onSelect).toHaveBeenCalledWith('ok')
     fireEvent.mouseLeave(wrap)

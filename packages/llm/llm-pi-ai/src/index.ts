@@ -3,7 +3,7 @@
  * provider routes; a route naming an installed pi-ai provider inherits that
  * provider's endpoint, protocol, and model catalog as defaults, and a route
  * pi-ai does not ship is declared outright. Profile facts resolve per request
- * over the optional `llm-pi-ai` user-settings section and the optional
+ * over the optional `llm-proxy-providers` user-settings section and the optional
  * credential seam, so a changed key, endpoint, model, or knob reaches the next
  * request without a restart; a changed *route set* (or a route's
  * registration-captured retry policy) re-registers the same adapter instance
@@ -94,7 +94,7 @@ export { supportedProtocols } from './provider.ts'
 export const name = 'llm-pi-ai'
 export const inject = ['llm']
 
-const NS = 'llm-pi-ai'
+const NS = 'llm-proxy-providers'
 
 /**
  * The registry captures these per route; a change here must re-register.
@@ -130,7 +130,12 @@ function directoryEntries(
   settingsNs: string,
 ): LlmConfigurableProvider[] {
   const entries = new Map<string, LlmConfigurableProvider>()
-  const declare = (provider: string, displayName: string, error?: string): void => {
+  const declare = (
+    provider: string,
+    displayName: string,
+    error?: string,
+    modelErrors?: ReadonlyMap<string, string>,
+  ): void => {
     const installed = catalogProvider(provider)
     entries.set(provider, {
       provider,
@@ -143,10 +148,18 @@ function directoryEntries(
       declared: installed === undefined,
       ...installed === undefined ? {} : providerDefaultsOf(installed),
       ...error === undefined ? {} : { error },
+      // Named per model so the Models page shows a refused entry beside the
+      // field that refused it, and so a route-level `error` no longer stands
+      // in for the first of them.
+      ...modelErrors === undefined || modelErrors.size === 0
+        ? {}
+        : { modelErrors: Object.fromEntries(modelErrors) },
     })
   }
   for (const provider of catalogProviderIds()) declare(provider, provider)
-  for (const [provider, profile] of profiles) declare(provider, profile.displayName, profile.catalogError)
+  for (const [provider, profile] of profiles) {
+    declare(provider, profile.displayName, profile.catalogError, profile.modelErrors)
+  }
   return [...entries.values()]
 }
 

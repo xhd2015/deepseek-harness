@@ -19,6 +19,7 @@ import {
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
+import { installDraftRemote } from './draft-remote.client.ts'
 import { createConversationStore } from '../src/client/stores.ts'
 import type { SessionInputShell } from '../src/client/input/facade.ts'
 import { RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
@@ -40,6 +41,7 @@ function sessionFakeFor() {
 
 async function bench() {
   const runtime = await SlotTestRuntime.create()
+  installDraftRemote(runtime)
   const rootUpload = vi.fn(() => Promise.resolve({
     ok: true as const,
     value: {

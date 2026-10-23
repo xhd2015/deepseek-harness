@@ -640,3 +640,118 @@ describe('malformed replay and listener lifecycle', () => {
     await secondFiber.dispose()
   })
 })
+
+describe('usage-attributed assistant replay prices', () => {
+  const FIRST_USAGE: TokenUsage = { inputTokens: 100, outputTokens: 5_000 }
+  const ROUTE = header('deepseek-v4-flash')
+
+  it('attributes consecutive matching prompt growth to the previous assistant node', () => {
+    const service = meter()
+    const session = Session.create(SessionId('calibrate'))
+    appendSuccessfulCall(session, ROUTE, { providerText: 'short', usage: FIRST_USAGE })
+    const first = service.measure(session)
+    expect(first.nodes).toHaveLength(1)
+    const assistantSeq = first.nodes[0]!.seq
+    expect(first.nodes[0]!.tokens).toBe(first.nodes[0]!.heuristicTokens)
+
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'follow-up' }],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    const withUser = service.measure(session)
+    const userTokens = withUser.nodes[1]!.tokens
+
+    appendSuccessfulCall(session, ROUTE, {
+      turn: 1,
+      step: 2,
+      providerText: 'next',
+      usage: { inputTokens: 100 + 5_000 + userTokens, outputTokens: 10 },
+    })
+    const calibrated = service.measure(session)
+    const assistant = calibrated.nodes.find(node => node.seq === assistantSeq)
+    expect(assistant).toBeDefined()
+    expect(assistant!.tokens).toBe(5_000)
+    expect(assistant!.heuristicTokens).toBe(first.nodes[0]!.heuristicTokens)
+    expect(assistant!.tokens).toBeGreaterThan(assistant!.heuristicTokens)
+  })
+
+  it('caps attributed replay cost at the previous call outputTokens', () => {
+    const service = meter()
+    const session = Session.create(SessionId('calibrate-cap'))
+    appendSuccessfulCall(session, ROUTE, { providerText: 'short', usage: FIRST_USAGE })
+    appendSuccessfulCall(session, ROUTE, {
+      turn: 1,
+      step: 2,
+      providerText: 'next',
+      usage: { inputTokens: 20_000, outputTokens: 10 },
+    })
+    const assistant = service.measure(session).nodes[0]!
+    expect(assistant.tokens).toBe(5_000)
+  })
+
+  it('leaves the heuristic when the next call uses a different envelope', () => {
+    const service = meter()
+    const session = Session.create(SessionId('calibrate-header'))
+    appendSuccessfulCall(session, ROUTE, { providerText: 'short', usage: FIRST_USAGE })
+    const heuristic = service.measure(session).nodes[0]!.heuristicTokens
+    appendSuccessfulCall(session, header('other-model'), {
+      turn: 1,
+      step: 2,
+      providerText: 'next',
+      usage: { inputTokens: 5_100, outputTokens: 10 },
+    })
+    expect(service.measure(session).nodes[0]!.tokens).toBe(heuristic)
+  })
+
+  it('adds back prices of nodes removed between matching usage-bearing calls', () => {
+    const service = meter()
+    const session = Session.create(SessionId('calibrate-removed'))
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'original context' }],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    appendSuccessfulCall(session, ROUTE, { providerText: 'short', usage: FIRST_USAGE })
+    const afterFirst = service.measure(session)
+    const userSeq = afterFirst.nodes[0]!.seq
+    const assistantSeq = afterFirst.nodes[1]!.seq
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'original context' }],
+      source: { kind: 'test' },
+    }), {
+      surfaceOp: { op: 'replace', startSeq: userSeq, endSeq: userSeq },
+      sourceEventSeqs: [userSeq],
+    })
+    appendSuccessfulCall(session, ROUTE, {
+      turn: 1,
+      step: 2,
+      providerText: 'next',
+      usage: { inputTokens: 5_100, outputTokens: 10 },
+    })
+    const assistant = service.measure(session).nodes.find(node => node.seq === assistantSeq)
+    expect(assistant).toBeDefined()
+    expect(assistant!.tokens).toBe(5_000)
+  })
+
+  it('skips calibration when the previous assistant is no longer on the surface', () => {
+    const service = meter()
+    const session = Session.create(SessionId('calibrate-replaced'))
+    appendSuccessfulCall(session, ROUTE, { providerText: 'short', usage: FIRST_USAGE })
+    const assistantSeq = service.measure(session).nodes[0]!.seq
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'replacement' }],
+      source: { kind: 'test' },
+    }), {
+      surfaceOp: { op: 'replace', startSeq: assistantSeq, endSeq: assistantSeq },
+      sourceEventSeqs: [assistantSeq],
+    })
+    appendSuccessfulCall(session, ROUTE, {
+      turn: 1,
+      step: 2,
+      providerText: 'next',
+      usage: { inputTokens: 5_100, outputTokens: 10 },
+    })
+    const replacement = service.measure(session).nodes[0]!
+    expect(replacement.seq).not.toBe(assistantSeq)
+    expect(replacement.tokens).toBe(replacement.heuristicTokens)
+  })
+})

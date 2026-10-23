@@ -36,9 +36,16 @@ Start the GUI, open your browser, and start talking to the agent. The flags fine
 ```sh
 dsh --profile web
 dsh --profile web --no-open --port 8080
+dsh --profile web --browser brave
+dsh --profile web open
+dsh --profile web open ~/proj --browser brave
 ```
 
-After startup you see a `dsh web:` line whose root URL carries a fresh process token. Unless `--no-open` or an SSH session suppresses it, the default browser opens that URL, receives a signed cookie, and redirects to the same directory without the token. You know it worked when the page loads and you can chat with the agent. Two failures to expect: if the frontend is not built, startup stops with a build hint (`pnpm run build` in a checkout); if the browser cannot be opened, a credential-free diagnostic prints to stderr while the server keeps running — open the printed startup URL yourself.
+After startup you see a `dsh web:` line whose root URL carries a fresh process token; a `--no-auth` server prints the bare URL instead, because it accepts every loopback request without a credential. Unless `--no-open` or an SSH session suppresses it, the chosen browser (`--browser brave|chrome|firefox|edge|safari`, or the OS default) opens that URL, receives a signed cookie, and redirects to the same directory without the token. You know it worked when the page loads and you can chat with the agent. Two failures to expect: if the frontend is not built, startup stops with a build hint (`pnpm run build` in a checkout); if the browser cannot be opened, a credential-free diagnostic prints to stderr while the server keeps running — open the printed startup URL yourself.
+
+`dsh web open [dir]` talks to that already-running GUI: it registers the directory as a Workspace (reusing the existing one for the same path), creates a new Session, and opens it. The invocation binds no port and serves no page itself, so only the running GUI answers HTTP. The directory defaults to the invoking cwd. The serving process publishes how to reach it in `$DSH_HOME/web-listen.json` — its origin plus the launch token while browser authentication is on, and no token for a `--no-auth` server, which the client then calls unauthenticated. If no GUI is serving, the command exits nonzero, names the listen record it read, and tells you to start `dsh web`. `--no-open` on this subcommand still creates the Session.
+
+Supply `-p` / `--prompt <text>` or `--prompt-file <file>` to submit an initial prompt; the two sources are mutually exclusive. Prompt files are read as UTF-8 relative to the invoking cwd, not the workspace directory, and text retains its whitespace and newlines. Unreadable files and empty or whitespace-only prompts fail before Session creation. Add `--no-submit` to save the initial text as an editable draft instead of starting a turn; it requires a prompt source and works with `--no-open`. Prompt text never enters the browser URL. Initial prompt or draft failures exit nonzero and identify the created Session. Browser-launch failure instead prints a credential-free `warning:` on stderr and exits successfully, retaining the Session.
 
 **Settings → Models** displays **DeepSeek**, using `DEEPSEEK_API_KEY`. The default is `deepseek-official` / `deepseek-flash` (DeepSeek-V4.1-Flash). The [DeepSeek plugin](../../llm/llm-deepseek/README.md#endpoint-and-wire-format) uses the Messages API.
 
@@ -48,14 +55,17 @@ Saved model selections override the composition default. The settings card accep
 
 The `minimal` agent preset uses a persistent shell, the `read_image` tool, and a fixed persona, with automatic history compaction and the idle-session `/compact` command. It shares the Host token meter and owns an isolated compaction backend. [Compaction configuration and retention](../../compaction/compaction-basic/README.md#use-this-package) follow the existing backend. Image reads reuse the Host filesystem and attachment store and require an image-capable model; text read, write, and edit tools remain excluded.
 
-`--host` and `--port` configure the listener; `--tls-cert` and `--tls-key` make it serve HTTPS; `--public-url` names the advertised public HTTP(S) root the GUI is reached at behind a prefix-stripping proxy, and `--trusted-host` adds further accepted authorities. All are described under [Listening, trust, and public deployments](#public-deployments), and the `tls` field those flags set is documented with the [carrier's config](../../../docs/subsystems/web-server.md#config):
+`--host` and `--port` configure the listener; `--tls-cert` and `--tls-key` make it serve HTTPS; `--public-url` names the advertised public HTTP(S) root the GUI is reached at behind a prefix-stripping proxy, and `--trusted-host` adds further accepted authorities. `--no-auth` skips process-token browser authentication when an outer reverse proxy already authenticates. All are described under [Listening, trust, and public deployments](#public-deployments), and the `tls` field those flags set is documented with the [carrier's config](../../../docs/subsystems/web-server.md#config):
 
 | Field | Default | Meaning |
 |---|---|---|
 | `openBrowser` | `true` | Open the default browser after startup; SSH launches suppress it |
 | `printUrl` | `true` | Print the `dsh web:` URL line at startup |
-| `surfaceContext` | `true` | Expose `DSH_WEB_URL` to the agent's shell commands |
+| `surfaceContext` | `true` | Give the agent GUI-orientation context and expose `DSH_WEB_URL` to its shell commands |
 | `publicUrl` | Unset | Advertised HTTP(S) application root; otherwise announce the bind-address URL |
+| `trustedHosts` | `[]` | Extra hosts allowed to reach the GUI from the network |
+| `disableAuth` | `false` | Skip process-token and cookie checks (`dsh web --no-auth`); Host/Origin trust remains |
+| `trustedHostsForSettings` | `[]` | Authorities whose page is settings-trusted; each must also be a trusted host |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-web-app) lists this runtime plugin's accepted fields and their JSDoc. The shipped composition inserts the `schedule` service row and the `ui-schedule` task page row, while the clock reading and the four reminder tools belong to the `standard`, `cordis`, and `ptc` presets. The `tool-subagent` and `tool-subagent-fork` rows in those presets deny the four tools, so a delegated child's scope never lists them.
 
@@ -81,6 +91,16 @@ Without `--public-url`, mapped IPv6 loopback binds such as `::ffff:127.0.0.1` ad
 Neither the advertised URL nor the browser-trust fence protects the port itself, so restrict the port to the trusted proxy or network.
 
 The printed URL contains a process credential; share it only with intended users. `printUrl: false` suppresses the line with or without `--public-url`, and the credential never appears in the model context or in `DSH_WEB_URL`.
+
+### Settings from a trusted host
+
+Settings live in the Host document and hold model credentials, so a page may read and write them only when it is loaded from a loopback authority — or from an authority the deployment explicitly named with `--trusted-host-for-settings`. Every entry must also be a `--trusted-host`, since the fence would otherwise refuse the page that is meant to use the grant; a violation is a usage error at startup.
+
+```sh
+dsh web --trusted-host dsh.example.com --trusted-host-for-settings dsh.example.com
+```
+
+Without the second flag an `https://` deployment keeps settings process-local: the Models page renders its "settings live on the machine that runs the harness" notice and directs the operator to the loopback GUI or an SSH forward. The named authorities reach the browser as the `__DSH_SETTINGS_TRUST__` boot global, and the page's own authority is matched against them with the same normalization the fence uses — a port-less entry covers the hostname on any port, an entry with a port must match it exactly. Naming a publicly reachable authority therefore grants settings and credential editing to anyone who can load that page and pass the deployment's authentication.
 
 ### Running over SSH
 
@@ -116,9 +136,10 @@ The URL line and browser handoff are readiness signals: supervisors RPC as soon 
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | The `web-app` glue plugin: dist resolution, advertised application URL, bash variable, URL line, browser handoff |
+| [`src/index.ts`](src/index.ts) | The `web-app` glue plugin: dist resolution, advertised application URL, bash variable, URL line, browser handoff, listen record for `dsh web open` |
 | [`src/public-url.ts`](src/public-url.ts) | Advertised-root validation and trailing-slash normalization; a leaf module for local imports, not package API |
-| [`src/startup.ts`](src/startup.ts) | The `web-startup` provider: `--host`, `--port`, `--tls-cert`, `--tls-key`, `--public-url`, `--trusted-host`, `--no-open`, `--help` |
+| [`src/startup.ts`](src/startup.ts) | The `web-startup` provider: `--host`, `--port`, `--tls-cert`, `--tls-key`, `--public-url`, `--trusted-host`, `--no-open`, `--browser`, `open [dir]`, `--help` |
+| [`src/open.ts`](src/open.ts) | `dsh web open` client against the running GUI |
 | [`cordis.patch.yml`](cordis.patch.yml) | The web patch: restated base values, web host rows, browser roster, preset registry |
 | [`presets/`](presets) | One `@deepseek-ai/dsh-agent-preset` declaration per shipped preset (`standard`, `ptc`, `minimal`, `cordis`), each its own patch file |
 | [`tests/web-app.spec.ts`](tests/web-app.spec.ts) | Dist index anchoring, advertised-URL publication and warnings, bash variable, readiness publication |

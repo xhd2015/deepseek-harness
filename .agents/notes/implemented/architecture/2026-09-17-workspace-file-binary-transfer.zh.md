@@ -12,7 +12,7 @@ Status: implemented
 
 [Remote 方法架构](2026-08-02-typert-remote-method-calls.zh.md)负责方法分发与生命周期；本记录规定二进制成功响应的编码及 Client 校验。[工作区文件服务](2026-09-05-workspace-files-service.zh.md)提供单一的二进制 `readBytes` Remote。其必填选项对象独立选择字节 `range` 和用于相对目标解析的 `baseFile`。未传 `range` 时读取完整文件。这避免为正交的选择设置不同方法名，同时保留有界的 `fs.readBytes` 和 `fs.readByteRange` 读取。
 
-Typert 递归识别一元结果类型中的 `Uint8Array`，包括根值、可选字段和容器。生成的结果 codec 提供 `encode()` 处理类型可能包含字节的子树，并通过 `decode()` 校验还原后的值，不逐字节遍历、复制或冻结字节载荷；Client 声明将每个字节缓冲区限定为 `ArrayBuffer`。Gateway 执行生成的 encoder，保持 strict JSON 值不变，并为源码模式调用执行运行时字节识别；随后向 Connection 返回 JSON 兼容元数据及相对于结果的字节附件。Connection 负责标准 `FormData` 部分，并在 JSON 元数据中保留 RPC 信封和关联 id；它不检查业务值，也不依赖 Typert 反射。附件表将字节部分与 JSON 结果中的路径关联，字段名仍由业务拥有。Client 恢复基于 `Blob.arrayBuffer()` 的 `Uint8Array` 视图，Gateway 将校验交给生成的解码器。普通结果与错误继续使用 JSON 响应。Gateway 负责方法分发、Session 查找、取消、结果投影及挂载生命周期；功能代码无需 multipart 读取器或专用路由。
+Typert 递归识别一元结果类型中的 `Uint8Array`，包括根值、可选字段和容器。生成的结果 codec 提供 `encode()` 处理类型可能包含字节的子树，并通过 `decode()` 校验还原后的值，不逐字节遍历、复制或冻结字节载荷；Client 声明将每个字节缓冲区限定为 `ArrayBuffer`。Gateway 执行生成的 encoder，保持 strict JSON 值不变，并为源码模式调用执行运行时字节识别；随后向 Connection 返回 JSON 兼容元数据及相对于结果的字节附件。Connection 负责标准 `FormData` 部分，并在 JSON 元数据中保留 RPC 信封和关联 id；它不检查业务值，也不依赖 Typert 反射。附件表将字节部分与 JSON 结果中的路径关联，字段名仍由业务拥有。Client 恢复基于 `Blob.arrayBuffer()` 的 `Uint8Array` 视图，Gateway 将校验交给生成的解码器。普通结果与错误继续使用 JSON 响应。浏览器的 JSON 一元调用走 Gateway `$invoke` mux；字节结果仍走这条 HTTP FormData 路径，因为 `$invoke` 是 JSON 流，不会还原附件。Gateway 负责方法分发、Session 查找、取消、结果投影及挂载生命周期；功能代码无需 multipart 读取器或专用路由。
 
 ## 考虑过的替代方案
 
@@ -28,4 +28,4 @@ Typert 递归识别一元结果类型中的 `Uint8Array`，包括根值、可选
 
 ## 验证
 
-Workspace 测试覆盖完整与分段读取、基准文件解析组合、上限、Session 查找、取消以及二进制 RPC 往返。Connection 和 Gateway 测试覆盖嵌套及多附件、帧格式、关联关系、畸形 multipart，以及取消或撤销的调用；Typert 测试覆盖递归结果 codec、Client 声明，以及对二进制输入和流的拒绝。构建后的浏览器场景验证原始 PNG 字节以及 HTML、PDF、图片和文本预览。本机 benchmark 使用相同合成文件比较完整与分段读取，并区分传输/解码和完整读取路径。
+Workspace 测试覆盖完整与分段读取、基准文件解析组合、上限、Session 查找、取消以及二进制 RPC 往返。Connection 和 Gateway 测试覆盖嵌套及多附件、帧格式、关联关系、畸形 multipart，以及取消或撤销的调用；Typert 测试覆盖递归结果 codec、Client 声明，以及对二进制输入和流的拒绝。Gateway Client 测试固定带 `encode()` 的一元方法走 HTTP，JSON 一元方法走 mux。构建后的浏览器场景验证原始 PNG 字节以及 HTML、PDF、图片和文本预览。本机 benchmark 使用相同合成文件比较完整与分段读取，并区分传输/解码和完整读取路径。
