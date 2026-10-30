@@ -27,6 +27,7 @@ import { RenameSessionMenuItem, SessionRenameDialog } from '../src/client/sessio
 import { RowActionToast } from '../src/client/session-actions/RowActionToast.tsx'
 import type { ArchiveToastInjected, ToastDisplayInjected } from '../src/client/contract/toast.ts'
 import { SessionIdMenuItem } from '../src/client/session-actions/SessionId.tsx'
+import { UnknownSessionHint, type UnknownSessionHintInjected } from '../src/client/UnknownSessionHint.tsx'
 import { WorkspacePicker } from '../src/client/WorkspacePicker.tsx'
 import { FLAT_SESSION_ORDER_KEY } from '../src/client/stores.ts'
 import { UNGROUPED_KEY } from '../src/client/tree.ts'
@@ -42,6 +43,21 @@ const sessionState = (items: readonly SessionSummary[]): SessionListState => ({
   phase: 'ready',
   projectionsBySession: {},
 })
+const listedState = (listed: { ids: readonly string[]; current?: string }): SessionListState => {
+  const ids = listed.ids.map(sid)
+  const byId: SessionListState['byId'] = {}
+  for (const id of ids) {
+    byId[id] = {
+      id, displayTitle: id, running: false, blank: false, updatedAt: 0,
+      retainedBy: listed.current === id ? { mainView: 1 } : {},
+    }
+  }
+  if (listed.current !== undefined && byId[sid(listed.current)] === undefined) {
+    const id = sid(listed.current)
+    byId[id] = { id, displayTitle: id, running: false, blank: false, updatedAt: 0, retainedBy: { mainView: 1 } }
+  }
+  return { ids, byId, phase: 'ready', projectionsBySession: {} }
+}
 const workspace = (id: string, sessionIds: readonly string[]): WorkspaceView => ({
   workspaceId: id as WorkspaceId, path: `/projects/${id}`, title: id,
   sessionIds: sessionIds.map(sid), createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
@@ -56,7 +72,7 @@ const workspaceState = (
 
 const ALLOWED: HostObservable<boolean> = createSnapshotStore(true)
 
-async function bench() {
+async function bench(listed?: { ids?: readonly string[]; current?: string; phase?: 'pending' | 'ready' }) {
   const ctx = new Context()
   const commands = new Map<string, ShortcutCommand>()
   ctx.provide('shortcuts', {
@@ -77,7 +93,8 @@ async function bench() {
   }))
   const rename = vi.fn(async () => ({}))
   const selectPanel = vi.fn()
-  ctx.provide('layout', { selectPanel, beginNavigation: () => new AbortController().signal })
+  const collapseSidebar = vi.fn()
+  ctx.provide('layout', { selectPanel, collapseSidebar, beginNavigation: () => new AbortController().signal })
   const search = vi.fn(async () => ({
     ok: true as const,
     value: { items: [{ sessionId: 'session' as never, snippet: 'match' }], hasMore: false },
@@ -120,9 +137,17 @@ async function bench() {
   // reads at completion; a test replaces them whole, so an unchanged snapshot
   // keeps its identity between reads.
   let workspaceSnapshot = workspaceState([])
-  let sessionSnapshot = sessionState([])
-  const subscribe = () => () => {}
-  const workspacesSubscribe = vi.fn(subscribe)
+  const sessionListeners = new Set<() => void>()
+  let sessionSnapshot: SessionListState = listed?.phase === 'pending'
+    ? { ids: [], byId: {}, phase: 'pending', projectionsBySession: {} }
+    : listed?.ids === undefined
+      ? sessionState([])
+      : listedState({ ids: listed.ids, ...listed.current === undefined ? {} : { current: listed.current } })
+  const subscribeSessions = (listener: () => void): (() => void) => {
+    sessionListeners.add(listener)
+    return () => { sessionListeners.delete(listener) }
+  }
+  const workspacesSubscribe = vi.fn(() => () => {})
   const initializeDefault = vi.fn(async (): Promise<WorkspaceView | undefined> => undefined)
   ctx.provide('workspaces', {
     list: { getSnapshot: () => workspaceSnapshot, subscribe: workspacesSubscribe },
@@ -138,7 +163,7 @@ async function bench() {
     insertSessionBefore: vi.fn(async () => ({})),
   } as never)
   ctx.provide('sessions', {
-    list: { getSnapshot: () => sessionSnapshot, subscribe },
+    list: { getSnapshot: () => sessionSnapshot, subscribe: subscribeSessions },
     create: vi.fn(async () => 'created' as never),
     retain,
     using,
@@ -163,10 +188,13 @@ async function bench() {
   ctx.provide('locale', locale)
   return {
     ctx, slots: ctx.get('slots') as SlotRegistry, locale, create, rename, commands, accessSource,
-    retain, using, selectPanel, search, renameSession, binding, fork, pickDirectory, pinSession, unpinSession,
+    retain, using, selectPanel, collapseSidebar, search, renameSession, binding, fork, pickDirectory, pinSession, unpinSession,
     workspacesSubscribe, initializeDefault, history, scope, sessionOf,
     setWorkspaces: (snapshot: WorkspaceSnapshot): void => { workspaceSnapshot = snapshot },
-    setSessions: (snapshot: SessionListState): void => { sessionSnapshot = snapshot },
+    setSessions: (snapshot: SessionListState): void => {
+      sessionSnapshot = snapshot
+      for (const listener of sessionListeners) listener()
+    },
   }
 }
 
@@ -182,6 +210,30 @@ function declare(slots: SlotRegistry, ...names: HoleName[]): () => void {
     name, { kind: name === 'shell.overlay' ? 'list' : 'single', scope: 'root' },
   ]))
   return slots.register({ name: 'root', children } as never, () => null)
+}
+
+/**
+ * Apply the plugin with `search` as the document URL: the deep link reconciles
+ * during apply against the supplied listed Session ids. The stub stays until
+ * the test finishes so later list snapshots still see the query.
+ * @param search - `window.location.search` for this document.
+ * @param listed - Session ids the list contains, plus its current selection.
+ * @returns the bench, including the unknown-Session overlay entry.
+ */
+async function deepLink(
+  search: string,
+  listed?: { ids?: readonly string[]; current?: string; phase?: 'pending' | 'ready' },
+) {
+  vi.stubGlobal('location', { search })
+  onTestFinished(() => { vi.unstubAllGlobals() })
+  const b = await bench(listed)
+  declare(b.slots, 'shell.overlay')
+  await b.ctx.plugin({ inject: [...inject], apply }).await()
+  return b
+}
+
+function unknownHint(slots: SlotRegistry): UnknownSessionHintInjected {
+  return faceOf(entry(slots, 'shell.overlay', 'workspace-unknown-session')) as UnknownSessionHintInjected
 }
 
 /** Own the sidebar declaration independently of the frame-wide overlay in lifecycle tests. */
@@ -267,7 +319,7 @@ describe('ui-workspace apply', () => {
     // The row actions follow the browser's own declaration, whenever it lands.
     expect(after.slots.entries(MENU_ITEM)).toHaveLength(5)
     expect(after.slots.entries(ROW_ACTION)).toHaveLength(2)
-    expect(after.slots.entries('shell.overlay')).toHaveLength(3)
+    expect(after.slots.entries('shell.overlay')).toHaveLength(4)
   })
 
   it('declares the two Session row lists and registers the shipped actions and overlay surfaces into them', async () => {
@@ -295,6 +347,7 @@ describe('ui-workspace apply', () => {
       ['pin', 200, PinSessionRowButton, 'workspace'],
     ])
     expect(rows('shell.overlay')).toEqual([
+      ['workspace-unknown-session', undefined, UnknownSessionHint, 'workspace'],
       ['workspace.session-rename', undefined, SessionRenameDialog, 'workspace'],
       ['workspace.session-archive', undefined, SessionArchiveConfirmDialog, 'workspace'],
       ['workspace.row-toast', undefined, RowActionToast, undefined],
@@ -878,7 +931,7 @@ describe('ui-workspace apply', () => {
     await fiber.await()
     expect(b.slots.entries(MENU_ITEM)).toHaveLength(5)
     expect(b.slots.entries(ROW_ACTION)).toHaveLength(2)
-    expect(b.slots.entries('shell.overlay')).toHaveLength(3)
+    expect(b.slots.entries('shell.overlay')).toHaveLength(4)
     await fiber.dispose()
     expect(b.slots.entries('sidebar.workspaces')).toHaveLength(0)
     expect(b.slots.entries('conversation.hero.workspace')).toHaveLength(0)
@@ -890,5 +943,101 @@ describe('ui-workspace apply', () => {
     expect(b.slots.entries('shell.overlay')).toHaveLength(0)
     expect(b.slots.entries('workspace.toast')).toHaveLength(0)
     expect(b.slots.snapshot('factory:workspace.toast.content')).toEqual([])
+  })
+})
+
+describe('ui-workspace session deep link', () => {
+  it('collapses the sidebar before the first render when the URL names a Session', async () => {
+    const b = await deepLink('?session=linked')
+    expect(b.collapseSidebar).toHaveBeenCalledTimes(1)
+  })
+
+  it('collapses for a well-formed id the Host list does not contain', async () => {
+    // The sidebar is decided before the list settles, so an unusable link shows
+    // its notice over the same rail instead of animating the frame afterwards.
+    const b = await deepLink('?session=missing', { ids: ['other'] })
+    expect(b.collapseSidebar).toHaveBeenCalledTimes(1)
+    expect(b.retain).not.toHaveBeenCalled()
+    expect(unknownHint(b.slots).hooks.unknownSession.getSnapshot()).toBe(true)
+  })
+
+  it('leaves the sidebar alone without a Session in the URL or on in-app selection', async () => {
+    const b = await deepLink('')
+    expect(b.collapseSidebar).not.toHaveBeenCalled()
+    b.ctx.uiWorkspace.openSession('picked' as never)
+    expect(b.retain).toHaveBeenCalledWith('picked', { source: 'mainView' })
+    expect(b.collapseSidebar).not.toHaveBeenCalled()
+  })
+
+  it('leaves the sidebar alone for a malformed id', async () => {
+    const malformed = await deepLink('?session=a&session=b')
+    expect(malformed.collapseSidebar).not.toHaveBeenCalled()
+    expect(unknownHint(malformed.slots).hooks.unknownSession.getSnapshot()).toBe(true)
+    const unsafe = await deepLink('?session=../etc/passwd')
+    expect(unsafe.collapseSidebar).not.toHaveBeenCalled()
+    expect(unknownHint(unsafe.slots).hooks.unknownSession.getSnapshot()).toBe(true)
+  })
+
+  it('still opens and mirrors a listed Session', async () => {
+    const b = await deepLink('?session=linked', { ids: ['linked'] })
+    expect(b.retain).toHaveBeenCalledWith('linked', { source: 'mainView' })
+    expect(unknownHint(b.slots).hooks.unknownSession.getSnapshot()).toBe(false)
+  })
+
+  it('reuses the current selection for a listed Session it already opened', async () => {
+    const b = await deepLink('?session=linked', { ids: ['linked'], current: 'linked' })
+    expect(b.retain).not.toHaveBeenCalled()
+    expect(b.collapseSidebar).toHaveBeenCalledTimes(1)
+    expect(unknownHint(b.slots).hooks.unknownSession.getSnapshot()).toBe(false)
+  })
+
+  it('opens a well-formed id once the pending list becomes ready', async () => {
+    const b = await deepLink('?session=linked', { phase: 'pending' })
+    expect(b.retain).not.toHaveBeenCalled()
+    expect(unknownHint(b.slots).hooks.unknownSession.getSnapshot()).toBe(false)
+    b.setSessions(sessionState([{ ...summary('linked', 1), blank: true }]))
+    expect(b.retain).toHaveBeenCalledExactlyOnceWith('linked', { source: 'mainView' })
+    expect(unknownHint(b.slots).hooks.unknownSession.getSnapshot()).toBe(false)
+  })
+
+  it('opens a well-formed id that arrives after the first ready snapshot', async () => {
+    const b = await deepLink('?session=linked', { ids: ['other'] })
+    expect(b.retain).not.toHaveBeenCalled()
+    expect(unknownHint(b.slots).hooks.unknownSession.getSnapshot()).toBe(true)
+    b.setSessions(sessionState([summary('other', 1)]))
+    expect(b.retain).not.toHaveBeenCalled()
+    b.setSessions(sessionState([summary('other', 1), { ...summary('linked', 2), blank: true }]))
+    expect(b.retain).toHaveBeenCalledExactlyOnceWith('linked', { source: 'mainView' })
+    expect(unknownHint(b.slots).hooks.unknownSession.getSnapshot()).toBe(false)
+  })
+
+  it('still opens after the missing-link overlay is dismissed', async () => {
+    const b = await deepLink('?session=linked', { ids: ['other'] })
+    unknownHint(b.slots).dismiss()
+    expect(unknownHint(b.slots).hooks.unknownSession.getSnapshot()).toBe(false)
+    b.setSessions(sessionState([{ ...summary('linked', 1), blank: true }]))
+    expect(b.retain).toHaveBeenCalledExactlyOnceWith('linked', { source: 'mainView' })
+    expect(unknownHint(b.slots).hooks.unknownSession.getSnapshot()).toBe(false)
+  })
+
+  it('retries a listed Session after openSession throws', async () => {
+    vi.stubGlobal('location', { search: '?session=linked' })
+    onTestFinished(() => { vi.unstubAllGlobals() })
+    const b = await bench({ ids: ['linked'] })
+    declare(b.slots, 'shell.overlay')
+    b.retain.mockImplementationOnce(() => {
+      throw new Error('sessions.retain: unknown session linked')
+    })
+    b.retain.mockImplementationOnce(() => {
+      throw new Error('sessions.retain: unknown session linked')
+    })
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    expect(b.retain).toHaveBeenCalledTimes(1)
+    expect(unknownHint(b.slots).hooks.unknownSession.getSnapshot()).toBe(true)
+    b.setSessions(listedState({ ids: ['linked'] }))
+    expect(b.retain).toHaveBeenCalledTimes(2)
+    b.setSessions(listedState({ ids: ['linked'] }))
+    expect(b.retain).toHaveBeenCalledTimes(3)
+    expect(unknownHint(b.slots).hooks.unknownSession.getSnapshot()).toBe(false)
   })
 })

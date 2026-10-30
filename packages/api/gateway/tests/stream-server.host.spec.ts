@@ -1,5 +1,7 @@
+import { randomBytes } from 'node:crypto'
 import { once } from 'node:events'
-import { createServer, type Server } from 'node:http'
+import { createServer, request, type Server } from 'node:http'
+import type { Duplex } from 'node:stream'
 import { Context } from '@deepseek-ai/cordis'
 import { remoteErrorOf, type PeerId, type PeerScope } from '@deepseek-ai/dsh-typert-protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -19,11 +21,15 @@ interface RunningMux {
 const running = new Set<RunningMux>()
 
 afterEach(async () => {
-  await Promise.all([...running].map(async (entry) => {
-    running.delete(entry)
-    await entry.mux.close().catch(() => undefined)
-    await closeHttp(entry.http)
-  }))
+  try {
+    await Promise.all([...running].map(async (entry) => {
+      running.delete(entry)
+      await entry.mux.close().catch(() => undefined)
+      await closeHttp(entry.http)
+    }))
+  } finally {
+    vi.useRealTimers()
+  }
 })
 
 describe('Remote stream mux server carrier lifecycle', () => {
@@ -54,9 +60,8 @@ describe('Remote stream mux server carrier lifecycle', () => {
 
   it('requires two missed heartbeats before terminating an unresponsive socket', async () => {
     const entry = await startMux(async (_endpoint, _payload, _uplink, _peer, control) => waitForAbort(control.signal), 20)
-    const client = await connect(entry.url)
+    const client = await connect(entry.url, false)
     const serverSocket = acceptedSocket(entry.mux)
-    serverSocket.removeAllListeners('pong')
     const terminated = vi.spyOn(serverSocket, 'terminate')
     const closed = once(client, 'close')
 
@@ -79,6 +84,70 @@ describe('Remote stream mux server carrier lifecycle', () => {
       clearInterval(traffic)
     }
     await vi.waitFor(() => { expect(terminated).toHaveBeenCalledOnce() })
+  })
+
+  it('keeps an incomplete frame alive while its bytes continue arriving', async () => {
+    const opened = Promise.withResolvers<unknown>()
+    const open = vi.fn<RemoteStreamOpener>(async (_endpoint, payload, _uplink, _peer, control) => {
+      opened.resolve(payload)
+      return waitForAbort(control.signal)
+    })
+    const entry = await startMux(open)
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    const { client, transport } = await connectRaw(entry)
+    const serverSocket = acceptedSocket(entry.mux)
+    const terminated = vi.spyOn(serverSocket, 'terminate')
+    const messages = vi.fn()
+    serverSocket.on('message', messages)
+    const payload = { image: 'x'.repeat(1024) }
+    const frame = maskedTextFrame(JSON.stringify({ type: 'open', streamId: 'slow', endpoint: 'fixture/follow', payload }))
+    let offset = 0
+    try {
+      for (let interval = 0; interval < 5; interval++) {
+        const received = once(transport, 'data')
+        client.write(frame.subarray(offset, offset + 16))
+        offset += 16
+        await received
+        vi.advanceTimersByTime(2_000)
+        await new Promise<void>((resolve) => { setImmediate(resolve) })
+        expect(terminated).not.toHaveBeenCalled()
+        expect(messages).not.toHaveBeenCalled()
+        expect(open).not.toHaveBeenCalled()
+      }
+      client.write(frame.subarray(offset))
+      expect(await opened.promise).toEqual(payload)
+    } finally {
+      const closed = serverSocket.readyState === WebSocket.CLOSED ? Promise.resolve() : once(serverSocket, 'close')
+      await closeTransport(client)
+      await closed
+    }
+    expect(transport.listenerCount('data')).toBe(0)
+  })
+
+  it('terminates an incomplete frame when incoming bytes stop', async () => {
+    const open = vi.fn<RemoteStreamOpener>(async (_endpoint, _payload, _uplink, _peer, control) => waitForAbort(control.signal))
+    const entry = await startMux(open)
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    const { client, transport } = await connectRaw(entry)
+    const serverSocket = acceptedSocket(entry.mux)
+    const terminated = vi.spyOn(serverSocket, 'terminate')
+    const frame = maskedTextFrame(JSON.stringify({ type: 'cancel', streamId: 'x'.repeat(1024) }))
+    try {
+      const received = once(transport, 'data')
+      client.write(frame.subarray(0, 16))
+      await received
+      vi.advanceTimersByTime(4_000)
+      await new Promise<void>((resolve) => { setImmediate(resolve) })
+      expect(terminated).not.toHaveBeenCalled()
+      const closed = once(serverSocket, 'close')
+      vi.advanceTimersByTime(2_000)
+      await closed
+      expect(terminated).toHaveBeenCalledExactlyOnceWith()
+      expect(open).not.toHaveBeenCalled()
+      expect(transport.listenerCount('data')).toBe(0)
+    } finally {
+      await closeTransport(client)
+    }
   })
 
   it('counts a downlink write that waited in the send buffer as liveness', async () => {
@@ -333,7 +402,10 @@ describe('Remote stream mux server carrier lifecycle', () => {
       opened()
       return cleanlyCancelled(control.signal, returned)
     })
+    const upgraded = Promise.withResolvers<Duplex>()
+    entry.http.once('upgrade', (_request, socket) => { upgraded.resolve(socket) })
     const client = await connect(entry.url)
+    const transport = await upgraded.promise
     client.send(openFrame('active'))
     await didOpen
 
@@ -342,6 +414,7 @@ describe('Remote stream mux server carrier lifecycle', () => {
     running.delete(entry)
     await closed
     await didReturn
+    expect(transport.listenerCount('data')).toBe(0)
     await expect(entry.mux.close()).rejects.toThrow()
     await closeHttp(entry.http)
   })
@@ -628,6 +701,46 @@ async function connect(url: string, autoPong = true): Promise<WebSocket> {
   const socket = new WebSocket(url, { autoPong })
   await once(socket, 'open')
   return socket
+}
+
+/** Upgrade without a WebSocket sender so one frame can be written in partial TCP chunks. */
+async function connectRaw(entry: RunningMux): Promise<{ client: Duplex; transport: Duplex }> {
+  const accepted = Promise.withResolvers<Duplex>()
+  entry.http.once('upgrade', (_request, socket) => { accepted.resolve(socket) })
+  const client = await new Promise<Duplex>((resolve, reject) => {
+    const pending = request(entry.url.replace('ws:', 'http:'), {
+      headers: {
+        Connection: 'Upgrade',
+        Upgrade: 'websocket',
+        'Sec-WebSocket-Version': '13',
+        'Sec-WebSocket-Key': randomBytes(16).toString('base64'),
+      },
+    })
+    pending.once('error', reject)
+    pending.once('upgrade', (_response, socket) => {
+      socket.resume()
+      resolve(socket)
+    })
+    pending.end()
+  })
+  return { client, transport: await accepted.promise }
+}
+
+/** Encode a medium-length text frame with a zero mask for partial-write tests. */
+function maskedTextFrame(text: string): Buffer {
+  const payload = Buffer.from(text)
+  const header = Buffer.alloc(8)
+  header[0] = 0x81
+  header[1] = 0xfe
+  header.writeUInt16BE(payload.length, 2)
+  return Buffer.concat([header, payload])
+}
+
+async function closeTransport(socket: Duplex): Promise<void> {
+  if (socket.closed) return
+  const closed = once(socket, 'close')
+  socket.destroy()
+  await closed
 }
 
 function acceptedSocket(mux: RemoteStreamMuxServer): WebSocket {

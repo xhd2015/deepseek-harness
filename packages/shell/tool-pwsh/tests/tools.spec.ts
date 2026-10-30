@@ -672,7 +672,7 @@ describe('sandbox escalation through ctx.approval', () => {
     const prompted = vi.fn()
     ctx.on('approval/request', () => { prompted(); return Promise.resolve<ApprovalOutcome>('allowed-once') })
     const result = await call(ctx, 'pwsh', { ...escalate, sandbox_permissions: 'workspace-write' }, sandboxAgent('danger-full-access'))
-    expect(text(result)).toContain('not strictly wider')
+    expect(text(result)).toContain('[sandbox: escalation to "workspace-write" ignored — this call ran at "danger-full-access" mode]')
     expect(prompted).not.toHaveBeenCalled()
 
     const malformed = sandboxAgent()
@@ -680,7 +680,7 @@ describe('sandbox escalation through ctx.approval', () => {
       type: string,
       data: Record<string, unknown>,
     ) => unknown)('sandbox/mode', { mode: 'unknown-mode' })
-    expect(text(await call(ctx, 'pwsh', escalate, malformed))).toContain('not strictly wider')
+    expect(text(await call(ctx, 'pwsh', escalate, malformed))).toContain('[sandbox: escalation to "workspace-write" ignored — this call ran at "unknown-mode" mode]')
   })
 
   it.each(['workspace-write', 'danger-full-access'] as const)('runs a repeated %s request without approval', async (mode) => {

@@ -479,6 +479,15 @@ export type SurfaceIntent<T extends SurfaceEventType = SurfaceEventType> = {
 })
 
 /**
+ * Optional envelope for a log-only {@link Session.append}. `ignorable: true`
+ * lets a reader that does not recognize `type` skip the record instead of
+ * refusing the Session.
+ */
+export interface LogOnlyAppendOptions {
+  readonly ignorable?: true
+}
+
+/**
  * One immutable entry in the session log.
  *
  * A proper discriminated union over `type` (not independent `type`/`data`

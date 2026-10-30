@@ -18,6 +18,7 @@ function declare(slots: SlotRegistry): () => void {
     children: {
       'conversation.session.header.actions': { kind: 'list', scope: 'session' },
       'conversation.session.header.utilities': { kind: 'list', scope: 'session' },
+      'shell.overlay': { kind: 'list', scope: 'root' },
     },
   } as never, () => null)
 }
@@ -28,9 +29,15 @@ async function bench() {
   const slots = ctx.get('slots') as SlotRegistry
   const declaration = declare(slots)
   ctx.provide('locale', new LocaleRuntime(ctx))
+  const sessions = {
+    binding: vi.fn((): {
+      session: { setThinkingCapAutoContinue: (enabled: boolean) => Promise<{ ok: boolean }> }
+    } | undefined => undefined),
+  }
+  ctx.provide('sessions', sessions as never)
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
-  return { ctx, slots, declaration, fiber }
+  return { ctx, slots, declaration, fiber, sessions }
 }
 
 describe('session-log-download browser plugin', () => {
@@ -54,10 +61,58 @@ describe('session-log-download browser plugin', () => {
     await b.fiber.dispose()
   })
 
+  it('writes thinking-cap auto-continue through the live Session face', async () => {
+    const b = await bench()
+    const setThinkingCapAutoContinue = vi.fn(async () => ({ ok: true, value: { enabled: true, seq: 3 } }))
+    b.sessions.binding.mockReturnValue({ session: { setThinkingCapAutoContinue } })
+    const entry = b.slots.entries('conversation.session.header.utilities')[0]!
+    const injected = (entry.inject as unknown as () => SessionLogDownloadHeaderInjected)()
+    injected.setThinkingCapAutoContinue(SID, true)
+    await vi.waitFor(() => { expect(setThinkingCapAutoContinue).toHaveBeenCalledWith(true) })
+    await b.fiber.dispose()
+  })
+
+  it('toasts when thinking-cap auto-continue RPC fails or throws', async () => {
+    const b = await bench()
+    const overlay = () => (b.slots.entries('shell.overlay')[0]!.inject as () => {
+      hooks: { autoContinueError: { getSnapshot(): { seq: number } | null } }
+      dismissAutoContinueError: () => void
+    })()
+    const header = b.slots.entries('conversation.session.header.utilities')[0]!
+    const injected = (header.inject as unknown as () => SessionLogDownloadHeaderInjected)()
+    b.sessions.binding.mockReturnValue({
+      session: { setThinkingCapAutoContinue: async () => ({ ok: false, error: { code: 'x', message: 'no' } }) },
+    })
+    injected.setThinkingCapAutoContinue(SID, true)
+    await vi.waitFor(() => { expect(overlay().hooks.autoContinueError.getSnapshot()).toEqual({ seq: 1 }) })
+    overlay().dismissAutoContinueError()
+    expect(overlay().hooks.autoContinueError.getSnapshot()).toBeNull()
+    b.sessions.binding.mockReturnValue({
+      session: { setThinkingCapAutoContinue: async () => { throw new Error('boom') } },
+    })
+    injected.setThinkingCapAutoContinue(SID, false)
+    await vi.waitFor(() => { expect(overlay().hooks.autoContinueError.getSnapshot()).toEqual({ seq: 2 }) })
+    await b.fiber.dispose()
+  })
+
+  it('toasts when thinking-cap auto-continue has no live Session', async () => {
+    const b = await bench()
+    b.sessions.binding.mockReturnValue(undefined)
+    const header = b.slots.entries('conversation.session.header.utilities')[0]!
+    const injected = (header.inject as unknown as () => SessionLogDownloadHeaderInjected)()
+    injected.setThinkingCapAutoContinue(SID, true)
+    const overlay = b.slots.entries('shell.overlay')[0]!
+    const toast = (overlay.inject as () => {
+      hooks: { autoContinueError: { getSnapshot(): { seq: number } | null } }
+    })()
+    expect(toast.hooks.autoContinueError.getSnapshot()).toEqual({ seq: 1 })
+    await b.fiber.dispose()
+  })
+
   it('provides one controller and removes its Header contribution on disposal', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 500 })))
     const b = await bench()
-    expect(inject).toEqual(['slots', 'locale'])
+    expect(inject).toEqual(['slots', 'locale', 'sessions'])
     expect(b.ctx.sessionLogDownload).toBeDefined()
     expect(b.slots.entries('conversation.session.header.actions')).toHaveLength(0)
     const entry = b.slots.entries('conversation.session.header.utilities')[0]

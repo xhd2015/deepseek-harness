@@ -104,6 +104,7 @@ const handle = await ctx.agents.create({
 | [`src/tool-calls.ts`](src/tool-calls.ts) | 工具调度：独占屏障与有界并行池 |
 | [`src/runtime-context.ts`](src/runtime-context.ts) | 逐步骤运行时上下文快照处理 |
 | [`src/constants.ts`](src/constants.ts) | `DEFAULT_MAX_PARALLEL_TOOL_CALLS` |
+| [`src/thinking-cap-auto-continue.ts`](src/thinking-cap-auto-continue.ts) | 在仅含思考的 `max-tokens` 停止后按 Session 自动继续 |
 
 ### 创建与拆除
 
@@ -167,7 +168,7 @@ const handle = await ctx.agents.create({
 
 #### 模型看到什么
 
-已接纳的 user 消息、assistant 消息、工具调用与结果、注入上下文与 steering（中途引导）都会记录，并在后续步骤中发送。原始流分片、生命周期边界与其他仅写入日志的事件会被排除。
+已接纳的 user 消息、assistant 消息、工具调用与结果、注入上下文与 steering（中途引导）都会记录，并在后续步骤中发送。原始流分片、生命周期边界与其他仅写入日志的事件会被排除。当 Session 开启思考上限自动继续策略时，仅含思考的 `max-tokens` 停止会把文本恰好为 `continue(auto)` 的 user 消息排入下一轮，连续最多两次。
 
 #### Token 影响
 

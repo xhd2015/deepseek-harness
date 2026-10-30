@@ -12,6 +12,7 @@ import type {
   BeginSubmissionInput, PendingSubmissionRetirement,
 } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { PickOutcome } from '../src/client/contract/input.ts'
 import { ComposerBlockRegistry } from '../src/client/input/blocks.ts'
 import { InputHub } from '../src/client/input/hub.ts'
 import { ConversationController } from '../src/client/service.ts'
@@ -138,7 +139,55 @@ describe('ConversationController', () => {
     await b.runtime.dispose()
   })
 
-  it('releases an unsettled send preview during structural Session teardown', async () => {
+  it('cancels pending command adjudication before draft storage settles during scope disposal', async () => {
+    const b = await bench()
+    const read = Promise.withResolvers<{ ok: true; value: { text: string } }>()
+    const adjudication = Promise.withResolvers<PickOutcome>()
+    const submit = vi.fn(async () => ({ kind: 'success' as const }))
+    let attemptSignal: AbortSignal | undefined
+    let removed = false
+    let removal: Promise<void> | undefined
+    b.runtime.remote.provideNamespaces({
+      session: {
+        getDraft: () => read.promise,
+        setDraft: async ({ text }: { text: string }) => ({ ok: true, value: { text } }),
+      },
+    })
+    b.runtime.ctx.provide('inputTriggers', {
+      sessionOf: () => ({
+        track: () => {},
+        lexicon: { getSnapshot: () => new Map(), subscribe: () => () => {} },
+        adjudicate: (_draft: string, signal: AbortSignal) => {
+          attemptSignal = signal
+          return adjudication.promise
+        },
+      }),
+    })
+    try {
+      b.hub.bindDraftMirror(b.runtime.sessions.binding('s1')!.sessionId, () => {}, false, () => {})
+      b.shell.setDraft('/task')
+      b.shell.submit()
+      expect(attemptSignal?.aborted).toBe(false)
+      removal = b.runtime.sessions.disposeScopes().then(() => { removed = true })
+      await vi.waitFor(() => { expect(attemptSignal?.aborted).toBe(true) })
+      expect(removed).toBe(false)
+      adjudication.resolve({ claim: { name: 'task', token: '/task ', submit } })
+      await adjudication.promise
+      expect(submit).not.toHaveBeenCalled()
+      read.resolve({ ok: true, value: { text: 'late launch draft' } })
+      await removal
+      expect(b.shell.snapshot.draft).not.toBe('late launch draft')
+      expect(submit).not.toHaveBeenCalled()
+      expect(b.prompt).not.toHaveBeenCalled()
+    } finally {
+      adjudication.resolve(undefined)
+      read.resolve({ ok: true, value: { text: '' } })
+      await removal
+      await b.runtime.dispose()
+    }
+  })
+
+  it('releases an image removed from the rail by an unsettled optimistic send', async () => {
     const b = await bench()
     const created = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:detached')
     const revoked = vi.spyOn(URL, 'revokeObjectURL').mockReturnValue(undefined)

@@ -37,7 +37,7 @@ describe.skipIf(MODE === 'record').each([
     // = the wire spelling dispatch would send (`max: ultra` renames; the
     // valueless `off` means "supported, send nothing"). The route sets no
     // deployment default, so the pane leads with the provider-default entry.
-    await scaffold.ctx.settings.update('llm-pi-ai', {
+    await scaffold.ctx.settings.update('llm-proxy-providers', {
       providers: {
         'acme-gateway': {
           displayName: 'Acme Gateway',

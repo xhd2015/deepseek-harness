@@ -29,6 +29,8 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
     imageLimits: ImageAttachmentLimits
     /** Durable model selection already used and selected for the next request. */
     modelSelection: ModelSelectionProjection
+    /** Whether this Session auto-continues a reasoning-only `max-tokens` stop. */
+    thinkingCapAutoContinue: boolean
   }
 }
 
@@ -139,6 +141,12 @@ export interface ModelCatalogModel {
   readonly name: string
   readonly description?: string
   readonly reasoning?: ModelReasoning
+  /**
+   * Why the adapter refuses this model, when it lists one its configuration
+   * names but cannot serve. Present means the entry is shown for repair and is
+   * not selectable; absent means the adapter raised no objection.
+   */
+  readonly unavailable?: string
 }
 
 /** One provider and its successfully loaded model catalog. */
@@ -304,6 +312,21 @@ export interface SessionCreateValue {
   readonly agentPreset?: string
 }
 
+/** Identity of a Session whose composer draft is read without Agent activation. */
+export interface SessionDraftRequest {
+  readonly sessionId: SessionId
+}
+
+/** Exact composer text to save; empty text clears the durable record. */
+export interface SessionSetDraftRequest extends SessionDraftRequest {
+  readonly text: string
+}
+
+/** Durable text-only composer draft, absent from the Session transcript. */
+export interface SessionDraftValue {
+  readonly text: string
+}
+
 /** Session model-selection request. */
 export interface SessionSelectModelRequest extends ModelSelection {
   readonly sessionId: SessionId
@@ -312,6 +335,20 @@ export interface SessionSelectModelRequest extends ModelSelection {
 /** Accepted model selection after Host resolution. */
 export interface SessionSelectModelValue {
   readonly selected: ModelSelection
+}
+
+/** Session thinking-cap auto-continue request. */
+export interface SessionSetThinkingCapAutoContinueRequest {
+  readonly sessionId: SessionId
+  /** Whether a later reasoning-only `max-tokens` stop should auto-continue. */
+  readonly enabled: boolean
+}
+
+/** Installed thinking-cap auto-continue policy. */
+export interface SessionSetThinkingCapAutoContinueValue {
+  readonly enabled: boolean
+  /** Durable event seq of the policy write, or the current log cursor when unchanged. */
+  readonly seq: number
 }
 
 /** Session rename request. */

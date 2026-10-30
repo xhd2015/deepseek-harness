@@ -12,6 +12,7 @@
 
 import { useLayoutEffect, useState, type CSSProperties, type RefObject } from 'react'
 import { overlayTopMargin } from './overlay-top-margin.ts'
+import { observeVisibleViewport, visibleViewportRect } from './visible-viewport.ts'
 
 /** Inputs for {@link useAnchoredPosition}. */
 export interface AnchoredPositionOptions {
@@ -50,21 +51,24 @@ export function useAnchoredPosition(options: AnchoredPositionOptions): CSSProper
          scenarios rather than unit tests. */
       const rect = anchorRef.current?.getBoundingClientRect()
       if (rect === undefined) return
+      const band = visibleViewportRect()
       const panel = panelRef.current
       const width = panel?.offsetWidth ?? 0
       const height = panel?.offsetHeight ?? 0
       let left = align === 'end' ? rect.right - width : rect.left
       let top = side === 'top' ? rect.top - gap - height : rect.bottom + gap
-      if (width > 0) left = Math.min(Math.max(left, margin), window.innerWidth - width - margin)
-      if (height > 0) top = Math.min(Math.max(top, overlayTopMargin(margin)), window.innerHeight - height - margin)
+      // Clamp against the visible band, not the window: an iOS keyboard pans
+      // and shrinks the visual viewport while the layout viewport stays put,
+      // so window coordinates would let the panel drift under the keyboard.
+      if (width > 0) left = Math.min(Math.max(left, band.left + margin), band.left + band.width - width - margin)
+      if (height > 0) top = Math.min(Math.max(top, band.top + overlayTopMargin(margin)), band.top + band.height - height - margin)
       /* v8 ignore stop */
       setPosition({ left, top })
     }
     // The first run measures the panel in the same commit that opened it, so
     // the clamp uses real dimensions before anything paints.
     place()
-    window.addEventListener('scroll', place, true)
-    window.addEventListener('resize', place)
+    const unobserve = observeVisibleViewport(place)
     // The panel's own height changes without either event — a status line
     // appearing inside it, or a `resize: vertical` textarea dragged taller —
     // and a stale clamp would let a panel near the bottom edge cross the
@@ -78,8 +82,7 @@ export function useAnchoredPosition(options: AnchoredPositionOptions): CSSProper
     }
     return () => {
       observer?.disconnect()
-      window.removeEventListener('scroll', place, true)
-      window.removeEventListener('resize', place)
+      unobserve()
     }
   }, [open, anchorRef, panelRef, side, align, gap, margin])
   return position

@@ -27,6 +27,13 @@ export interface MeterSurfaceNode {
   readonly seq: SessionSeq
   /** Fixed-heuristic price of the node's exact message. */
   readonly heuristicTokens: number
+  /**
+   * Usage-attributed replay price of a prior assistant node, when consecutive
+   * provider usage under the same canonical envelope isolated that node's
+   * billed prompt growth. `measure()` prefers this over {@link heuristicTokens}
+   * for `tokens`; the shadow-price protocol keeps the heuristic.
+   */
+  readonly calibratedTokens?: number
   /** Structural JSON price replaced when the routed request projects images. */
   readonly imageStructuralTokens: number
   /** Structural JSON price replaced when request assembly projects files to text. */

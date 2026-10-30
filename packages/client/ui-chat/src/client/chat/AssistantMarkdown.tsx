@@ -91,20 +91,37 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
           />,
         )
         break
-      case 'reasoning':
-        if (block.text.trim() === '') break
+      case 'reasoning': {
+        if (reasoningHint(block) === null && block.text.trim() === '') break
+        const start = i
+        const hint = reasoningHint(block)
+        let hintCount = hint === null ? 0 : 1
+        if (hint !== null) {
+          while (i + 1 < blocks.length && reasoningHint(blocks[i + 1]) === hint) {
+            hintCount += 1
+            i += 1
+          }
+        }
         rendered.push(
           <ProcessReasoning
-            key={i}
+            key={start}
             hidden={reasoningHidden}
             reveal={revealProcess}
             useGroupAction={useGroupAction}
           >
-            <ReasoningRow text={block.text} running={streaming && i === last} usePresentation={usePresentation}
-              useDisclosure={useDisclosure} renderSlot={renderSlot} t={t} />
+            <ReasoningRow
+              text={block.text}
+              {...hint !== null ? { hint, hintCount } : {}}
+              running={streaming && i === last}
+              usePresentation={usePresentation}
+              useDisclosure={useDisclosure}
+              renderSlot={renderSlot}
+              t={t}
+            />
           </ProcessReasoning>,
         )
         break
+      }
       case 'image': {
         // Consecutive image blocks share one gallery so several images tile
         // into rows instead of each opening a one-image group of its own.
@@ -153,6 +170,13 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
     </div>
   )
 })
+
+function reasoningHint(block: AssistantBlock | undefined): 'codex' | 'opaque' | null {
+  if (block?.kind !== 'reasoning') return null
+  if (block.encrypted === true) return 'codex'
+  if (block.opaque === true) return 'opaque'
+  return null
+}
 
 function ProcessReasoning({ hidden, reveal, useGroupAction, children }: {
   hidden: boolean

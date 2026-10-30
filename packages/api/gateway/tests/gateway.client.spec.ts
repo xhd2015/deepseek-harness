@@ -353,6 +353,7 @@ async function benchFiber(
     interactions: 'answer',
     openWebSocket: openConnectionWebSocket,
     isLoopback: true,
+    settingsTrusted: true,
     generation: { getSnapshot: () => undefined, subscribe: () => () => {} },
     state: { getSnapshot: () => undefined, subscribe: () => () => {} },
     reconnect: () => {},
@@ -462,6 +463,7 @@ async function loaderReadinessBench(
     interactions: 'answer',
     openWebSocket: openConnectionWebSocket,
     isLoopback: true,
+    settingsTrusted: true,
     generation: { getSnapshot: () => undefined, subscribe: () => () => {} },
     state: { getSnapshot: () => undefined, subscribe: () => () => {} },
     reconnect: () => {},
@@ -605,6 +607,7 @@ describe('Client Remote transport readiness', () => {
       interactions: 'answer',
       openWebSocket: openConnectionWebSocket,
       isLoopback: true,
+      settingsTrusted: true,
       generation: { getSnapshot: () => live.snapshot, subscribe: () => () => {} },
       state: { getSnapshot: () => undefined, subscribe: () => () => {} },
       reconnect: () => {},
@@ -2082,20 +2085,27 @@ describe('Client Typert API', () => {
           request: { prompt: 'browser approval' },
         },
       })
-      await vi.waitFor(() => { expect(call).toHaveBeenCalledTimes(1) })
-      expect(socket.sent).toHaveLength(1)
-      expect(call).toHaveBeenCalledWith(
-        '/api',
-        '$events/result',
-        {
+      await vi.waitFor(() => { expect(socket.sent).toHaveLength(2) })
+      expect(call).not.toHaveBeenCalled()
+      const responseOpen = JSON.parse(socket.sent[1]!) as { streamId: string }
+      expect(responseOpen).toMatchObject({
+        type: 'open',
+        endpoint: '$invoke',
+        payload: {
           args: {
-            clientId: 'browser-client',
-            eventId: 'event-browser',
-            outcome: { kind: 'result', value: 'allowed' },
+            endpoint: '$events/result',
+            payload: {
+              args: {
+                clientId: 'browser-client',
+                eventId: 'event-browser',
+                outcome: { kind: 'result', value: 'allowed' },
+              },
+            },
           },
         },
-        expect.any(AbortSignal),
-      )
+      })
+      socket.receive({ type: 'item', streamId: responseOpen.streamId, value: { ok: true } })
+      socket.receive({ type: 'end', streamId: responseOpen.streamId })
 
       await client.dispose()
     })
@@ -2381,6 +2391,81 @@ describe('Client Typert API', () => {
         await client.dispose()
       }
     }
+  })
+
+  it('carries Remote unary calls on the browser mux without HTTP RPC', async () => {
+    await withFakeWebSocket('https://harness.example', async () => {
+      const call = vi.fn<ConnectionHandle['rpc']['call']>()
+      const ctx = await bench(call, 'web')
+      const dispose = await ctx.remote.$mount({ package: '@fixture/unary', descriptors: [directDescriptor()] })
+      try {
+        const invocation = ctx.remote.probe.create('agent-1', { objective: 'ship' })
+        await vi.waitFor(() => { expect(FakeWebSocket.sockets[0]?.sent).toHaveLength(1) })
+        const socket = FakeWebSocket.sockets[0]!
+        const opened = JSON.parse(socket.sent[0]!) as { streamId: string }
+        expect(opened).toMatchObject({
+          type: 'open',
+          endpoint: '$invoke',
+          payload: {
+            args: {
+              endpoint: 'probe/create',
+              payload: { args: { agentId: 'agent-1', request: { objective: 'ship' } } },
+            },
+          },
+        })
+        socket.receive({ type: 'item', streamId: opened.streamId, value: { ok: true, value: { ref: 'goal-1' } } })
+        socket.receive({ type: 'end', streamId: opened.streamId })
+        await expect(invocation).resolves.toEqual({ ok: true, value: { ref: 'goal-1' } })
+        expect(call).not.toHaveBeenCalled()
+      } finally {
+        await dispose()
+      }
+    })
+  })
+
+  it('carries unary results with byte attachments on HTTP RPC', async () => {
+    await withFakeWebSocket('https://harness.example', async () => {
+      const data = new Uint8Array([0, 128, 255])
+      const call = vi.fn<ConnectionHandle['rpc']['call']>().mockResolvedValue({
+        ok: true, value: { data, offset: 2 },
+      })
+      const ctx = await bench(call, 'web')
+      const schema = z.object({ data: z.instanceof(Uint8Array), offset: z.number() })
+      const dispose = await ctx.remote.$mount({
+        package: '@fixture/binary',
+        descriptors: [{
+          id: '@fixture/probe#probe/bytes',
+          service: 'probe', namespace: 'probe', method: 'bytes',
+          invocation: { kind: 'direct' }, parameters: [],
+          cancellation: { parameter: 'signal' },
+          result: {
+            mode: 'strict', typeSymbol: '@fixture#Bytes',
+            create: () => schema,
+            decode: value => schema.parse(value),
+            encode: (value, writeBytes) => {
+              const result = value as { readonly data: Uint8Array; readonly offset: number }
+              return { data: writeBytes(result.data, ['data']), offset: result.offset }
+            },
+          },
+        }],
+      })
+      try {
+        await expect(ctx.remote.probe.bytes()).resolves.toEqual({ ok: true, value: { data, offset: 2 } })
+        expect(call).toHaveBeenCalledExactlyOnceWith(
+          '/api', 'probe/bytes', { args: {} }, expect.any(AbortSignal),
+        )
+        for (const socket of FakeWebSocket.sockets) {
+          for (const raw of socket.sent) {
+            const message = parseRemoteStreamClientMessage(raw)
+            if (message.type === 'open' && message.endpoint === '$invoke') {
+              expect(message.payload).not.toMatchObject({ args: { endpoint: 'probe/bytes' } })
+            }
+          }
+        }
+      } finally {
+        await dispose()
+      }
+    })
   })
 
   it('multiplexes Remote streams without using the Connection RPC caller', async () => {

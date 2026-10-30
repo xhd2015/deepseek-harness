@@ -53,6 +53,8 @@ interface MeasurementAnchor {
   readonly header: EpochHeader | undefined
   /** Priced surface immediately before the anchored assistant message commits. */
   readonly nodes: readonly MeterSurfaceNode[]
+  /** Durable seq of the assistant message that created this anchor. */
+  readonly assistantSeq: SessionSeq
   /** Fixed-heuristic price of the call's provider output. */
   readonly assistantTokens: number
   /** Provider usage of the call, when it reported one under a known header. */
@@ -69,10 +71,19 @@ interface ReplayState {
 
 /** Sum disjoint provider usage buckets without double-counting reasoning output. */
 function usageTokens(usage: TokenUsage): number {
+  return promptTokens(usage) + usage.outputTokens
+}
+
+/** Provider-reported prompt size: input plus both cache buckets. */
+function promptTokens(usage: TokenUsage): number {
   return usage.inputTokens
     + (usage.cacheReadTokens ?? 0)
     + (usage.cacheWriteTokens ?? 0)
-    + usage.outputTokens
+}
+
+/** Prefer a usage-attributed replay price when consecutive calls isolated one. */
+function nodePrice(node: MeterSurfaceNode): number {
+  return node.calibratedTokens ?? node.heuristicTokens
 }
 
 /** Compare optional envelopes so a headerless estimate can track later surface deltas. */
@@ -128,12 +139,14 @@ export class TokenMeter extends Service {
    * The effective envelope's routed provider/model selects the request-image
    * pricing every node is priced under: a route whose adapter declares image
    * pricing charges each retained image its visual tokens plus its
-   * model-visible text, while other routes keep the fixed heuristic. Provider
-   * usage is reused only when the latest successful call's canonical request
-   * envelope matches `requestHeader` and its total is no lower than that
-   * call's full route-priced anchor; otherwise the complete envelope and
-   * surface are repriced. The anchor includes all surface nodes immediately
-   * before the assistant message, including inputs admitted after step/start.
+   * model-visible text, while other routes keep the fixed heuristic. A prior
+   * assistant node whose billed replay cost was isolated from consecutive
+   * matching provider usage carries that attributed price. Provider usage is
+   * reused only when the latest successful call's canonical request envelope
+   * matches `requestHeader` and its total is no lower than that call's full
+   * route-priced anchor; otherwise the complete envelope and surface are
+   * repriced. The anchor includes all surface nodes immediately before the
+   * assistant message, including inputs admitted after step/start.
    *
    * `requestHeader` replaces the latest logged envelope for pressure and node
    * pricing; the node set always describes the current session surface. Every
@@ -303,10 +316,12 @@ export class TokenMeter extends Service {
       // The loop admits prompts and user messages after step/start; retries may
       // replace them before succeeding. Only the pre-assistant surface is priced
       // by this call. Provider output stays separate from durable output rewrites.
+      this._calibratePreviousAssistant(state, nextHeader, event)
       if (event.data.usage !== undefined && nextHeader !== undefined) {
         nextAnchor = {
           header: nextHeader,
           nodes: [...state.surface],
+          assistantSeq: event.seq,
           assistantTokens: this._estimateProviderAssistant(event),
           usage: event.data.usage,
         }
@@ -314,6 +329,7 @@ export class TokenMeter extends Service {
         nextAnchor = {
           header: nextHeader,
           nodes: [...state.surface],
+          assistantSeq: event.seq,
           assistantTokens: eventTokens,
           usage: undefined,
         }
@@ -326,6 +342,41 @@ export class TokenMeter extends Service {
       commitSurfaceTokens(state.surface, plan)
     }
     state.anchor = nextAnchor
+  }
+
+  /**
+   * Attribute billed prompt growth between two usage-bearing calls under the
+   * same canonical envelope to the previous assistant node, clamped to that
+   * call's `outputTokens`. A header change or a replaced assistant skips.
+   */
+  private _calibratePreviousAssistant(
+    state: ReplayState,
+    header: EpochHeader | undefined,
+    event: SessionEvent<'assistant/message'>,
+  ): void {
+    const previous = state.anchor
+    const usage = event.data.usage
+    if (previous === undefined || previous.usage === undefined || usage === undefined) return
+    if (!optionalHeaderEquals(previous.header, header)) return
+    const index = state.surface.findIndex(node => node.seq === previous.assistantSeq)
+    if (index === -1) return
+
+    const previousSeqs = new Set(previous.nodes.map(node => node.seq))
+    let added = 0
+    for (const node of state.surface) {
+      if (node.seq === previous.assistantSeq || previousSeqs.has(node.seq)) continue
+      added += nodePrice(node)
+    }
+    const currentSeqs = new Set(state.surface.map(node => node.seq))
+    let removed = 0
+    for (const node of previous.nodes) {
+      if (currentSeqs.has(node.seq)) continue
+      removed += nodePrice(node)
+    }
+    const replay = promptTokens(usage) - promptTokens(previous.usage) - added + removed
+    const calibratedTokens = Math.min(Math.max(0, replay), previous.usage.outputTokens)
+    // oxlint-disable-next-line typescript/no-non-null-assertion -- index is a live surface position.
+    state.surface[index] = { ...state.surface[index]!, calibratedTokens }
   }
 
   /**

@@ -13,6 +13,7 @@ import type { PromptContentPart as SessionPromptContentPart, SessionPageRequest 
 import { ev, plainTurn } from './event-script.client.ts'
 
 type RenameSuccess = Extract<Awaited<ReturnType<ISession['rename']>>, { readonly ok: true }>
+type ThinkingCapSuccess = Extract<Awaited<ReturnType<ISession['setThinkingCapAutoContinue']>>, { readonly ok: true }>
 
 function entry(seq: SessionSeq): SessionLiveEventEntry {
   return {
@@ -68,6 +69,7 @@ describe('Client Session contracts', () => {
   it('brands same-process Session event positions while keeping the API wire numeric', () => {
     expectTypeOf<ISession['loadThrough']>().parameter(0).toEqualTypeOf<SessionSeq>()
     expectTypeOf<RenameSuccess['value']['seq']>().toEqualTypeOf<SessionSeq>()
+    expectTypeOf<ThinkingCapSuccess['value']['seq']>().toEqualTypeOf<SessionSeq>()
     expectTypeOf<ProjectionValueStore['apply']>().parameter(2).toEqualTypeOf<SessionSeqCursor>()
     expectTypeOf<ProjectionsBaseline['asOfSeq']>().toEqualTypeOf<SessionSeqCursor>()
     expectTypeOf<SessionPageRequest['throughSeq']>().toEqualTypeOf<number>()

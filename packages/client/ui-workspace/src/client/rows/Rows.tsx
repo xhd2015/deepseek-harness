@@ -233,7 +233,11 @@ export function ProjectRowItem({ group, containsCurrentDescendant = false, onTog
   const row = group
   // The ungrouped bucket has no workspace title: its label is dictionary copy.
   const label = row.workspaceId === undefined ? t('group.ungrouped') : row.label
-  const active = containsCurrentDescendant || (group.expanded && group.containsCurrent)
+  // Holding the open Session outlives the fold: a folded row keeps the folder
+  // tint and adds the location accent, since its Session rows are not rendered.
+  const containsCurrent = group.containsCurrent
+  const foldedCurrent = containsCurrent && !group.expanded
+  const active = containsCurrentDescendant || containsCurrent
   const [menuOpen, setMenuOpen] = useState(false)
   const workspaceMenuItems = [
     { id: 'rename', label: t('rename'), icon: <IconEditOutlineRegular /> },
@@ -241,10 +245,11 @@ export function ProjectRowItem({ group, containsCurrentDescendant = false, onTog
   ]
   const ownRow = (
     <div
-      className={clsx(css.projectRow, menuOpen && css.menuOpen)}
+      className={clsx(css.projectRow, menuOpen && css.menuOpen, foldedCurrent && css.projectRowCurrent)}
       data-row-key={`workspace:${group.key}`}
       role="treeitem"
       aria-expanded={row.expanded}
+      aria-current={containsCurrent ? 'true' : undefined}
       onClick={onToggle}
       draggable={drag !== undefined}
       onDragStart={drag === undefined

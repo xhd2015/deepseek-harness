@@ -35,6 +35,10 @@ import { ReactLoopAgent } from './agent.ts'
 import { inboxProjectionDefinition } from './inbox.ts'
 import { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from './constants.ts'
 import type {} from './runtime-context.ts'
+import {
+  installThinkingCapAutoContinue,
+  thinkingCapAutoContinueProjectionDefinition,
+} from './thinking-cap-auto-continue.ts'
 
 /** Fiber states that cannot own or serve a new lifecycle. */
 const INACTIVE_STATES: ReadonlySet<FiberState> = new Set([
@@ -379,12 +383,16 @@ export class AgentLoop extends Service implements AgentFactory {
       yield unregisterTurnBoundary
       const unregisterInbox = ctx.sessionProjections.register(inboxProjectionDefinition)
       yield unregisterInbox
+      const unregisterThinkingCap = ctx.sessionProjections.register(thinkingCapAutoContinueProjectionDefinition)
+      yield unregisterThinkingCap
       // Cordis skips later disposers after a rejection; finally still releases projections.
       yield () => ownership.dispose().finally(() => {
         unregisterInbox()
         unregisterTurnBoundary()
+        unregisterThinkingCap()
       })
     }, 'agentLoop.transactions()')
+    ctx.effect(() => installThinkingCapAutoContinue(ctx), 'agentLoop.thinkingCapAutoContinue')
     ctx.effect(() => ctx.agents.setFactory(this), 'agentLoop.setFactory()')
     ctx.systemPrompt.variable('provider', context => context.agent?.options.provider)
     ctx.systemPrompt.variable('model', context => context.agent?.options.model)

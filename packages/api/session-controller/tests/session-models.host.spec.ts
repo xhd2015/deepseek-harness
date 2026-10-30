@@ -24,6 +24,7 @@ import { buildModelCatalog, hasProviderApiKey } from '../src/catalog.ts'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { createSessionTestController, createSessionTestRemote } from './test-remote.ts'
+import { thinkingCapAutoContinueProjectionDefinition } from '../../../core/agent-loop/src/thinking-cap-auto-continue.ts'
 
 function request<P>(payload: P): P {
   return payload
@@ -486,6 +487,39 @@ describe('Web session model selection', () => {
     await ctx.fiber.dispose()
   })
 
+  it('lists a model the adapter refuses beside the ones it serves, without collapsing the route', async () => {
+    const { ctx } = await harness()
+    const refusal = 'reasoningEfforts names "ultra", which is not a reasoning level pi-ai knows'
+    ctx.llm.registerAdapter(['partial'], new class extends CatalogAdapter {
+      override resolveModel(provider: string, model: string) {
+        // The refusal is already in the listing, so metadata is never
+        // interrogated for it: resolving would reject, and that rejection is
+        // what would collapse the whole route into a provider failure.
+        if (model === 'refused') return Promise.reject(new Error(refusal))
+        return super.resolveModel(provider, model)
+      }
+    }('Partial', [
+      { provider: 'partial', id: 'served', name: 'Served Model' },
+      { provider: 'partial', id: 'refused', name: 'refused', unavailable: refusal },
+    ]))
+    createSessionTestRemote(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      cwd: '/tmp',
+    })
+
+    const catalog = await buildModelCatalog(ctx)
+    expect(catalog.failures).not.toContainEqual(expect.objectContaining({ id: 'partial' }))
+    expect(catalog.groups).toContainEqual({
+      id: 'partial',
+      name: 'Partial',
+      models: [
+        { id: 'served', name: 'Served Model' },
+        { id: 'refused', name: 'refused', unavailable: refusal },
+      ],
+    })
+    await ctx.fiber.dispose()
+  })
+
   it('rejects unlisted models and switches available models only after the next assembly', async () => {
     const { ctx, agent, sessionId } = await harness()
     const remote = createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }), cwd: '/tmp' })
@@ -875,6 +909,38 @@ describe('Web session model selection', () => {
       ok: false,
       error: { code: 'session/model-unavailable', message: 'string selection failure' },
     })
+    await ctx.fiber.dispose()
+  })
+
+  it('records thinking-cap auto-continue on the Session log', async () => {
+    const { ctx, agent, sessionId } = await harness()
+    const remote = createSessionTestRemote(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      cwd: '/tmp',
+    })
+    const unregister = ctx.sessionProjections.register(thinkingCapAutoContinueProjectionDefinition)
+    const first = expectValue(await remote.setThinkingCapAutoContinue({ sessionId, enabled: true }))
+    expect(first.enabled).toBe(true)
+    const recorded = agent.session.snapshotEvents().filter(event => event.type === 'session/thinking-cap-auto-continue')
+    expect(recorded).toHaveLength(1)
+    expect(recorded[0]).toMatchObject({
+      type: 'session/thinking-cap-auto-continue',
+      ignorable: true,
+      data: { enabled: true },
+    })
+    expect(first.seq).toBe(recorded[0]!.seq)
+    expect(expectValue(await remote.setThinkingCapAutoContinue({ sessionId, enabled: true }))).toEqual({
+      enabled: true,
+      seq: recorded[0]!.seq,
+    })
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'session/thinking-cap-auto-continue')).toHaveLength(1)
+    const disabled = expectValue(await remote.setThinkingCapAutoContinue({ sessionId, enabled: false }))
+    expect(disabled.enabled).toBe(false)
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'session/thinking-cap-auto-continue')).toHaveLength(2)
+    expect(disabled.seq).toBe(
+      agent.session.snapshotEvents().filter(event => event.type === 'session/thinking-cap-auto-continue').at(-1)!.seq,
+    )
+    unregister()
     await ctx.fiber.dispose()
   })
 })

@@ -1,4 +1,4 @@
-/** Web SSE transport for page-owned client entry reconciliation and rebuilt code replacement. */
+/** Web SSE transport for entry reconciliation and rebuilt code replacement; the SharedWorker relay shares one socket across tabs. */
 import type { Context } from '@deepseek-ai/cordis'
 import { EventSourceParserStream } from 'eventsource-parser/stream'
 import type { PluginsEventParseResult } from '../events.ts'
@@ -18,6 +18,20 @@ type PageTransportFetch = (input: string, init: RequestInit) => Promise<Response
 /** Page global carrying the shell transport; absent in the served web app. */
 interface PageTransportGlobal {
   __DSH_TRANSPORT__?: { fetch?: PageTransportFetch }
+}
+
+/**
+ * Page-relative script URL of the Gateway SharedWorker relay; the browser
+ * resolves it against the document base, so this module never needs the
+ * `location` global itself. Mirrors the Gateway's served mux worker path.
+ */
+const REMOTE_SHARED_MUX_WORKER_PATH = '/api/remote.shared-mux-worker.js'
+
+/** Whether a Gateway SharedWorker relay frame carries one raw HMR SSE payload. */
+function isHmrEvent(value: unknown): value is { readonly type: 'hmr-event'; readonly data: string } {
+  return typeof value === 'object' && value !== null
+    && (value as { type?: unknown }).type === 'hmr-event'
+    && typeof (value as { data?: unknown }).data === 'string'
 }
 
 /**
@@ -43,7 +57,7 @@ async function readPageTransportEvents(fetch: PageTransportFetch, signal: AbortS
 
 /**
  * Forward graph snapshots and rebuilds to the page's shared serial controller. The event stream arrives through the
- * shell transport when the page has one, otherwise through the browser `EventSource`.
+ * shell transport when the page has one, otherwise through the Gateway SharedWorker relay.
  * @param ctx - Plugin context with the client module system.
  */
 export function apply(ctx: Context): void {
@@ -80,8 +94,16 @@ export function apply(ctx: Context): void {
       })
       return () => { controller.abort() }
     }
-    const source = new EventSource(EVENTS_ROUTE)
-    source.addEventListener('message', (event: MessageEvent<string>) => { receive(event.data) })
-    return () => { source.close() }
+    const worker = new SharedWorker(
+      REMOTE_SHARED_MUX_WORKER_PATH,
+      { type: 'module', name: 'dsh-gateway-mux' },
+    )
+    const { port } = worker
+    port.addEventListener('message', (event: MessageEvent<unknown>) => {
+      if (!isHmrEvent(event.data)) return
+      receive(event.data.data)
+    })
+    port.start()
+    return () => { port.close() }
   }, 'client-hmr: event source')
 }

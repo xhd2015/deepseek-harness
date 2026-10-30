@@ -10,6 +10,7 @@
     "src/client/journal-stream.ts",
     "src/client/remote-events.ts",
     "src/client/remote-stream.ts",
+    "src/client/shared-mux-worker.ts",
     "src/client/snapshot-stream.ts",
     "src/client/stream-client.ts",
     "src/remote-error-codes.ts",

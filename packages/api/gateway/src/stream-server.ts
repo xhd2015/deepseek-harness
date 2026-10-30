@@ -76,6 +76,9 @@ export class RemoteStreamMuxServer {
       if (release === undefined) return
       const alive = (): void => { this.missedHeartbeats.set(websocket, 0) }
       alive()
+      // Pongs cannot interrupt a data frame; incoming bytes keep an unfinished upload alive.
+      socket.on('data', alive)
+      websocket.once('close', () => { socket.off('data', alive) })
       this.startHeartbeat()
       const bound: BoundStreamOpener = (endpoint, payload, uplink, control, window) =>
         this.open(endpoint, payload, uplink, peer, control, window)
@@ -148,11 +151,12 @@ class RemoteStreamMuxConnection {
   ) {}
 
   /**
-   * Serve frames until the socket closes. A Pong, any received frame, and a
+   * Serve frames until the socket closes. Incoming carrier bytes count as
+   * activity even before a frame completes. A Pong, any received message, and a
    * downlink write that waited in the local send buffer and then completed
-   * count as peer activity, so a congested link that delays the Pong behind
-   * data keeps its socket. A write that completes at once proves nothing
-   * about the peer and does not count.
+   * also count, so a congested link that delays the Pong behind data keeps its
+   * socket. A write that completes at once proves nothing about the peer and
+   * does not count.
    */
   async run(): Promise<void> {
     const closed = new Promise<void>((resolve) => {

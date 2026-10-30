@@ -27,6 +27,17 @@ export function maxTokensResponse(text: string): StreamChunk[] {
   ]
 }
 
+/** Reasoning-only stream that ends at the output-token ceiling. */
+export function reasoningMaxTokensResponse(text: string): StreamChunk[] {
+  return [
+    { type: 'block-start', index: 0, blockType: 'reasoning' },
+    ...Array.from(text, (char): StreamChunk => ({ type: 'reasoning-delta', index: 0, text: char })),
+    { type: 'block-end', index: 0, block: { type: 'reasoning', text } },
+    { type: 'usage', usage: { inputTokens: 10, outputTokens: text.length } },
+    { type: 'finish', reason: { kind: 'max-tokens' } },
+  ]
+}
+
 export function toolCallResponse(rawCallId: string, name: string, args: object, text?: string): StreamChunk[] {
   const callId = ToolCallId(rawCallId)
   const argumentsJson = JSON.stringify(args)

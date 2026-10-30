@@ -12,7 +12,6 @@
  * @module @deepseek-ai/dsh-web-app
  */
 
-import { spawn, type ChildProcess } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
@@ -22,10 +21,12 @@ import type {} from '@deepseek-ai/dsh-client-connection'
 import * as FrontendStatic from '@deepseek-ai/dsh-host-frontend-static'
 import { bindUrlHost, isLoopbackHost } from '@deepseek-ai/dsh-host-webserver'
 import { launchedThroughSsh, launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
-import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-shell-env'
+import { clearWebListenFile, writeWebListenFile } from './listen-file.ts'
+import { openerInternals } from './opener.ts'
 import { parsePublicUrl } from './public-url.ts'
+import { WEB_STARTUP_SERVICE, type WebStartupValues } from './startup.ts'
 
 /** The Web GUI this process serves, provided by the `web-runtime` row. */
 export interface WebApp {
@@ -82,37 +83,6 @@ export const Config: z<Config> = z.object({
 /** Environment variable naming the advertised URL of this Web GUI. */
 const DSH_WEB_URL = 'DSH_WEB_URL' as const
 
-const BROWSER_OPENER_MODULE = import.meta.resolve('open')
-
-const BROWSER_OPENER_PROGRAM = `
-try {
-  const { default: open } = await import(${JSON.stringify(BROWSER_OPENER_MODULE)})
-  const launcher = await open(process.argv[1])
-  if (process.platform === 'win32') {
-    // open resolves at PowerShell spawn; keep it referenced until that launcher hands the URL to Windows.
-    const code = launcher.exitCode ?? await new Promise((resolve, reject) => {
-      function onError(error) {
-        launcher.off('close', onClose)
-        reject(error)
-      }
-      function onClose(code) {
-        launcher.off('error', onError)
-        resolve(code)
-      }
-      launcher.ref()
-      launcher.once('error', onError)
-      launcher.once('close', onClose)
-    })
-    if (code !== 0) throw new Error('browser operating-system launcher exited with code ' + String(code))
-  }
-  process.exitCode = 0
-} catch (error) {
-  // The parent turns this exit into the manual-URL warning.
-  console.error(error)
-  process.exitCode = 1
-}
-`
-
 /**
  * Dist location is workspace knowledge of this bundle: anchored on the
  * frontend package manifest, not configured. Existence is a request-time
@@ -130,60 +100,55 @@ function resolveDistIndex(): string {
   }
 }
 
-/** Start the maintained platform opener without forwarding Harness credentials. */
-function spawnBrowserLauncher(url: string): ChildProcess {
-  return spawn(process.execPath, [
-    '--input-type=module',
-    '--eval', BROWSER_OPENER_PROGRAM,
-    '--', url,
-  ], {
-    env: scrubbedParentEnv(),
-    stdio: ['ignore', 'inherit', 'pipe'],
-  })
-}
-
-/** Hand one URL to the operating system's default browser. */
-async function openBrowser(url: string): Promise<void> {
-  const launcher = spawnBrowserLauncher(url)
-  let launcherStderr = ''
-  launcher.stderr?.setEncoding('utf8')
-  launcher.stderr?.on('data', (chunk: string) => { launcherStderr += chunk })
-  await new Promise<void>((resolve, reject) => {
-    function onError(error: Error): void {
-      launcher.off('close', onClose)
-      reject(error)
-    }
-    function onClose(code: number | null): void {
-      launcher.off('error', onError)
-      if (code !== 0) {
-        const firstLine = launcherStderr.trim().split(/\r?\n/u)[0]
-        const reason = firstLine === undefined || firstLine === ''
-          ? `browser launcher exited with code ${String(code)}`
-          : firstLine.replace(/^(?:[A-Za-z]*Error):\s*/u, '')
-        reject(new Error(reason))
-        return
-      }
-      if (launcherStderr !== '') process.stderr.write(launcherStderr)
-      resolve()
-    }
-    launcher.once('error', onError)
-    launcher.once('close', onClose)
+/**
+ * Record this process's bind origin and launch token for `dsh web open`.
+ * The origin is the listener's own address, not an advertised public URL,
+ * so a second process on this machine can reach it.
+ * @param authenticatedUrl - URL that includes the process token query.
+ * @param origin - listener origin, for example `http://127.0.0.1:3080`.
+ */
+function publishListenRecord(authenticatedUrl: string, origin: string): void {
+  const token = new URL(authenticatedUrl).searchParams.get('token')
+  writeWebListenFile({
+    pid: process.pid,
+    origin,
+    ...token === null ? {} : { token },
   })
 }
 
 /** Test hooks for the built dist and native browser handoff; production never mutates them. */
 export const internals: {
   resolveDistIndex: () => string
-  openBrowser: (url: string) => Promise<void>
-} = { resolveDistIndex, openBrowser }
+  openBrowser: (url: string, browser?: string) => Promise<void>
+} = {
+  resolveDistIndex,
+  get openBrowser() { return openerInternals.openBrowser },
+  set openBrowser(value) { openerInternals.openBrowser = value },
+}
+
+/**
+ * Whether this invocation is the `dsh web open` client rather than a serving
+ * GUI. A hand-built tree that provides no `webStartup` serves.
+ * @param ctx - plugin context that may carry the web-startup values.
+ * @returns true for the open client.
+ */
+function isOpenClient(ctx: Context): boolean {
+  return (ctx.get(WEB_STARTUP_SERVICE) as WebStartupValues | undefined)?.mode === 'open'
+}
 
 /**
  * Mount the Web runtime: dist serving, the bash runtime variable, the URL
  * line, and the default-browser handoff.
+ *
+ * A `dsh web open` invocation is a client of the serving GUI, not a server.
+ * It returns before reading the listener, so it never prints a URL, opens a
+ * browser, or publishes a listen record. Rows it must not mount at all are
+ * disabled through `DSH_WEB_OPEN` in the bundle patch.
  * @param ctx - plugin context carrying the webServer service.
  * @param config - validated {@link Config}.
  */
 export function apply(ctx: Context, config: Config): void {
+  if (isOpenClient(ctx)) return
   // The schema validates a present string; an explicit YAML `null` bypasses
   // the string transform and reaches here, meaning unset.
   const publicUrl = config.publicUrl ?? undefined
@@ -197,6 +162,7 @@ export function apply(ctx: Context, config: Config): void {
   if (ctx.webServer.protocol === 'http:' && !isLoopbackHost(boundHost)) {
     console.warn(`dsh web: listening on ${boundHost} over plain HTTP; restrict this port to a trusted proxy or network`)
   }
+  ctx.effect(() => () => { clearWebListenFile(process.pid) }, 'web-app: listen file')
   // The bind URL belongs to this host. Under SSH, the operator reaches it
   // through a local forwarding address that this process cannot derive.
   const handoffBrowser = config.openBrowser && !launchedThroughSsh(launchEnvironmentOf(ctx))
@@ -226,17 +192,25 @@ export function apply(ctx: Context, config: Config): void {
         if (ANNOUNCED_ROOTS.has(connectionCtx.root)) return
         const webUrl = appRootUrl()
         const authenticatedUrl = connectionCtx.connection.authenticatedUrl(webUrl)
+        const browser = (connectionCtx.get(WEB_STARTUP_SERVICE) as WebStartupValues | undefined)?.browser
         ANNOUNCED_ROOTS.add(connectionCtx.root)
         if (config.printUrl) {
           console.log(`dsh web: ${authenticatedUrl}`)
         }
         if (handoffBrowser) {
-          console.log('dsh web: opening the default browser; pass --no-open to disable')
-          void internals.openBrowser(authenticatedUrl).catch((error: unknown) => {
+          console.log(browser === undefined
+            ? 'dsh web: opening the default browser; pass --no-open to disable'
+            : `dsh web: opening a new ${browser} window; pass --no-open to disable`)
+          const opened = browser === undefined
+            ? internals.openBrowser(authenticatedUrl)
+            : internals.openBrowser(authenticatedUrl, browser)
+          void opened.catch((error: unknown) => {
             const reason = error instanceof Error ? error.message : String(error)
-            console.error(`web-app: could not open the default browser because ${reason}; use the dsh web URL printed at startup`)
+            const which = browser === undefined ? 'the default browser' : 'the browser'
+            console.error(`web-app: could not open ${which} because ${reason}; use the dsh web URL printed at startup`)
           })
         }
+        publishListenRecord(authenticatedUrl, connectionCtx.webServer.getOrigin())
       }
       // This row's own activation can precede a sibling failure. The app owns
       // readiness by waiting for its Loader tree, or announces at once in a

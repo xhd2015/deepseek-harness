@@ -25,7 +25,7 @@
  * chevron, and each row whose value that selection carries shows one in place
  * of its check mark.
  */
-import { MenuGroup, MenuSurface, observeStickyMenuGroups } from '@deepseek-ai/dsh-client-ui-primitives'
+import { MenuGroup, MenuSurface, observeStickyMenuGroups, observeVisibleViewport, visibleViewportRect } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore,
   type CSSProperties, type KeyboardEvent, type FocusEvent,
@@ -222,17 +222,25 @@ export function ModelSelect(
       const rect = triggerRef.current?.getBoundingClientRect()
       if (rect === undefined) return
       const MARGIN = 12
-      const lw = menuRef.current?.offsetWidth ?? 0
-      const lh = menuRef.current?.offsetHeight ?? 0
+      const menu = menuRef.current
+      // An iOS keyboard pans and shrinks the visual viewport while the layout
+      // viewport stays put, so clamping against window coordinates would let
+      // the menu drift under the keyboard or off the visible top. Clamp
+      // against the visible band, and while the band is squeezed also cap the
+      // menu height so the whole card fits and the list scrolls inside.
+      const band = visibleViewportRect()
+      const squeezed = band.height < window.innerHeight - 1 || band.width < window.innerWidth - 1
+      if (menu !== null) menu.style.maxHeight = squeezed ? `${Math.round(Math.max(160, Math.min(360, band.height - MARGIN * 2)))}px` : ''
+      const lw = menu?.offsetWidth ?? 0
+      const lh = menu?.offsetHeight ?? 0
       let x = rect.right - lw
       let y = rect.top - 8 - lh
-      if (lw > 0) x = Math.min(Math.max(x, MARGIN), window.innerWidth - lw - MARGIN)
-      if (lh > 0) y = Math.min(Math.max(y, MARGIN), window.innerHeight - lh - MARGIN)
+      if (lw > 0) x = Math.min(Math.max(x, band.left + MARGIN), band.left + band.width - lw - MARGIN)
+      if (lh > 0) y = Math.min(Math.max(y, band.top + MARGIN), band.top + band.height - lh - MARGIN)
       setMenuPos({ left: x, top: y })
     }
     place()
-    window.addEventListener('scroll', place, true)
-    window.addEventListener('resize', place)
+    const unobserve = observeVisibleViewport(place)
     const menu = menuRef.current
     const observer = typeof ResizeObserver !== 'undefined' && menu !== null
       ? new ResizeObserver(place)
@@ -240,8 +248,7 @@ export function ModelSelect(
     if (menu !== null) observer?.observe(menu)
     return () => {
       observer?.disconnect()
-      window.removeEventListener('scroll', place, true)
-      window.removeEventListener('resize', place)
+      unobserve()
     }
   }, [available, open, pane, state, query])
 
@@ -288,7 +295,9 @@ export function ModelSelect(
   }
 
   const moveFocus = (offset: number): void => {
-    const items = itemRefs.current.filter(item => item !== null)
+    // A refused model renders as a disabled button, which cannot take focus:
+    // leaving it in the cycle would park arrow navigation on a dead row.
+    const items = itemRefs.current.filter(item => item !== null && !item.disabled)
     if (items.length === 0) return
     const active = items.findIndex(item => item === document.activeElement)
     // Focus outside the rows (the trigger, which keeps it while the menu
@@ -583,6 +592,7 @@ export function ModelSelect(
                       {group.models.map((model) => {
                         const index = modelIndex++
                         const selected = state.current?.provider === group.id && state.current.model === model.id
+                        const refusal = model.unavailable
                         return (
                           <button
                             ref={itemRef()}
@@ -601,12 +611,17 @@ export function ModelSelect(
                               else itemRefs.current[index]?.focus()
                             }}
                             key={model.id}
-                            title={model.name}
-                            disabled={busy}
+                            title={refusal ?? model.name}
+                            disabled={busy || refusal !== undefined}
                             onClick={() => { choose({ provider: group.id, model: model.id }) }}
                           >
                             <span className={css.optionCopy}>
                               <span className={css.modelName}>{renderModelLabel(group.provider, model, 'option', selected)}</span>
+                              {refusal !== undefined && (
+                                <span className={css.optionReason}>
+                                  {t('warning.modelUnavailable', { message: refusal })}
+                                </span>
+                              )}
                             </span>
                             <span className={css.check}>
                               {pending?.provider === group.id && pending.model === model.id

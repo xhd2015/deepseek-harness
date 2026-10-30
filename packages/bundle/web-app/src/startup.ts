@@ -1,16 +1,21 @@
 /**
  * The web app's command-line provider: it parses the `dsh --profile web` flag
- * family (`--host`, `--port`, `--public-url`, `--trusted-host`, `--no-open`, TLS)
- * and its `--help` text, then provides the immutable values as
- * {@link WEB_STARTUP_SERVICE}. Ordinary rows inject that service before
- * reading it from lazy config.
+ * family (`--host`, `--port`, `--public-url`, `--trusted-host`,
+ * `--trusted-host-for-settings`, `--no-open`, `--no-auth`, `--browser`, TLS) and
+ * the `open [dir]` subcommand, then provides the immutable values as
+ * {@link WEB_STARTUP_SERVICE}. Ordinary rows inject that service before reading
+ * it from lazy config.
  * @module @deepseek-ai/dsh-web-app/startup
  */
 
 import { Command } from 'commander'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
+import { assertTrustedAuthority } from '@deepseek-ai/dsh-client-connection'
 import { parseCmdline } from '@deepseek-ai/dsh-cmdline'
 import { isWildcardHost, type TlsConfig } from '@deepseek-ai/dsh-host-webserver'
+import { isWebBrowserId, WEB_BROWSER_IDS, type WebBrowserId } from './browsers.ts'
 import { parsePublicUrl } from './public-url.ts'
 
 /** Stable Cordis plugin name. */
@@ -24,8 +29,16 @@ export const WEB_STARTUP_SERVICE = 'webStartup'
 
 /** What the web rows read from {@link WEB_STARTUP_SERVICE}. */
 export interface WebStartupValues {
-  /** Whether this invocation opens the default browser after startup. */
+  /** `serve` binds the GUI; `open` talks to a running GUI and exits. */
+  mode: 'serve' | 'open'
+  /** Whether this invocation opens a browser after success. */
   openBrowser: boolean
+  /** `--browser` id, absent when the invocation did not name one. */
+  browser?: WebBrowserId
+  /** Absolute directory for `open`; absent in `serve` mode. */
+  directory?: string
+  /** Validated initial text and whether to submit it; absent without a prompt source. */
+  initialPrompt?: { readonly text: string; readonly submit: boolean }
   /** `--host`, absent when the invocation did not name one. */
   host?: string
   /** `--port`, absent when the invocation did not name one. */
@@ -39,10 +52,18 @@ export interface WebStartupValues {
   trustedHosts: string[]
   /** Server certificate chain and unencrypted private key supplied together. */
   tls?: TlsConfig
+  /**
+   * Explicit `--trusted-host-for-settings` authorities, in argument order.
+   * Each must also appear in {@link trustedHosts}: the settings grant rides the
+   * same fence that admits the page's `/api` traffic.
+   */
+  trustedHostsForSettings: string[]
+  /** When true, skip process-token and cookie checks (outer reverse-proxy auth). */
+  disableAuth: boolean
 }
 
-/** The web flag family, as commander parsed it. */
-interface WebOptions {
+/** Serve-mode flags, as commander parsed them. */
+interface ServeOptions {
   host?: string
   open: boolean
   port?: string
@@ -50,6 +71,57 @@ interface WebOptions {
   trustedHost?: string[]
   tlsCert?: string
   tlsKey?: string
+  trustedHostForSettings?: string[]
+  browser?: string
+  auth: boolean
+}
+
+/** `open` subcommand flags. */
+interface OpenOptions {
+  open: boolean
+  browser?: string
+  prompt?: string
+  promptFile?: string
+  submit: boolean
+}
+
+/**
+ * Reject an unknown `--browser` spelling.
+ * @param program - commander command that owns the flag.
+ * @param value - raw flag value.
+ * @returns the accepted id.
+ */
+function requireBrowser(program: Command, value: string | undefined): WebBrowserId | undefined {
+  if (value === undefined) return undefined
+  if (!isWebBrowserId(value)) {
+    program.error(`error: --browser must be one of ${WEB_BROWSER_IDS.join(', ')}; got ${JSON.stringify(value)}`)
+  }
+  return value
+}
+
+/**
+ * Validate `--trusted-host-for-settings` entries at parse time, before any
+ * server binds. Each entry must be a bare authority in the canonical form the
+ * fence compares against, and must also be a `--trusted-host`: a settings grant
+ * for an authority the fence rejects could never load a page to use it, so the
+ * combination is a misconfiguration rather than a narrower grant.
+ * @param program - commander command that owns the flag.
+ * @param entries - raw flag values, in argument order.
+ * @param trustedHosts - the invocation's `--trusted-host` authorities.
+ * @returns the accepted authorities, in argument order.
+ */
+function requireSettingsAuthorities(program: Command, entries: string[], trustedHosts: readonly string[]): string[] {
+  for (const entry of entries) {
+    try {
+      assertTrustedAuthority(entry)
+    } catch {
+      program.error(`error: --trusted-host-for-settings expects a bare host or host:port, got ${JSON.stringify(entry)}`)
+    }
+    if (!trustedHosts.includes(entry)) {
+      program.error(`error: --trusted-host-for-settings ${JSON.stringify(entry)} is not also a --trusted-host; add --trusted-host ${entry}`)
+    }
+  }
+  return entries
 }
 
 /**
@@ -57,28 +129,139 @@ interface WebOptions {
  * @returns a fresh program, so one process can parse more than once (tests).
  */
 function webCommand(): Command {
-  return new Command()
+  const program = new Command()
     .name('dsh --profile web')
     .description('Serve the DeepSeek Harness browser UI.')
+    .enablePositionalOptions()
     .helpOption('-h, --help', 'show this help')
     .option('--host <host>', 'bind address: one concrete IPv4 or IPv6 literal of a local interface; wildcard addresses are rejected')
-    .option('--no-open', 'do not open the Web UI in the default browser')
+    .option('--no-open', 'do not open the Web UI in a browser')
     .option('--port <port>', 'listen port; pass 0 to let the OS pick a free one')
     .option('--public-url <url>', 'advertise this HTTP(S) root in the printed, opened, runtime-context, and DSH_WEB_URL forms; grants no trust')
     .option('--trusted-host <authority...>', 'extra authority the /api browser-trust fence accepts (host or host:port; repeatable)')
     .option('--tls-cert <file>', 'PEM server certificate chain; requires --tls-key')
     .option('--tls-key <file>', 'unencrypted PEM private key; requires --tls-cert')
+    .option('--trusted-host-for-settings <authority...>', 'authority whose page may also read and write Host settings, including credentials (host or host:port; repeatable; each must also be a --trusted-host)')
+    .option('--no-auth', 'disable process-token browser authentication (use when an outer reverse proxy already authenticates)')
+    .option('--browser <name>', `browser to open (${WEB_BROWSER_IDS.join(', ')})`)
     .addHelpText('after', `
 Examples:
   dsh --profile web                          serve on the composed host and port
   dsh --profile web --no-open                serve without opening a browser
+  dsh --profile web --browser brave          serve and open Brave
   dsh --profile web --port 8080              serve on another port
   dsh --profile web --host 10.0.0.7          bind one local interface address
   dsh --profile web --public-url https://app.example/ui/ --trusted-host app.example
                                              advertise a prefix-stripping HTTPS proxy entry and admit its authority
   dsh --profile web --tls-cert ./server-chain.pem --tls-key ./server-key.pem
                                              serve HTTPS with an existing certificate and key
+  dsh --profile web --no-auth                serve behind an outer authenticating reverse proxy
+  dsh --profile web --trusted-host app.internal \\
+      --trusted-host-for-settings app.internal   let app.internal edit models and credentials
+  dsh --profile web open                     new session for cwd in the running GUI
+  dsh --profile web open ~/proj --browser brave
 `)
+  program.command('open')
+    .description('Create a session for a directory and open it in the running Web UI.')
+    .argument('[dir]', 'workspace directory (default: current working directory)')
+    .option('--no-open', 'create the session without opening a browser')
+    .option('-p, --prompt <text>', 'initial prompt to submit')
+    .option('--prompt-file <file>', 'read the initial prompt from a UTF-8 file (relative to invoking cwd)')
+    .option('--no-submit', 'save the initial prompt as an editable draft')
+    .option('--browser <name>', `browser to open (${WEB_BROWSER_IDS.join(', ')})`)
+    .helpOption('-h, --help', 'show this help')
+  return program
+}
+
+/**
+ * Publish serve-mode flags. A wildcard host, a non-numeric port, an unpaired
+ * TLS file, or a malformed public URL is a usage error.
+ * @param ctx - plugin context that receives the service.
+ * @param program - the root web command.
+ */
+function publishServe(ctx: Context, program: Command): void {
+  const options = program.opts<ServeOptions>()
+  if (options.host !== undefined && isWildcardHost(options.host)) {
+    program.error(`error: --host ${options.host} is an unspecified (wildcard) address, which is not supported: binding every interface would expose remote code execution to the network; bind one concrete IPv4 or IPv6 address instead`)
+  }
+  if (options.port !== undefined && !/^\d+$/.test(options.port)) {
+    program.error(`error: --port must be a number, got ${JSON.stringify(options.port)}`)
+  }
+  let tls: TlsConfig | undefined
+  if (options.tlsCert !== undefined && options.tlsKey !== undefined) {
+    tls = { certFile: options.tlsCert, keyFile: options.tlsKey }
+  } else if (options.tlsCert !== undefined || options.tlsKey !== undefined) {
+    program.error('error: --tls-cert and --tls-key must be supplied together')
+  }
+  if (options.publicUrl !== undefined) {
+    try {
+      parsePublicUrl(options.publicUrl, '--public-url')
+    } catch (error) {
+      program.error(`error: ${(error as Error).message}`)
+    }
+  }
+  const browser = requireBrowser(program, options.browser)
+  const trustedHosts = options.trustedHost ?? []
+  const trustedHostsForSettings = requireSettingsAuthorities(program, options.trustedHostForSettings ?? [], trustedHosts)
+  delete process.env.DSH_WEB_OPEN
+  ctx.provide(WEB_STARTUP_SERVICE, {
+    mode: 'serve',
+    openBrowser: options.open,
+    ...browser !== undefined && { browser },
+    ...options.host !== undefined && { host: options.host },
+    ...options.port !== undefined && { port: Number(options.port) },
+    ...options.publicUrl !== undefined && { publicUrl: options.publicUrl },
+    ...tls !== undefined && { tls },
+    trustedHosts,
+    trustedHostsForSettings,
+    disableAuth: options.auth === false,
+  } satisfies WebStartupValues)
+}
+
+/**
+ * Publish `open` mode and mark this process so the patch does not bind a second GUI.
+ * @param ctx - plugin context that receives the service.
+ * @param program - the `open` subcommand.
+ * @param dir - positional directory, or the invoking cwd when omitted.
+ * @param options - subcommand flags.
+ */
+function publishOpen(ctx: Context, program: Command, dir: string | undefined, options: OpenOptions): void {
+  const parent = program.parent
+  const inherited = parent?.opts<ServeOptions>().browser
+  const browser = requireBrowser(program, options.browser ?? inherited)
+  const initialPrompt = resolveInitialPrompt(program, options)
+  process.env.DSH_WEB_OPEN = '1'
+  ctx.provide(WEB_STARTUP_SERVICE, {
+    mode: 'open',
+    openBrowser: options.open,
+    directory: resolve(dir ?? process.cwd()),
+    ...initialPrompt !== undefined && { initialPrompt },
+    ...browser !== undefined && { browser },
+    trustedHosts: [],
+    trustedHostsForSettings: [],
+    disableAuth: false,
+  } satisfies WebStartupValues)
+}
+
+function resolveInitialPrompt(program: Command, options: OpenOptions): WebStartupValues['initialPrompt'] {
+  if (options.prompt !== undefined && options.promptFile !== undefined) {
+    program.error('dsh: --prompt and --prompt-file cannot be used together')
+  }
+  let text = options.prompt
+  if (options.promptFile !== undefined) {
+    try {
+      text = readFileSync(resolve(options.promptFile), 'utf8')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      program.error(`dsh: cannot read prompt file ${JSON.stringify(options.promptFile)}: ${message}`)
+    }
+  }
+  if (text === undefined) {
+    if (!options.submit) program.error('dsh: --no-submit requires --prompt or --prompt-file')
+    return undefined
+  }
+  if (text.trim().length === 0) program.error('dsh: initial prompt must contain non-whitespace text')
+  return { text, submit: options.submit }
 }
 
 /**
@@ -90,35 +273,11 @@ Examples:
  */
 export function apply(ctx: Context): void {
   const program = webCommand()
-  program.action(() => {
-    const options = program.opts<WebOptions>()
-    if (options.host !== undefined && isWildcardHost(options.host)) {
-      program.error(`error: --host ${options.host} is an unspecified (wildcard) address, which is not supported: binding every interface would expose remote code execution to the network; bind one concrete IPv4 or IPv6 address instead`)
-    }
-    if (options.port !== undefined && !/^\d+$/.test(options.port)) {
-      program.error(`error: --port must be a number, got ${JSON.stringify(options.port)}`)
-    }
-    let tls: TlsConfig | undefined
-    if (options.tlsCert !== undefined && options.tlsKey !== undefined) {
-      tls = { certFile: options.tlsCert, keyFile: options.tlsKey }
-    } else if (options.tlsCert !== undefined || options.tlsKey !== undefined) {
-      program.error('error: --tls-cert and --tls-key must be supplied together')
-    }
-    if (options.publicUrl !== undefined) {
-      try {
-        parsePublicUrl(options.publicUrl, '--public-url')
-      } catch (error) {
-        program.error(`error: ${(error as Error).message}`)
-      }
-    }
-    ctx.provide(WEB_STARTUP_SERVICE, {
-      openBrowser: options.open,
-      ...options.host !== undefined && { host: options.host },
-      ...options.port !== undefined && { port: Number(options.port) },
-      ...options.publicUrl !== undefined && { publicUrl: options.publicUrl },
-      ...tls !== undefined && { tls },
-      trustedHosts: options.trustedHost ?? [],
-    } satisfies WebStartupValues)
+  program.action(() => { publishServe(ctx, program) })
+  const openCommand = program.commands.find(command => command.name() === 'open')
+  if (openCommand === undefined) throw new Error('web-startup: open subcommand missing')
+  openCommand.action((dir: string | undefined) => {
+    publishOpen(ctx, openCommand, dir, openCommand.opts<OpenOptions>())
   })
   parseCmdline(ctx, program)
 }

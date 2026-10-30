@@ -295,4 +295,28 @@ describe('request projection pricing', () => {
     expect(measurement.nodes[0]!.tokens)
       .toBe(imageFree + VISUAL_TOKENS + estimateContent([{ type: 'text', text: HANDLE_TEXT }]))
   })
+
+  it('keeps a usage-attributed assistant price on a route that also prices images', async () => {
+    const { meter, session } = await harness(() => fixedPricing)
+    session.append('user/message', imageMessage('photo'), { surfaceOp: 'append' })
+    appendSuccessfulCall(session, header('vision'), { inputTokens: 100, outputTokens: 5_000 })
+    const assistantSeq = meter.measure(session).nodes[1]!.seq
+    session.append('step/start', { turn: 1, step: 2 })
+    session.append('assistant/message', {
+      stream: [],
+      turn: 1,
+      step: 2,
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'next' }],
+        source: { kind: 'model', provider: 'mock', model: 'vision' },
+      }),
+      usage: { inputTokens: 5_100, outputTokens: 10 },
+    }, { surfaceOp: 'append' })
+    session.append('step/end', { turn: 1, step: 2 })
+    const assistant = meter.measure(session).nodes.find(node => node.seq === assistantSeq)
+    expect(assistant).toBeDefined()
+    expect(assistant!.tokens).toBe(5_000)
+    expect(assistant!.tokens).toBeGreaterThan(assistant!.heuristicTokens)
+  })
 })

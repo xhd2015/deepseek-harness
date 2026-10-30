@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { DraftSnapshot } from '../src/client/contract/draft-editor.ts'
-import { createConversationStore, readConversationDraft, readConversationViewPreference } from '../src/client/stores.ts'
+import { createConversationStore, hasConversationDraftChanges, readConversationDraft, readConversationViewPreference } from '../src/client/stores.ts'
 
 const KEY = 'dsh.conversation'
 
@@ -18,12 +18,13 @@ afterEach(() => {
 describe('createConversationStore', () => {
   it('owns draft, selected View, and one-shot View requests', () => {
     const store = createConversationStore().create()
-    expect(store.store.getSnapshot()).toEqual({ draft: '', view: null, viewRequest: null })
+    expect(store.store.getSnapshot()).toEqual({ draft: '', draftDirty: false, view: null, viewRequest: null })
 
     store.actions.setDraft('hello')
     store.actions.setView('chat')
     expect(store.store.getSnapshot()).toEqual({
       draft: 'hello',
+      draftDirty: true,
       view: 'chat',
       viewRequest: null,
     })
@@ -62,6 +63,25 @@ describe('createConversationStore', () => {
     expect(second.store.getSnapshot().draft).toBe('')
   })
 
+  it('distinguishes an explicitly cleared draft from absent browser recovery', () => {
+    const id = 'draft-presence' as SessionId
+    expect(hasConversationDraftChanges(id)).toBe(false)
+    const store = createConversationStore().create(id)
+    store.actions.setDraft('task')
+    store.actions.setDraft('')
+    expect(hasConversationDraftChanges(id)).toBe(true)
+    store.actions.markDraftSaved('task')
+    expect(hasConversationDraftChanges(id)).toBe(true)
+    store.actions.markDraftSaved('')
+    expect(hasConversationDraftChanges(id)).toBe(false)
+    localStorage.setItem(`${KEY}.${id}`, '{"draft":"legacy local draft"}')
+    expect(hasConversationDraftChanges(id)).toBe(true)
+    for (const raw of ['null', '[]', '4', '{}', '{"draft":4}', '{invalid']) {
+      localStorage.setItem(`${KEY}.${id}`, raw)
+      expect(hasConversationDraftChanges(id)).toBe(false)
+    }
+  })
+
   it('reads only a usable persisted View preference', () => {
     const sessionId = 'sess-1' as SessionId
     const store = createConversationStore().create(sessionId)
@@ -86,7 +106,7 @@ describe('createConversationStore', () => {
     store.actions.setView('trajectory')
 
     expect(JSON.parse(localStorage.getItem(`${KEY}.${sessionId}`)!)).toEqual({
-      draft, view: 'trajectory', viewRequest: null,
+      draft, draftDirty: true, view: 'trajectory', viewRequest: null,
     })
     expect(readConversationDraft(sessionId)).toEqual(draft)
     expect(createConversationStore().create(sessionId).getSnapshot().draft).toEqual(draft)

@@ -389,6 +389,52 @@ describe('ModelSelect reasoning effort', () => {
       .map(row => row.textContent)).toEqual(['Max'])
   })
 
+  it('keeps a refused model visible and unselectable, and out of the keyboard order', () => {
+    const reason = 'llm-pi-ai: model "deepseek-v4-pro" reasoningEfforts names "ultra"'
+    const directory = createSnapshotStore<ModelDirectoryState>(state({
+      groups: [{
+        id: 'deepseek-official',
+        name: 'DeepSeek',
+        models: [
+          { id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', reasoning },
+          { id: 'deepseek-v4-pro', name: 'deepseek-v4-pro', unavailable: reason },
+          { id: 'deepseek-v4-lite', name: 'DeepSeek-V4-Lite' },
+        ],
+      }],
+      routable: false,
+      unavailableReason: reason,
+    }))
+    const select = vi.fn().mockResolvedValue(true)
+    render(<ModelSelect
+      renderSlot={renderLabel}
+      locked={false}
+      available
+      directory={directory}
+      load={vi.fn()}
+      select={select}
+      t={t}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: /选择模型/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /模型/ }))
+    const refused = screen.getByRole('menuitemradio', { name: /deepseek-v4-pro/ })
+    // Listed with the adapter's own text — that is what tells the user which
+    // field to fix — but a disabled button submits nothing.
+    expect((refused as HTMLButtonElement).disabled).toBe(true)
+    expect(refused.textContent).toContain(`配置有误：${reason}`)
+    fireEvent.click(refused)
+    expect(select).not.toHaveBeenCalled()
+
+    // Arrow navigation steps over it rather than parking on a dead row.
+    const flash = screen.getByRole('menuitemradio', { name: /DeepSeek-V4-Flash/ })
+    const lite = screen.getByRole('menuitemradio', { name: /DeepSeek-V4-Lite/ })
+    flash.focus()
+    fireEvent.keyDown(flash, { key: 'ArrowDown' })
+    expect(document.activeElement).toBe(lite)
+    fireEvent.keyDown(lite, { key: 'ArrowUp' })
+    expect(document.activeElement).toBe(flash)
+  })
+
   it('portals the placed menu card to body and closes only on truly-outside mousedown', () => {
     const offsetWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth')!
     const offsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight')!
@@ -413,6 +459,8 @@ describe('ModelSelect reasoning effort', () => {
       // to the 12px viewport margin on both axes.
       expect(menu.style.left).toBe('12px')
       expect(menu.style.top).toBe('12px')
+      // Without a visual viewport the card keeps the stylesheet's height cap.
+      expect(menu.style.maxHeight).toBe('')
       // Interactions inside the trigger subtree or the portaled card stay open.
       expect(fireEvent.mouseDown(menu)).toBe(true)
       expect(fireEvent.mouseDown(trigger)).toBe(false)
@@ -420,6 +468,40 @@ describe('ModelSelect reasoning effort', () => {
       expect(screen.getByRole('menu')).toBeTruthy()
       fireEvent.mouseDown(document.body)
       expect(screen.queryByRole('menu')).toBeNull()
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, 'offsetWidth', offsetWidth)
+      Object.defineProperty(HTMLElement.prototype, 'offsetHeight', offsetHeight)
+    }
+  })
+
+  it('clamps the menu into a squeezed visual viewport and caps its height', () => {
+    const offsetWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth')!
+    const offsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight')!
+    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', { configurable: true, get: () => 200 })
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get: () => 300 })
+    // An open iOS keyboard: the visible band is offset down the layout
+    // viewport and much shorter than the window coordinates still report.
+    vi.stubGlobal('visualViewport', Object.assign(new EventTarget(), { offsetLeft: 0, offsetTop: 300, width: 500, height: 400 }))
+    vi.stubGlobal('innerWidth', 1000)
+    vi.stubGlobal('innerHeight', 800)
+    onTestFinished(() => vi.unstubAllGlobals())
+    try {
+      render(<ModelSelect renderSlot={renderLabel}
+        locked={false}
+        available
+        directory={createSnapshotStore(state())}
+        load={vi.fn()}
+        select={vi.fn().mockResolvedValue({ ok: true, value: undefined })}
+        t={t}
+      />)
+      fireEvent.click(screen.getByRole('button', { name: /选择模型/ }))
+      const menu = screen.getByRole('menu')
+      // The card sits inside the visible band (band top + 12 margin), not the
+      // window's 12px layout margin.
+      expect(menu.style.top).toBe('312px')
+      expect(menu.style.left).toBe('12px')
+      // The squeezed band also caps the card so it fits with the keyboard open.
+      expect(menu.style.maxHeight).toBe('360px')
     } finally {
       Object.defineProperty(HTMLElement.prototype, 'offsetWidth', offsetWidth)
       Object.defineProperty(HTMLElement.prototype, 'offsetHeight', offsetHeight)

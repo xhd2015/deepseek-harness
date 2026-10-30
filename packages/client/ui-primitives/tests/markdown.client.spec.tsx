@@ -61,6 +61,18 @@ describe('MarkdownText', () => {
     expect(screen.getByRole('link', { name: 'https://deepseek.com' })).toBeTruthy()
   })
 
+  it('keeps a single tilde as a range and still strikethroughs ~~text~~', () => {
+    const markdown = '现在农村新买的一般是 65~75 寸，~~旧口径~~；老电视多是 32~55 寸。'
+    for (const streaming of [false, true]) {
+      const { container } = render(<MarkdownText text={markdown} streaming={streaming} />)
+      expect(container.querySelector('del')?.textContent).toBe('旧口径')
+      expect(container.textContent).toContain('65~75 寸')
+      expect(container.textContent).toContain('32~55 寸')
+      expect(container.textContent).not.toContain('6575')
+      cleanup()
+    }
+  })
+
   it('closes punctuation-terminated strong emphasis before adjacent CJK text', () => {
     const cases = [
       ['**注意：**内容', '注意：'],
