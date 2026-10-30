@@ -136,6 +136,28 @@ describe('useAnchoredPosition', () => {
     expect(() => render(<Host open />)).not.toThrow()
   })
 
+  it('clamps the panel into a squeezed visual viewport instead of the window', () => {
+    // An open iOS keyboard: the visible band sits 300px down the layout
+    // viewport and is far shorter than the window coordinates report, so the
+    // raw placement below the anchor must pull back inside the band.
+    const anchorRect = vi.spyOn(HTMLButtonElement.prototype, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, 700, 200, 10))
+    const height = vi.spyOn(HTMLDivElement.prototype, 'offsetHeight', 'get').mockReturnValue(400)
+    vi.stubGlobal('innerWidth', 1000)
+    vi.stubGlobal('innerHeight', 1200)
+    vi.stubGlobal('visualViewport', Object.assign(new EventTarget(), { offsetLeft: 0, offsetTop: 300, width: 500, height: 400 }))
+    onTestFinished(() => {
+      anchorRect.mockRestore()
+      height.mockRestore()
+    })
+    const { getByTestId } = render(<Host open />)
+    // Raw top = 700 + 10 + 4 = 714; the band's bottom edge is 300 + 400 = 700,
+    // so the clamp allows at most 700 - 400 - 12 = 288. The old window clamp
+    // would have left the panel at 714, under the keyboard.
+    expect(getByTestId('panel').style.top).toBe('288px')
+    // Horizontally inside the band, so the left edge is untouched.
+    expect(getByTestId('panel').style.left).toBe('100px')
+  })
+
   it('attaches no listeners while the element is closed', () => {
     const made = stubResizeObserver()
     const add = vi.spyOn(window, 'addEventListener')

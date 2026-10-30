@@ -31,6 +31,8 @@ export type { MenuItemButtonProps, MenuEntry, MenuItem, MenuSeparator, MenuLabel
 export { useAnchoredMaxHeight } from './useAnchoredMaxHeight.ts'
 export { useAnchoredPosition } from './useAnchoredPosition.ts'
 export type { AnchoredPositionOptions } from './useAnchoredPosition.ts'
+export { observeVisibleViewport, visibleViewportRect } from './visible-viewport.ts'
+export type { VisibleViewportRect } from './visible-viewport.ts'
 export { useDismissOnOutsidePointer } from './useDismissOnOutsidePointer.ts'
 export { HoverCard } from './HoverCard.tsx'
 export { HoverCardGroup } from './HoverCardGroup.tsx'

@@ -3,6 +3,7 @@ import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { changedFileUrl } from '../changes.ts'
 import { presentedFileUrl, PRESENT_HOST_ROUTE, isPresentedHost, type PresentedAction, type PresentedHost } from '../presented.ts'
+import { hostFetch } from './host-fetch.ts'
 
 /** Success feedback remains fully visible for five seconds before fading. */
 export const PRESENTED_SUCCESS_HOLD_MS = 5000
@@ -103,7 +104,7 @@ export class PresentedOpenController {
   private async readHost(signal: AbortSignal): Promise<void> {
     let host: PresentedHost | 'error' = 'error'
     try {
-      const response = await fetch(PRESENT_HOST_ROUTE, { signal })
+      const response = await hostFetch(PRESENT_HOST_ROUTE, { signal })
       if (response.ok) {
         const value: unknown = await response.json()
         if (isPresentedHost(value)) host = value
@@ -132,7 +133,7 @@ export class PresentedOpenController {
     try {
       const target = action === 'reveal' ? `${url}&action=reveal`
         : application === undefined ? url : `${url}&application=${encodeURIComponent(application)}`
-      const response = await fetch(target, { method: 'POST', signal: this.lifetime.signal })
+      const response = await hostFetch(target, { method: 'POST', signal: this.lifetime.signal })
       if (!response.ok) phase = response.status === 422 ? 'nativeUnavailable' : failure
     } catch {
       // Transport failures share the retryable card state with Host open failures.

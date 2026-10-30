@@ -18,6 +18,9 @@ import { math } from 'micromark-extension-math'
 import { cjkFriendlyStrong } from './cjkFriendlyStrong.ts'
 import { mathCompatibility } from './mathCompatibility.ts'
 
+/** GFM strikethrough is `~~text~~`. A single `~` is a range marker (65~75), not delete. */
+const gfmSyntax = gfm({ singleTilde: false })
+
 /**
  * Parse GFM markdown (the streaming arm's grammar: no math, so incomplete
  * TeX never flashes KaTeX errors mid-stream).
@@ -26,7 +29,7 @@ import { mathCompatibility } from './mathCompatibility.ts'
  */
 export function parseGfm(text: string): Root {
   return recoverLocalImages(fromMarkdown(text, {
-    extensions: [gfm(), cjkFriendlyStrong()],
+    extensions: [gfmSyntax, cjkFriendlyStrong()],
     mdastExtensions: [gfmFromMarkdown()],
   }), text)
 }
@@ -39,7 +42,7 @@ export function parseGfm(text: string): Root {
  */
 export function parseGfmWithMath(text: string): Root {
   return recoverLocalImages(fromMarkdown(text, {
-    extensions: [gfm(), cjkFriendlyStrong(), mathCompatibility(), math()],
+    extensions: [gfmSyntax, cjkFriendlyStrong(), mathCompatibility(), math()],
     mdastExtensions: [gfmFromMarkdown(), mathFromMarkdown()],
   }), text)
 }

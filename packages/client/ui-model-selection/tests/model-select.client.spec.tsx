@@ -459,6 +459,8 @@ describe('ModelSelect reasoning effort', () => {
       // to the 12px viewport margin on both axes.
       expect(menu.style.left).toBe('12px')
       expect(menu.style.top).toBe('12px')
+      // Without a visual viewport the card keeps the stylesheet's height cap.
+      expect(menu.style.maxHeight).toBe('')
       // Interactions inside the trigger subtree or the portaled card stay open.
       expect(fireEvent.mouseDown(menu)).toBe(true)
       expect(fireEvent.mouseDown(trigger)).toBe(false)
@@ -466,6 +468,40 @@ describe('ModelSelect reasoning effort', () => {
       expect(screen.getByRole('menu')).toBeTruthy()
       fireEvent.mouseDown(document.body)
       expect(screen.queryByRole('menu')).toBeNull()
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, 'offsetWidth', offsetWidth)
+      Object.defineProperty(HTMLElement.prototype, 'offsetHeight', offsetHeight)
+    }
+  })
+
+  it('clamps the menu into a squeezed visual viewport and caps its height', () => {
+    const offsetWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth')!
+    const offsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight')!
+    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', { configurable: true, get: () => 200 })
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get: () => 300 })
+    // An open iOS keyboard: the visible band is offset down the layout
+    // viewport and much shorter than the window coordinates still report.
+    vi.stubGlobal('visualViewport', Object.assign(new EventTarget(), { offsetLeft: 0, offsetTop: 300, width: 500, height: 400 }))
+    vi.stubGlobal('innerWidth', 1000)
+    vi.stubGlobal('innerHeight', 800)
+    onTestFinished(() => vi.unstubAllGlobals())
+    try {
+      render(<ModelSelect renderSlot={renderLabel}
+        locked={false}
+        available
+        directory={createSnapshotStore(state())}
+        load={vi.fn()}
+        select={vi.fn().mockResolvedValue({ ok: true, value: undefined })}
+        t={t}
+      />)
+      fireEvent.click(screen.getByRole('button', { name: /选择模型/ }))
+      const menu = screen.getByRole('menu')
+      // The card sits inside the visible band (band top + 12 margin), not the
+      // window's 12px layout margin.
+      expect(menu.style.top).toBe('312px')
+      expect(menu.style.left).toBe('12px')
+      // The squeezed band also caps the card so it fits with the keyboard open.
+      expect(menu.style.maxHeight).toBe('360px')
     } finally {
       Object.defineProperty(HTMLElement.prototype, 'offsetWidth', offsetWidth)
       Object.defineProperty(HTMLElement.prototype, 'offsetHeight', offsetHeight)

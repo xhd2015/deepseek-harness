@@ -5,8 +5,9 @@
 // settles, so the scenario does not need the id to resolve; that is also why an
 // unlisted id is covered here as a deliberate outcome.
 //
-// This scaffold has no Workspaces, so its plain documents select nothing: the
-// seeded Session is what makes a listed id available at all.
+// Plain documents on this scaffold select nothing until a Session is seeded;
+// the Workspace-attached case registers the scaffold directory so the hero
+// chip can show that title.
 //
 // Zero model calls: the seeded Session is never prompted. The assertions read
 // the frame's collapsed attribute and every column width the frame ever
@@ -53,26 +54,45 @@ interface RpcEnvelope<T> {
   result: { ok: true; value: T } | { ok: false; error: { code: string; message: string } }
 }
 
+async function hostRpc<T>(target: WebScaffold, method: string, request: Record<string, unknown>): Promise<T> {
+  const response = await target.hostFetch(`/api/${method}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      type: 'client-request',
+      rpcId: `deep-link-${randomUUID()}`,
+      method,
+      payload: { args: { request } },
+    }),
+  })
+  if (!response.ok) throw new Error(`${method} failed over HTTP ${response.status}: ${await response.text()}`)
+  const result = (await response.json() as RpcEnvelope<T>).result
+  if (!result.ok) throw new Error(`${method} failed: ${result.error.code}: ${result.error.message}`)
+  return result.value
+}
+
 /**
  * Create one durable Session through the shipped Host API.
  * @param target - booted scaffold owning the authenticated Host.
  * @returns the created Session id.
  */
 async function createSession(target: WebScaffold): Promise<string> {
-  const response = await target.hostFetch('/api/session/create', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      type: 'client-request',
-      rpcId: `deep-link-${randomUUID()}`,
-      method: 'session/create',
-      payload: { args: { request: { cwd: target.workspaceCwd } } },
-    }),
-  })
-  if (!response.ok) throw new Error(`session/create failed over HTTP ${response.status}: ${await response.text()}`)
-  const result = (await response.json() as RpcEnvelope<{ sessionId: string }>).result
-  if (!result.ok) throw new Error(`session/create failed: ${result.error.code}: ${result.error.message}`)
-  return result.value.sessionId
+  return (await hostRpc<{ sessionId: string }>(target, 'session/create', { cwd: target.workspaceCwd })).sessionId
+}
+
+/**
+ * Create a Workspace for the scaffold directory and a blank Session attached to it.
+ * @param target - booted scaffold owning the authenticated Host.
+ * @returns the Session id and the Workspace display title.
+ */
+async function createAttachedSession(target: WebScaffold): Promise<{ sessionId: string; title: string }> {
+  const created = await hostRpc<{ workspace: { workspaceId: string; title: string } }>(
+    target, 'workspace/create', { path: target.workspaceCwd },
+  )
+  const session = await hostRpc<{ sessionId: string }>(
+    target, 'session/create', { workspaceId: created.workspace.workspaceId },
+  )
+  return { sessionId: session.sessionId, title: created.workspace.title }
 }
 
 describe('web e2e: a deep-linked Session opens with the sidebar collapsed', () => {
@@ -141,8 +161,22 @@ describe('web e2e: a deep-linked Session opens with the sidebar collapsed', () =
     onTestFailed(() => saveFailureShot(page, 'web-e2e-deep-link-unlisted'))
     try {
       await page.locator(COLLAPSED).waitFor({ state: 'attached', timeout: 30_000 })
+      await page.getByRole('status').filter({ hasText: 'This session link is not valid' }).waitFor({ timeout: 30_000 })
       const columns = await observedColumns(page)
       expect(columns.every(value => value.startsWith(RAIL_PREFIX))).toBe(true)
+      expect(tripwire.pageErrors).toEqual([])
+    } finally {
+      await page.close()
+    }
+  }, 120_000)
+
+  it('opens a Workspace-attached Session onto the hero chip', async () => {
+    const created = await createAttachedSession(scaffold)
+    const { page, tripwire } = await openPage(`${origin}/?session=${encodeURIComponent(created.sessionId)}`)
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-deep-link-workspace-chip'))
+    try {
+      await page.getByRole('button', { name: 'Choose workspace' })
+        .filter({ hasText: created.title }).waitFor({ timeout: 30_000 })
       expect(tripwire.pageErrors).toEqual([])
     } finally {
       await page.close()
