@@ -231,6 +231,61 @@ export const longProbe = 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 +
     expect(lefthook).not.toContain('eslint.format.config.mjs')
   })
 
+  it('preserves type-aware waivers during project-free staged fixes without false warnings', async () => {
+    const suffix = randomUUID()
+    const configPath = await writeContractConfig(suffix)
+    const path = join(repositoryRoot, 'scripts', `oxlint-contract-${suffix}.ts`)
+    const source = `/** @deprecated Compatibility probe. */
+export function legacyProbe(): number {
+  return 1
+}
+
+export function readProbe(): number {
+  // oxlint-disable-next-line typescript/no-deprecated -- Existing compatibility caller.
+  return legacyProbe()
+}
+
+export function hasValue(value: string): boolean {
+  // oxlint-disable-next-line typescript/no-unnecessary-condition -- External callers may omit the value.
+  return value !== undefined
+}
+`
+    try {
+      await writeFile(path, source)
+      const staged = runRepositoryOxlint([
+        '--config', '.oxlintrc.staged.json', '--fix', '--deny-warnings', relative(repositoryRoot, path),
+      ])
+      expect(staged.error).toBeUndefined()
+      expect(staged.status, normalizedOutput(staged)).toBe(0)
+      expect(normalizedOutput(staged)).not.toContain('Unused oxlint-disable directive')
+      expect(await readFile(path, 'utf8')).toBe(source)
+
+      const full = runOxlint(['--config', relative(repositoryRoot, configPath), '--deny-warnings', relative(repositoryRoot, path)])
+      expect(full.error).toBeUndefined()
+      expect(full.status, normalizedOutput(full)).toBe(0)
+    } finally {
+      await Promise.all([rm(path, { force: true }), rm(configPath, { force: true })])
+    }
+  }, 90_000)
+
+  it.each([
+    { name: 'syntax errors', source: 'export var value = 1\n', args: [], rule: 'no-var' },
+    { name: 'real warnings', source: "console.log('probe')\n", args: ['--warn', 'no-console'], rule: 'no-console' },
+  ])('keeps reporting $name in staged lint', async ({ source, args, rule }) => {
+    const path = join(repositoryRoot, 'scripts', `oxlint-contract-${randomUUID()}.ts`)
+    try {
+      await writeFile(path, source)
+      const result = runRepositoryOxlint([
+        '--config', '.oxlintrc.staged.json', '--deny-warnings', ...args, relative(repositoryRoot, path),
+      ])
+      expect(result.error).toBeUndefined()
+      expect(result.status, normalizedOutput(result)).toBe(1)
+      expect(normalizedOutput(result)).toContain(rule)
+    } finally {
+      await rm(path, { force: true })
+    }
+  }, 90_000)
+
   it('reports an unused suppression', async () => {
     const suffix = randomUUID()
     const configPath = await writeContractConfig(suffix)
@@ -403,19 +458,21 @@ export function unrelatedRead(): void {
     const path = join(repositoryRoot, 'scripts', `staged-lint-probe-${suffix}.ts`)
 
     try {
-      await writeFile(path, '// oxlint-disable-next-line no-console\nexport const value = 1\n')
+      await writeFile(path, "console.log('probe')\n")
       const result = runRepositoryOxlint([
         '--config',
         '.oxlintrc.staged.json',
         '--format',
         'unix',
         '--fix',
+        '--warn',
+        'no-console',
         relative(repositoryRoot, path),
       ])
 
       expect(result.error).toBeUndefined()
       expect(result.status, normalizedOutput(result)).toBe(0)
-      expect(result.stdout).toContain('Unused oxlint-disable directive')
+      expect(result.stdout).toContain('no-console')
       expect(result.stderr).toBe('')
     } finally {
       await rm(path, { force: true })

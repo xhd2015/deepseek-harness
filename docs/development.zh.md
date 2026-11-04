@@ -145,6 +145,8 @@ lefthook 在 `lefthook.yml` 中配置，作为快速的本地检查点：
 - `pre-merge-commit` 在 Git 创建自动合并提交前执行同样以索引为准的配对检查；
 - `pre-push` 运行 `pnpm run typecheck`；该命令先不打包地生成 Typert 约定，再运行 Client TypeScript 检查，并检查两个 aggregate。
 
+无用抑制注释只在完整的 type-aware lint 中检查；不加载项目的 staged 配置无法判断类型规则的豁免是否必要。
+
 vendor manifest 守卫检查 `vendor/*/src` 下的改动是否连同对应的 `vendor/README.md` manifest 更新一起暂存。请在编辑 vendor 代码前先阅读 `vendor/README.md`。
 
 pi-ai 检查会在内存中重新生成预期元数据。数据过期时，检查拒绝提交，不改写或暂存文件。修改 pi-ai 依赖或生成器后，请按包内的[提供方元数据更新步骤](../packages/llm/llm-pi-ai/README.zh.md#generated-provider-metadata)操作。
