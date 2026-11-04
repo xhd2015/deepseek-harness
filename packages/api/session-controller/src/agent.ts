@@ -63,6 +63,8 @@ export interface ApiSessionCreateRequest {
   readonly sessionId?: SessionId
   /** Directory the Session owns. */
   readonly cwd: string
+  /** Validated initial Session-only model selection. */
+  readonly modelSelection?: AgentModelSelection
   /** Preset the Session runs; the configured default when omitted. */
   readonly agentPreset?: string
   /**
@@ -77,12 +79,15 @@ export interface ApiSessionCreateRequest {
 export interface ApiSessionCreated {
   /** Live Agent of the Session. */
   readonly agent: Agent
+  /** Accepted initial selection when requested. */
+  readonly modelSelection?: ModelSelection
   /** Preset the Session ran when the request finished, before a later request for the same identity; absent without a roster. */
   readonly agentPreset: string | undefined
 }
 
 /** Resolved preset and pre-publication Agent setup for one create or resume. */
 interface ApiSessionComposition {
+  readonly modelSelection?: AgentModelSelection
   readonly agentPreset?: string
   readonly setup: AgentSetup
 }
@@ -277,8 +282,10 @@ export class ApiSessionAgentController {
    */
   async createSession(request: ApiSessionCreateRequest): Promise<ApiSessionCreated> {
     const named = request.sessionId
-    if (named === undefined) return this.created(await this.createMinted(request.cwd, await this.composeAgent(request.agentPreset)))
-    return this.inOrder(named, async () => this.created(await this.claim(named, request)))
+    if (named === undefined) {
+      return this.created(await this.createMinted(request.cwd, await this.composeForCreate(request)), request.modelSelection)
+    }
+    return this.inOrder(named, async () => this.created(await this.claim(named, request), request.modelSelection))
   }
 
   /**
@@ -466,7 +473,7 @@ export class ApiSessionAgentController {
       if (live.session.header.cwd !== request.cwd) {
         throw new ApiSessionCwdConflict(live.id, request.cwd, live.session.header.cwd)
       }
-      const composition = await this.composeAgent(request.agentPreset)
+      const composition = await this.composeForCreate(request)
       return await this.reuseLive(live, request, composition) ?? this.createMinted(request.cwd, composition)
     }
     let observation: SessionObservation
@@ -474,7 +481,7 @@ export class ApiSessionAgentController {
       observation = await this.ctx.sessionQuery.observeSession(sessionId)
     } catch (error: unknown) {
       if (!(error instanceof SessionQueryError) || error.code !== 'SESSION_QUERY_SESSION_NOT_FOUND') throw error
-      return this.createAgent(sessionId, request.cwd, await this.composeAgent(request.agentPreset))
+      return this.createAgent(sessionId, request.cwd, await this.composeForCreate(request))
     }
     let reusable: boolean
     {
@@ -487,13 +494,13 @@ export class ApiSessionAgentController {
       }
       reusable = request.reusable(sessionId) && !observed.events.some(event => event.type === 'turn/start')
     }
-    const composition = await this.composeAgent(request.agentPreset)
+    const composition = await this.composeForCreate(request)
     if (!reusable) return this.createMinted(request.cwd, composition)
     this.assertPresetApplicable(sessionId, request.agentPreset)
     try {
       return (await this.ctx.agents.resume({
         resumeSessionId: sessionId,
-        agentOptions: this.agentOptions(),
+        agentOptions: this.agentOptions(composition.modelSelection),
         setup: this.reuseSetup(composition),
       })).agent
     } catch (error: unknown) {
@@ -513,17 +520,22 @@ export class ApiSessionAgentController {
     composition: ApiSessionComposition,
   ): Promise<Agent | undefined> {
     if (!request.reusable(live.id) || !this.isBlank(live.session)) return undefined
+    this.assertInitialModel(live, request.modelSelection)
     this.assertPresetApplicable(live.id, request.agentPreset)
     const current = this.presetForSession(live.session)
     const presets = this.ctx.get('agentPresets')
     const target = composition.agentPreset
-    if (presets === undefined || target === undefined || target === current) return live
+    if (presets === undefined || target === undefined || target === current) {
+      this.installInitialModel(live, request.modelSelection)
+      return live
+    }
     try {
       await presets.select(live, target)
     } catch (error: unknown) {
       if (remoteErrorOf(error)?.code !== 'agent-preset/locked') throw error
       return undefined
     }
+    this.installInitialModel(live, request.modelSelection)
     return live
   }
 
@@ -552,8 +564,52 @@ export class ApiSessionAgentController {
     throw new ApiSessionPresetConflict(sessionId, requested)
   }
 
-  private created(agent: Agent): ApiSessionCreated {
-    return { agent, agentPreset: this.presetForSession(agent.session) }
+  private created(agent: Agent, requested?: AgentModelSelection): ApiSessionCreated {
+    return {
+      agent, agentPreset: this.presetForSession(agent.session),
+      ...(requested === undefined ? {} : { modelSelection: { ...this.selectionFor(agent).current } }),
+    }
+  }
+
+  private async composeForCreate(request: ApiSessionCreateRequest): Promise<ApiSessionComposition> {
+    const composition = await this.composeAgent(request.agentPreset)
+    const selected = request.modelSelection
+    if (selected === undefined) return composition
+    return {
+      ...composition,
+      modelSelection: selected,
+      setup: async (agentCtx, agent) => {
+        this.assertInitialModel(agent, selected)
+        const commit = await composition.setup(agentCtx, agent)
+        this.installInitialModel(agent, selected)
+        return commit
+      },
+    }
+  }
+
+  private assertInitialModel(agent: Agent, selected: AgentModelSelection | undefined): void {
+    if (selected === undefined) return
+    if (!this.isBlank(agent.session)) {
+      throw new RemoteError('session/model-conflict', 'Initial model selection requires a Session that has not started.', {
+        sessionId: agent.id,
+      })
+    }
+    const state = this.ctx.sessionProjections.stateOf(agent.session, 'modelSelection')
+    if (state === undefined) throw new Error('api-session: required modelSelection projection is not registered')
+    const recorded = state.pending ?? state.lastUsed
+    if (recorded !== null && (recorded.provider !== selected.provider || recorded.model !== selected.model
+      || recorded.reasoningEffort !== selected.reasoningEffort)) {
+      throw new RemoteError('session/model-conflict', 'The Session already has a different model selection.', {
+        sessionId: agent.id, provider: recorded.provider, model: recorded.model,
+      })
+    }
+  }
+
+  private installInitialModel(agent: Agent, selected: AgentModelSelection | undefined): void {
+    if (selected === undefined) return
+    this.assertInitialModel(agent, selected)
+    const state = this.ctx.sessionProjections.stateOf(agent.session, 'modelSelection')
+    if (state?.pending === null && state.lastUsed === null) this.selectForNextRequest(agent, selected)
   }
 
   private createMinted(cwd: string, composition: ApiSessionComposition): Promise<Agent> {
@@ -568,7 +624,7 @@ export class ApiSessionAgentController {
     }
     return (await this.ctx.agents.create({
       sessionId,
-      agentOptions: this.agentOptions(),
+      agentOptions: this.agentOptions(composition.modelSelection),
       meta: {
         cwd,
         ...(composition.agentPreset === undefined ? {} : { agentPreset: composition.agentPreset }),
@@ -577,8 +633,8 @@ export class ApiSessionAgentController {
     })).agent
   }
 
-  private agentOptions(): AgentOptions {
-    const { provider, model } = this.ctx.agentDefaultModel.currentSelection()
+  private agentOptions(selected?: AgentModelSelection): AgentOptions {
+    const { provider, model } = selected ?? this.ctx.agentDefaultModel.currentSelection()
     return { provider, model }
   }
 

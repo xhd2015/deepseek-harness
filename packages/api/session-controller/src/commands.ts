@@ -35,6 +35,7 @@ import {
   type ApiSessionCreated,
 } from './agent.ts'
 import type {
+  ModelSelection,
   SessionAttachmentRequest,
   SessionAttachmentValue,
   SessionCancelRequest,
@@ -107,8 +108,8 @@ export class SessionCommandController {
   /**
    * Create one ordinary Session for a new conversation, reusing the named
    * blank Session while it is an unarchived member of the requested Workspace.
-   * @param request - optional blank Session to reuse, location, and Agent preset.
-   * @returns the created or reused Session identity and its preset when configured.
+   * @param request - optional blank Session, location, preset, and initial Session-only model selection.
+   * @returns the created or reused identity, configured preset, and accepted initial model choice when requested.
    */
   async create(request: SessionCreateRequest): Promise<SessionCreateValue> {
     if (request.workspaceId !== undefined && request.cwd !== undefined) {
@@ -126,7 +127,9 @@ export class SessionCommandController {
     const cwd = workspace?.path ?? request.cwd ?? this.defaultCwd
     let created: ApiSessionCreated
     try {
+      const selected = request.modelSelection === undefined ? undefined : await this.resolveModel(request.modelSelection)
       created = await this.agents.createSession({
+        ...(selected === undefined ? {} : { modelSelection: selected }),
         ...(request.sessionId === undefined ? {} : { sessionId: request.sessionId }),
         cwd,
         ...(request.agentPreset === undefined ? {} : { agentPreset: request.agentPreset }),
@@ -148,7 +151,10 @@ export class SessionCommandController {
         )
       }
     }
-    return { sessionId, ...(created.agentPreset === undefined ? {} : { agentPreset: created.agentPreset }) }
+    return {
+      sessionId, ...(created.agentPreset === undefined ? {} : { agentPreset: created.agentPreset }),
+      ...(created.modelSelection === undefined ? {} : { modelSelection: created.modelSelection }),
+    }
   }
 
   /**
@@ -160,21 +166,7 @@ export class SessionCommandController {
     const agent = await this.resolveAgent(request.sessionId)
     return this.agents.serializeImageAdmission(agent, async () => {
       try {
-        await this.requireModel(request)
-        const resolved = await this.ctx.llm.resolveCallConfig({
-          provider: request.provider,
-          model: request.model,
-          ...(request.reasoningEffort === undefined
-            ? {}
-            : { reasoningEffort: ReasoningEffortId(request.reasoningEffort) }),
-        })
-        const selected: AgentModelSelection = {
-          provider: resolved.provider,
-          model: resolved.model,
-          ...(resolved.reasoningEffort === undefined
-            ? {}
-            : { reasoningEffort: resolved.reasoningEffort }),
-        }
+        const selected = await this.resolveModel(request)
         this.agents.selectForNextRequest(agent, selected)
         void this.ctx.agentDefaultModel.saveSelection(selected).catch((error: unknown) => {
           this.ctx.logger.warn(
@@ -384,6 +376,25 @@ export class SessionCommandController {
       return { accepted: true }
     }
     return hasImage ? this.agents.serializeImageAdmission(agent, admit) : admit()
+  }
+
+  private async resolveModel(selection: ModelSelection): Promise<AgentModelSelection> {
+    try {
+      await this.requireModel(selection)
+      const resolved = await this.ctx.llm.resolveCallConfig({
+        provider: selection.provider, model: selection.model,
+        ...(selection.reasoningEffort === undefined ? {} : { reasoningEffort: ReasoningEffortId(selection.reasoningEffort) }),
+      })
+      return {
+        provider: resolved.provider, model: resolved.model,
+        ...(resolved.reasoningEffort === undefined ? {} : { reasoningEffort: resolved.reasoningEffort }),
+      }
+    } catch (error) {
+      if (remoteErrorOf(error) !== undefined) throw error
+      throw new RemoteError('session/model-unavailable', error instanceof Error ? error.message : String(error), {
+        provider: selection.provider, model: selection.model,
+      })
+    }
   }
 
   private async requireModel(selection: Pick<AgentModelSelection, 'provider' | 'model'>): Promise<void> {

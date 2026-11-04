@@ -10,6 +10,8 @@ import { turnBoundaryProjectionDefinition } from '@deepseek-ai/dsh-agent-loop'
 import { agentPresetProjectionDefinition } from '@deepseek-ai/dsh-agent-preset-registry'
 import SessionStore, { SESSION_FORMAT_VERSION, SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
+import LlmRuntime, { LlmAdapter, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -33,7 +35,27 @@ interface StoredSession {
   readonly events: readonly SessionEvent[]
 }
 
+class InitialModelAdapter extends LlmAdapter {
+  override providerInfo(provider: string) { return { id: provider, name: provider } }
+  override async listModels(provider: string) {
+    return [{ provider, id: 'reasoner', name: 'Reasoner' }, { provider, id: 'plain', name: 'Plain' }]
+  }
+  override async resolveModel(provider: string, model: string) {
+    return {
+      provider, id: model, name: model,
+      ...(model === 'plain' ? {} : { reasoning: {
+        efforts: ['high', 'max'].map(id => ({ id: ReasoningEffortId(id), name: id })),
+        defaultEffort: ReasoningEffortId('high'),
+      } }),
+    }
+  }
+  override async *stream(_options: GenerateOptions): AsyncIterable<StreamChunk> {}
+}
+
 interface HarnessOptions {
+  readonly initialModels?: boolean
+  readonly saveDefault?: (selection: unknown) => Promise<void>
+
   /** Declared presets; the first is the default. Omitted, no roster is composed. */
   readonly presets?: readonly string[]
   /** Stored Sessions keyed by id. */
@@ -161,8 +183,13 @@ async function harness(options: HarnessOptions = {}) {
     },
   }
   ctx.agents.setFactory(factory)
+  if (options.initialModels === true) {
+    await ctx.plugin(LlmRuntime)
+    ctx.effect(() => ctx.llm.registerAdapter(['adhoc', 'other'], new InitialModelAdapter()))
+  }
   const remote = createSessionTestRemote(ctx, {
     defaultModelSelection: () => ({ provider: 'test', model: 'test-model' }),
+    ...(options.saveDefault === undefined ? {} : { saveDefaultModelSelection: options.saveDefault }),
     cwd,
   })
   ctx.sessionProjections.register(turnBoundaryProjectionDefinition)
@@ -670,5 +697,77 @@ describe('session.create Workspace placement', () => {
     expect(created.value.sessionId).not.toBe('placed-draft')
     expect(selections).toEqual([])
     expect(presetOf(draft)).toBe('minimal')
+  })
+})
+
+
+describe('session.create initial model isolation', () => {
+  it('records a resolved Session-only choice before publication and leaves later defaults unchanged', async () => {
+    const saveDefault = vi.fn(async () => {})
+    const { ctx, remote } = await harness({ initialModels: true, saveDefault })
+    const selected = { provider: 'adhoc', model: 'reasoner', reasoningEffort: 'max' }
+    const created = await remote.create({ sessionId: SessionId('initial-model'), modelSelection: selected })
+    expect(created).toMatchObject({ ok: true, value: { sessionId: 'initial-model', modelSelection: selected } })
+    const session = ctx.sessions.get(SessionId('initial-model'))!
+    expect(ctx.sessionProjections.snapshot(session).values.modelSelection?.next).toEqual(selected)
+    expect(session.snapshotEvents().filter(event => event.type === 'model/selection').map(event => event.data)).toEqual([selected])
+    expect(ctx.agentDefaultModel.currentSelection()).toEqual({ provider: 'test', model: 'test-model' })
+    expect(await remote.create({ sessionId: SessionId('untouched-default') })).toMatchObject({ ok: true })
+    expect(ctx.sessionProjections.snapshot(ctx.sessions.get(SessionId('untouched-default'))!).values.modelSelection?.next).toBeNull()
+    expect(saveDefault).not.toHaveBeenCalled()
+  })
+
+  it('serializes retry initialization without duplicate events and rejects a conflicting blank-session choice', async () => {
+    const { ctx, remote } = await harness({ initialModels: true })
+    const sessionId = SessionId('model-retry')
+    const request = { sessionId, modelSelection: { provider: 'adhoc', model: 'reasoner' } }
+    const resolved = { ...request.modelSelection, reasoningEffort: 'high' }
+    const results = await Promise.all([remote.create(request), remote.create(request)])
+    expect(results).toEqual(Array.from({ length: 2 }, () => ({ ok: true, value: { sessionId, modelSelection: resolved } })))
+    expect(await remote.create({ ...request, modelSelection: { ...resolved, reasoningEffort: 'max' } }))
+      .toMatchObject({ ok: false, error: { code: 'session/model-conflict' } })
+    expect(ctx.sessions.get(sessionId)!.snapshotEvents().filter(event => event.type === 'model/selection')).toHaveLength(1)
+    expect(ctx.sessionProjections.snapshot(ctx.sessions.get(sessionId)!).values.modelSelection?.next).toEqual(resolved)
+  })
+
+  it('recovers the same initialization from a cold blank Session without overwriting its durable choice', async () => {
+    const first = await harness({ initialModels: true })
+    const sessionId = SessionId('model-cold')
+    const selected = { provider: 'adhoc', model: 'reasoner', reasoningEffort: 'max' }
+    expect(await first.remote.create({ sessionId, modelSelection: selected })).toMatchObject({ ok: true })
+    const session = first.ctx.sessions.get(sessionId)!
+    const stored = new Map([[sessionId, { header: session.header, events: session.snapshotEvents() }]])
+    const second = await harness({ initialModels: true, stored })
+    expect(await second.remote.create({ sessionId, cwd: first.cwd, modelSelection: selected }))
+      .toMatchObject({ ok: true, value: { sessionId, modelSelection: selected } })
+    expect(second.ctx.sessions.get(sessionId)!.snapshotEvents().filter(event => event.type === 'model/selection')).toHaveLength(1)
+  })
+
+  it('keeps simultaneous sessions on independent providers and efforts', async () => {
+    const { ctx, remote } = await harness({ initialModels: true })
+    const choices = [{ provider: 'adhoc', model: 'reasoner', reasoningEffort: 'high' },
+      { provider: 'other', model: 'reasoner', reasoningEffort: 'max' }]
+    const results = await Promise.all(choices.map((modelSelection, index) =>
+      remote.create({ sessionId: SessionId(`isolated-${index}`), modelSelection })))
+    results.forEach((result, index) => {
+      expect(result).toMatchObject({ ok: true, value: { modelSelection: choices[index] } })
+    })
+    choices.forEach((choice, index) => {
+      expect(ctx.sessionProjections.snapshot(ctx.sessions.get(SessionId(`isolated-${index}`))!)
+        .values.modelSelection?.next).toEqual(choice)
+    })
+  })
+
+  it.each([
+    { provider: 'missing', model: 'reasoner' },
+    { provider: 'adhoc', model: 'missing' },
+    { provider: 'adhoc', model: 'reasoner', reasoningEffort: 'low' },
+    { provider: 'adhoc', model: 'plain', reasoningEffort: 'high' },
+  ])('rejects an unavailable initial choice before creating any Session: %j', async (modelSelection) => {
+    const { ctx, remote } = await harness({ initialModels: true })
+    const sessionId = SessionId('invalid-model')
+    expect(await remote.create({ sessionId, modelSelection })).toMatchObject({ ok: false, error: { code: 'session/model-unavailable' } })
+    expect(ctx.sessions.get(sessionId)).toBeUndefined()
+    expect(ctx.agents.get(sessionId)).toBeUndefined()
   })
 })

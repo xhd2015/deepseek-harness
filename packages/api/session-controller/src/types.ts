@@ -215,6 +215,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'session/provider-credentials-unavailable': Record<string, never>
     'session/provider-models-unavailable': { readonly provider: string }
     'session/model-unavailable': { readonly provider: string; readonly model: string }
+    'session/model-conflict': { readonly sessionId: SessionId; readonly provider?: string; readonly model?: string }
     'session/conflict': {
       readonly sessionId: SessionId
       readonly requestedCwd: string
@@ -302,6 +303,8 @@ export interface SessionCreateRequest {
   readonly sessionId?: SessionId
   /** Preset the Session runs, replacing a reused Session's recorded preset; the configured default when omitted. */
   readonly agentPreset?: string
+  /** Initial Session-only model choice; never saves the deployment default. Reuse must agree with an existing choice. */
+  readonly modelSelection?: ModelSelection
 }
 
 /** Session creation response value. */
@@ -310,6 +313,8 @@ export interface SessionCreateValue {
   readonly sessionId: SessionId
   /** Preset the Session runs, when the deployment composes a preset roster. */
   readonly agentPreset?: string
+  /** Accepted Session-only selection, present when create requested one. */
+  readonly modelSelection?: ModelSelection
 }
 
 /** Identity of a Session whose composer draft is read without Agent activation. */
