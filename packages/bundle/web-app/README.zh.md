@@ -72,7 +72,7 @@ dsh --profile web open ~/proj --browser brave
 <a id="public-deployments"></a>
 ### 监听、信任与公开部署
 
-默认情况下 GUI 只监听 loopback，只接受本机的连接。只有 `--host` 会改变监听器：它接受一个具体的本机 IPv4 或 IPv6 地址，不接受通配地址。未启用 TLS 的非 loopback 监听器提供明文 HTTP，并在启动时警告，即使前置 HTTPS 的 `--public-url` 也不例外。Host/Origin 栅栏接受绑定 IP 本身；其他非 loopback authority 需要 `--trusted-host`，因此远端浏览器要么经由剥离前缀的代理访问 GUI，要么通过以可信主机名呈现的端口转发客户端访问。启动 token 交换与签名会话 cookie 认证每个 API 方法与 WebSocket 流。
+默认情况下 GUI 只监听 loopback，只接受本机的连接。只有 `--host` 会改变监听器：每个参数接收一个具体的本机 IPv4 或 IPv6 地址，可重复指定，使所有地址共享同一个 `--port`，但不接受通配地址。例如 `dsh web --host 127.0.0.1 --host ::1 --port 3080` 同时保留两类回环。所有监听器共享同一个 DSH 运行时，任一地址绑定失败都会回滚整组监听器。未启用 TLS 的非 loopback 监听器提供明文 HTTP，并在启动时警告，即使前置 HTTPS 的 `--public-url` 也不例外。Host/Origin 栅栏接受每个有效绑定 IP；其他非 loopback authority 需要 `--trusted-host`，因此远端浏览器要么经由剥离前缀的代理访问 GUI，要么通过以可信主机名呈现的端口转发客户端访问。启动 token 交换与签名会话 cookie 认证每个 API 方法与 WebSocket 流。
 
 同时传入 `--tls-cert` 与 `--tls-key`，监听器便以 HTTPS 而非明文 HTTP 提供服务。两者各指定一个相对进程工作目录解析的文件：证书文件包含完整证书链，密钥文件为不带口令的 PEM 私钥。它们属于同一个设置——只提供一个会报用法错误，两个都不提供则保持明文 HTTP 默认值。文件缺失、不可读、为空，或不是有效的证书与密钥对时启动失败；绝不回退到 HTTP。监听器运行期间不会重新读取这些材料，因此更换证书需要重新加载监听器或重启进程。DSH 不签发、不续期也不监视任何证书：没有 ACME 客户端、没有自签名兜底，也没有重定向监听器。浏览器使用自己的信任库与主机名匹配，因此浏览器不信任的证书，或其 subject alternative name 未覆盖你所访问 authority 的证书，会在页面加载前失败。默认端口仍为 3080，且 `--tls-cert`/`--tls-key` 不跟随 `--public-url`：监听器的证书覆盖浏览器实际访问的 authority。TLS 不改变授权模型：Connection 仍认证每个请求并仍校验 Host/Origin，且只要接收请求的监听器提供 HTTPS，它所签发的会话 cookie 就带 `Secure`。
 
@@ -82,9 +82,9 @@ dsh --profile web open ~/proj --browser brave
 dsh --profile web --no-open --host "$(hostname -i | awk '{print $1}')" --public-url https://app.example/ --trusted-host app.example
 ```
 
-`hostname -i` 可能列出多个地址；`--host` 只接受一个，因此命令取第一个。`fe80::1%eth0` 这样的 zone ID 不能出现在 URL 中，因此公告根会剥离多余的 loopback zone，而非 loopback zone 则要求显式提供 `--public-url`。
+`hostname -i` 可能列出多个地址；每个 `--host` 只接收一个，因此示例命令取第一个。要在添加 scoped 接口的同时保留 localhost，可重复指定 `--host 127.0.0.1 --host fe80::1%eth0`，接口名以服务端机器为准。非回环 zone 无法出现在 URL 中：默认公告根优先选择可用回环，只有 scoped 地址时则必须提供 `--public-url`。本机发现记录所有监听器，并独立于公网 URL 优先选择可直接连接的回环。仅有 scoped 地址时公网入口仍可工作，但 `dsh web open` 会提示需要可表示为 URL 的直接监听器，而不会尝试经过公网代理。
 
-未设置 `--public-url` 时，`::ffff:127.0.0.1` 这样的 mapped IPv6 回环绑定会公告其 IPv4 形式 `127.0.0.1`，让浏览器将其识别为本地可信来源。监听器仍使用配置的绑定地址。点分四段式的 IPv6 尾部表示该地址自身的低 32 位，与 `listen` 的读法完全一致：`::0.0.0.1` 属于 IPv6 回环并公告 `[::1]`，而 `::127.0.0.1` 是非回环地址，并非 IPv4 回环。
+未设置 `--public-url` 时，`::ffff:127.0.0.1` 这样的 mapped IPv6 回环绑定会公告其 IPv4 形式 `127.0.0.1`，让浏览器将其识别为本地可信来源。mapped 地址使用其 IPv4 socket 形式。点分四段式的 IPv6 尾部表示该地址自身的低 32 位，与 `listen` 的读法完全一致：`::0.0.0.1` 属于 IPv6 回环并公告 `[::1]`，而 `::127.0.0.1` 是非回环地址，并非 IPv4 回环。
 
 `--public-url` 公告浏览器使用的 HTTP(S) 根——打印与打开的启动 URL、`DSH_WEB_URL`，以及 agent 运行时上下文中的 Web GUI URL。公告不授予任何信任：浏览器可见的 authority 还必须用 `--trusted-host` 点名。该 flag 不配置监听器、路由或 cookie 作用域，因为外部链路归代理所有：[在反向代理之后发布 Web UI](../../../docs/user/guide/public-deployments.zh.md)列出了这样的部署必须提供什么。
 

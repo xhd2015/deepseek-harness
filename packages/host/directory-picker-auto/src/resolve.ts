@@ -6,7 +6,7 @@
  * @module @deepseek-ai/dsh-host-directory-picker-auto/resolve
  */
 
-import { isLoopbackHost, type Config as HttpServerConfig } from '@deepseek-ai/dsh-host-webserver'
+import { isLoopbackHost } from '@deepseek-ai/dsh-host-webserver'
 
 /** Concrete interaction backend the resolver chooses between. */
 export type DirectoryPickerBackendKind = 'native' | 'browse'
@@ -18,8 +18,8 @@ export type DirectoryPickerEnv = Readonly<
 
 /** Host facts the backend choice is a pure function of, sampled once at boot. */
 export interface DirectoryPickerHostFacts {
-  /** Effective webserver bind address (a concrete IP literal of one local interface). */
-  bindHost: HttpServerConfig['host']
+  /** All effective concrete bind addresses; every address must be loopback for native UI. */
+  bindHosts: readonly string[]
   /**
    * Whether the Connection trust policy admits a non-loopback authority (a
    * validated `trustedHosts` entry naming a remote hostname).
@@ -53,7 +53,7 @@ const present = (value: string | undefined): boolean => value !== undefined && v
  * @returns the backend kind to mount.
  */
 export function resolveDirectoryPickerBackend(facts: DirectoryPickerHostFacts): DirectoryPickerBackendKind {
-  if (facts.allowsRemoteAuthorities || !isLoopbackHost(facts.bindHost)) return 'browse'
+  if (facts.allowsRemoteAuthorities || !facts.bindHosts.every(isLoopbackHost)) return 'browse'
   if (facts.ssh) return 'browse'
   if (facts.platform === 'darwin' || facts.platform === 'win32') return 'native'
   if (facts.platform !== 'linux' || !facts.linuxChooser) return 'browse'

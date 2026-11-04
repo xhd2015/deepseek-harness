@@ -60,7 +60,8 @@ export const apply = ctx => globalThis.__webStartupApply(ctx)
     `  name: ${pathToFileURL(join(dir, 'reader.mjs')).href}`,
     `  inject: [${WEB_STARTUP_SERVICE}]`,
     '  config:',
-    "    host: !!js ctx.webStartup.host ?? '127.0.0.1'",
+    '    host: !!js "ctx.webStartup.hosts ? undefined : (ctx.webStartup.host ?? \'127.0.0.1\')"',
+    '    hosts: !!js ctx.webStartup.hosts',
     '    openBrowser: !!js ctx.webStartup.openBrowser',
     '    port: !!js ctx.webStartup.port ?? 3080',
     '    publicUrl: !!js ctx.webStartup.publicUrl',
@@ -96,6 +97,16 @@ export const apply = ctx => globalThis.__webStartupApply(ctx)
 }
 
 describe('web command-line provider', () => {
+  it('collects repeated hosts without consuming the open subcommand or granting authorities', async () => {
+    const { values, observed } = await bootProvider(['--host', '127.0.0.1', '--host', '::1', '--port', '0'])
+    expect(values).toMatchObject({ hosts: ['127.0.0.1', '::1'], port: 0, trustedHosts: [], trustedHostsForSettings: [] })
+    expect(values?.host).toBeUndefined()
+    expect(observed.readerConfig).toMatchObject({ hosts: ['127.0.0.1', '::1'] })
+    expect(observed.exits).toEqual([])
+    const opened = await bootProvider(['--host', '127.0.0.1', '--host', '::1', 'open', '/tmp/proj'])
+    expect(opened.values).toMatchObject({ mode: 'open', directory: '/tmp/proj' })
+  })
+
   it('publishes each flag and releases direct service expressions', async () => {
     const { values, observed } = await bootProvider([
       '--host', '127.0.0.1',

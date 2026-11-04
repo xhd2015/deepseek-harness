@@ -484,7 +484,7 @@ describe('ModelSelect reasoning effort', () => {
     vi.stubGlobal('visualViewport', Object.assign(new EventTarget(), { offsetLeft: 0, offsetTop: 300, width: 500, height: 400 }))
     vi.stubGlobal('innerWidth', 1000)
     vi.stubGlobal('innerHeight', 800)
-    onTestFinished(() => vi.unstubAllGlobals())
+    onTestFinished(() => { vi.unstubAllGlobals() })
     try {
       render(<ModelSelect renderSlot={renderLabel}
         locked={false}

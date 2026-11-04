@@ -92,12 +92,16 @@ export async function runOpen(request: OpenRequest): Promise<string> {
   if (listen === undefined) {
     throw new Error(`web is not serving; start it with: dsh web (no listen record in ${webListenFilePath()})`)
   }
-  const created = await createWorkspaceAndSession(listen.origin, listen.token, request.directory, request.signal)
+  const origin = listen.origin
+  if (origin === undefined) {
+    throw new Error('web has no URL-addressable direct listener; add --host 127.0.0.1 or --host ::1 to enable dsh web open')
+  }
+  const created = await createWorkspaceAndSession(origin, listen.token, request.directory, request.signal)
   if (request.initialPrompt !== undefined) {
     const { text, submit } = request.initialPrompt
     try {
       await rpc(
-        listen.origin,
+        origin,
         listen.token,
         submit ? 'session/prompt' : 'session/setDraft',
         { request: submit
@@ -111,7 +115,7 @@ export async function runOpen(request: OpenRequest): Promise<string> {
     }
   }
   if (request.openBrowser) {
-    const url = sessionLaunchUrl(listen.origin, listen.token, created.sessionId)
+    const url = sessionLaunchUrl(origin, listen.token, created.sessionId)
     try {
       await openerInternals.openBrowser(url, request.browser)
     } catch (error) {

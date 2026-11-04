@@ -71,11 +71,14 @@ function stageDist(): string {
 
 /** Web carrier without a network listener. */
 function fakeHttpServer(host = '127.0.0.1'): { server: WebServer } {
-  const server: Pick<WebServer, 'host' | 'port' | 'protocol' | 'getOrigin' | 'registerFallback' | 'renderIndex'> = {
+  const server: Pick<WebServer, 'host' | 'port' | 'protocol' | 'getOrigin' | 'getLocalOrigin' | 'hosts' | 'endpoints' | 'registerFallback' | 'renderIndex'> = {
     host,
+    hosts: [host],
+    endpoints: [{ host, port: 4567 }],
     port: 4567,
     protocol: 'http:',
-    getOrigin() { return `http://${bindUrlHost(host) ?? ''}:${String(this.port)}` },
+    getLocalOrigin() { const value = bindUrlHost(host); return value === undefined ? undefined : `http://${value}:${String(this.port)}` },
+    getOrigin() { const value = this.getLocalOrigin(); if (value === undefined) throw new Error('no scoped origin'); return value },
     registerFallback: () => () => {},
     renderIndex: (html: string) => html,
   }
@@ -157,7 +160,7 @@ describe('web-app runtime glue', () => {
     const webRuntime = contributions.find(contribution => contribution.name === 'web-runtime')
     expect(webRuntime?.resolve()).toEqual({ DSH_WEB_URL: 'http://127.0.0.1:4567' })
     expect(ctx.webApp.getAdvertisedUrl()).toBe('http://127.0.0.1:4567')
-    expect(listenRecord()).toEqual({
+    expect(listenRecord()).toMatchObject({
       pid: process.pid,
       origin: 'http://127.0.0.1:4567',
       token: 'test-token',
@@ -211,7 +214,7 @@ describe('web-app runtime glue', () => {
     apply(ctx, new Config({ openBrowser: false, printUrl: true, surfaceContext: false }))
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(log).toHaveBeenCalledWith('dsh web: http://127.0.0.1:4567/')
-    expect(listenRecord()).toEqual({ pid: process.pid, origin: 'http://127.0.0.1:4567' })
+    expect(listenRecord()).toMatchObject({ pid: process.pid, origin: 'http://127.0.0.1:4567' })
     await ctx.fiber.dispose()
     expect(listenRecord()).toBeUndefined()
   })
@@ -367,6 +370,8 @@ describe('web-app runtime glue', () => {
     }))
     await vi.waitFor(() => { expect(log).toHaveBeenCalled() })
     expect(log).toHaveBeenCalledWith('dsh web: https://app.example/ui/?token=test-token')
+    expect(listenRecord()).toMatchObject({ version: 2, listeners: [{ host: bind, port: 4567 }] })
+    expect(listenRecord()).not.toHaveProperty('origin')
   })
 
 

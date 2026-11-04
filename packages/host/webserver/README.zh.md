@@ -36,13 +36,15 @@ kind: "package-reference"
     port: 3000
 ```
 
-`host` 接受本机某个接口的一个具体 IPv4 或 IPv6 字面量——例如容器自身来自 `hostname -i` 的 Pod 地址。回环字面量（127/8 内的任意地址、`::1`，或二者的 mapped 形式）把服务器留在本机；其他任何字面量都会在该地址所属网络上提供 HTTP，除非设置 `tls`，否则为明文。未指定地址——包括 Linux 视为 IPv4 any 的 IPv4-mapped 形式——会在加载时被拒绝，而不是一次性打开每个网络接口的端口。`port` 为 0 时请求 OS 分配端口；之后用 `ctx.webServer.port` 读取正在监听的端口，导出的 `isLoopbackHost(host)` 与 `isWildcardHost(host)` 按解析后的地址值分类，因此 mapped 或带 zone 的写法会按其指名的地址分类。点分四段式的 IPv6 尾部表示该地址自身的低 32 位，与 `listen` 的读法完全一致：`::0.0.0.1` 是回环 `::1`，而 `::127.0.0.1` 是非回环的 `::7f00:1`；`normalizeBindAddress(host)` 返回该地址的文本——真正 mapped 的 `::ffff:127.0.0.1` 为 `127.0.0.1`，`::0.0.0.1` 与 `::1%lo` 为 `::1`——可直接用作 URL host。`bindUrlHost(host)` 把该文本写成 URL host（IPv6 加方括号），对 URL 无法携带的非回环带 zone 地址返回 `undefined`；`ctx.webServer.getOrigin()` 把它与协议、监听端口组合成本机客户端访问的根 URL，在端口绑定之前或没有 URL 形式时抛错。
+`hosts` 提供共享同一个 `port` 的非空本机地址列表；旧 `host` 字段指定单个地址，两者不能同时配置。都不指定时使用 `127.0.0.1`。等价地址会去重，但不会合并不同接口的 zone；IPv4-mapped 地址使用其 IPv4 形式绑定。IPv6 socket 仅接收 IPv6。全部地址绑定成功后才就绪，任一失败都会关闭整组监听器。端口 0 只选择一次端口并在所有地址上复用，不会为各监听器分配不同端口。所有监听器共享路由状态、TLS 材料与释放生命周期。
+
+`host` 接受本机某个接口的一个具体 IPv4 或 IPv6 字面量——例如容器自身来自 `hostname -i` 的 Pod 地址。回环字面量（127/8 内的任意地址、`::1`，或二者的 mapped 形式）把服务器留在本机；其他任何字面量都会在该地址所属网络上提供 HTTP，除非设置 `tls`，否则为明文。未指定地址——包括 Linux 视为 IPv4 any 的 IPv4-mapped 形式——会在加载时被拒绝，而不是一次性打开每个网络接口的端口。`port` 为 0 时请求 OS 分配端口；之后用 `ctx.webServer.port` 读取正在监听的端口，导出的 `isLoopbackHost(host)` 与 `isWildcardHost(host)` 按解析后的地址值分类，因此 mapped 或带 zone 的写法会按其指名的地址分类。点分四段式的 IPv6 尾部表示该地址自身的低 32 位，与 `listen` 的读法完全一致：`::0.0.0.1` 是回环 `::1`，而 `::127.0.0.1` 是非回环的 `::7f00:1`；`normalizeBindAddress(host)` 返回该地址的文本——真正 mapped 的 `::ffff:127.0.0.1` 为 `127.0.0.1`，`::0.0.0.1` 与 `::1%lo` 为 `::1`——可直接用作 URL host。`bindUrlHost(host)` 把该文本写成 URL host（IPv6 加方括号），对 URL 无法携带的非回环带 zone 地址返回 `undefined`；`ctx.webServer.getLocalOrigin()` 依次优先选择 IPv4 回环、IPv6 回环和其他可表示为 URL 的绑定；仅有 scoped 地址时返回 `undefined`，`getOrigin()` 则抛错。两者都要求整组监听器已绑定。`hosts` 暴露有效绑定地址，`host` 保留为第一个地址，`endpoints` 提供当前有效的 `{ host, port }` 列表；释放后 `port` 仍保留最后成功绑定的端口，以兼容既有调用方。
 
 设置 `compression: 'gzip'` 可以包装符合条件的 socket-backed 响应，而不改变 route API。客户端必须接受 gzip，且媒体类型必须可压缩或为 `multipart/form-data`；已知长度小于 `compressionThresholdBytes` 的响应保持未压缩，未知长度的流则立即符合条件。已有编码、`Cache-Control: no-transform`、range 响应、SSE（Server-Sent Events）、ZIP 与已打包的 `.gz` Worker image 均保持不变。随附 Web bundle 使用 level 1 与 1024 字节阈值；其他组合默认不压缩。
 
 ### 服务 HTTPS
 
-`tls` 在同一地址上以 TLS 提供同一批路由：载体不会另开一个 HTTP 监听，也从不重定向。两个文件在激活期间、socket 绑定之前各读取一次，因此不可读、为空或格式错误的文件、与证书不匹配的私钥，或绑定失败都会拒绝初始化——配置错误的证书绝不会退回 HTTP。路径相对进程工作目录解析，私钥必须是无口令的 PEM，`certFile` 可以包含证书链且叶子证书在前。替换任一文件都需要重新加载；本载体既不申请也不续期证书。
+`tls` 在所有配置地址上以 TLS 提供同一批路由：载体不会另开一个 HTTP 监听，也从不重定向。两个文件在激活期间、socket 绑定之前各读取一次，因此不可读、为空或格式错误的文件、与证书不匹配的私钥，或绑定失败都会拒绝初始化——配置错误的证书绝不会退回 HTTP。路径相对进程工作目录解析，私钥必须是无口令的 PEM，`certFile` 可以包含证书链且叶子证书在前。替换任一文件都需要重新加载；本载体既不申请也不续期证书。
 
 ```yaml
 - name: '@deepseek-ai/dsh-host-webserver'

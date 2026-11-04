@@ -2,7 +2,7 @@
 
 [English](web-server.md) | 中文
 
-[dsh-host-webserver](../../packages/host/webserver) 是 GUI Host 的浏览器 HTTP 载体：一个 `node:http` 服务器——配置 `tls` 时改用 `node:https`——提供 `ctx.webServer`、具名路由注册表、可选的 gzip 响应压缩、index.html 转换回调，以及一个可由插件认领的回退处理器。它不属于 agent loop（智能体循环），也不是能力 seam；它不了解任何 harness 概念。其他插件负责注册所有功能路由，包括 `/api` 桥接、插件 bundle 和 HMR（热模块替换）事件流（[分层说明](../../packages/boot/app-boot/README.zh.md)）。该服务器只服务浏览器：Electron 通过 `file://` 加载已构建文件，并经 IPC 桥接发送 fetch 请求，不使用本服务器。
+[dsh-host-webserver](../../packages/host/webserver) 是 GUI Host 的浏览器 HTTP 载体：具有多个 `node:http` 监听器的共享服务——配置 `tls` 时改用 `node:https`——提供 `ctx.webServer`、具名路由注册表、可选的 gzip 响应压缩、index.html 转换回调，以及一个可由插件认领的回退处理器。它不属于 agent loop（智能体循环），也不是能力 seam；它不了解任何 harness 概念。其他插件负责注册所有功能路由，包括 `/api` 桥接、插件 bundle 和 HMR（热模块替换）事件流（[分层说明](../../packages/boot/app-boot/README.zh.md)）。该服务器只服务浏览器：Electron 通过 `file://` 加载已构建文件，并经 IPC 桥接发送 fetch 请求，不使用本服务器。
 
 源码：[`packages/host/webserver/src/index.ts`](../../packages/host/webserver/src/index.ts)
 
@@ -42,8 +42,10 @@ interface Config {
    * IPv4 any, IPv6 any, and the IPv4-mapped forms of IPv4 any — is rejected at
    * load: it would expose the port on every interface at once.
    */
-  host: string
-  /** Listen port; zero requests an OS-assigned port. */
+  host?: string
+  /** Explicit bind addresses sharing one port; mutually exclusive with host. Omitted uses host or 127.0.0.1. */
+  hosts?: string[]
+  /** Shared listen port; zero requests one OS-assigned port for every address. */
   port: number
   /**
    * Serve HTTPS with this certificate and key instead of plain HTTP. Both files
@@ -77,11 +79,11 @@ interface TlsConfig {
 }
 ```
 
-没有组合能一次性绑定所有网络接口：未指定地址在加载时即被拒绝。导出的 `isWildcardHost` 与 `isLoopbackHost` 按解析后的地址值分类，IPv6 的 `%zone` 会保留给 `listen`，而分类只读取地址本身。载体不拥有认证或 Origin 策略，并且除非 `tls` 提供证书与密钥，否则以明文 HTTP 提供服务。`compression` 默认为 `none`；随附的 Web 组合选择 gzip level 1 和 1024 字节阈值。随附的 `dsh web` 命令默认选择 loopback 并接受一个具体的 `--host` 地址，非 loopback 绑定以明文 HTTP 提供服务时会在启动时警告；其 Connection 插件为每个 Host API route 与 stream 提供 Host/Origin 校验和浏览器会话认证，绑定地址加 `--trusted-host` 决定接受哪个浏览器 Host；`--public-url` 只改变公告的 URL。其他组合自行拥有绑定与路由认证策略。dist 位置是认领席位的前端插件的组装事实。
+没有组合能一次性绑定所有网络接口：未指定地址在加载时即被拒绝。导出的 `isWildcardHost` 与 `isLoopbackHost` 按解析后的地址值分类，IPv6 的 `%zone` 会保留给 `listen`，而分类只读取地址本身。载体不拥有认证或 Origin 策略，并且除非 `tls` 提供证书与密钥，否则以明文 HTTP 提供服务。`compression` 默认为 `none`；随附的 Web 组合选择 gzip level 1 和 1024 字节阈值。随附的 `dsh web` 命令默认选择 loopback 并接受重复指定的具体 `--host` 地址，并共享同一个端口，非 loopback 绑定以明文 HTTP 提供服务时会在启动时警告；其 Connection 插件为每个 Host API route 与 stream 提供 Host/Origin 校验和浏览器会话认证，绑定地址加 `--trusted-host` 决定接受哪个浏览器 Host；`--public-url` 只改变公告的 URL。其他组合自行拥有绑定与路由认证策略。dist 位置是认领席位的前端插件的组装事实。
 
 ## 服务
 
-`WebServer`（`ctx.webServer`）在激活时立即监听；监听失败（EADDRINUSE 等）会使初始化被拒绝，启动进程会报告失败的 fiber。`tls` 证书对在监听器绑定前读取一次；文件不可读、为空或二者不匹配时同样会使初始化被拒绝，而不是回退到 HTTP。`register(route)` 添加一条具名路由并返回其 disposer；重复的 `(kind, path)` 抛出异常，因为路由模式是组合层约定，冲突即配置错误。Gzip 在服务器内部包装符合条件且基于 socket 的响应，因此 route handler 继续直接持有 `ServerResponse`，服务也不新增响应写出 API。已有内容编码、`Cache-Control: no-transform`、范围响应、SSE、ZIP 与打包后的 `.gz` Worker 镜像均保持 identity 响应。`collectIndexInjections()` 经一次 `webserver/index-inject` emit 收集结构化 `IndexInjection` 行，`renderIndex(html)` 把它们渲染进成功的根路径和配置 index 响应，随后再按注册顺序应用原始的 `tapIndex(transform)` 逃生口转换；[dsh-client-modules](../../packages/client/modules) 以启动 manifest（元数据清单）行回应该事件。`port` 读取监听端口，包括 `config.port` 为 0 时操作系统分配的端口，`protocol` 则报告监听器提供的协议（`http:` 或 `https:`）。
+`WebServer`（`ctx.webServer`）将所有配置地址作为一组获取；任一失败都会回滚已获取的全部 socket。`hosts` 提供有效地址，`host` 保留第一个地址，`endpoints` 列出当前有效的地址与端口。本机 origin 依次优先选择 IPv4 回环、IPv6 回环及其他可表示为 URL 的绑定；仅有 scoped 地址时 `getLocalOrigin()` 返回 `undefined`，`getOrigin()` 则抛错。端口 0 只选择一个共享端口。激活时立即开始监听；监听失败（EADDRINUSE 等）会使初始化被拒绝，启动进程会报告失败的 fiber。`tls` 证书对在监听器绑定前读取一次；文件不可读、为空或二者不匹配时同样会使初始化被拒绝，而不是回退到 HTTP。`register(route)` 添加一条具名路由并返回其 disposer；重复的 `(kind, path)` 抛出异常，因为路由模式是组合层约定，冲突即配置错误。Gzip 在服务器内部包装符合条件且基于 socket 的响应，因此 route handler 继续直接持有 `ServerResponse`，服务也不新增响应写出 API。已有内容编码、`Cache-Control: no-transform`、范围响应、SSE、ZIP 与打包后的 `.gz` Worker 镜像均保持 identity 响应。`collectIndexInjections()` 经一次 `webserver/index-inject` emit 收集结构化 `IndexInjection` 行，`renderIndex(html)` 把它们渲染进成功的根路径和配置 index 响应，随后再按注册顺序应用原始的 `tapIndex(transform)` 逃生口转换；[dsh-client-modules](../../packages/client/modules) 以启动 manifest（元数据清单）行回应该事件。`port` 读取监听端口，包括 `config.port` 为 0 时操作系统分配的端口，`protocol` 则报告监听器提供的协议（`http:` 或 `https:`）。
 
 处理过程中抛出异常的请求（畸形的 % 转义撞上 `decodeURIComponent`、客户端在请求体中途断开）会记录为警告并应答 400（响应头已发出时则销毁 socket），绝不导致进程退出。dispose（资源释放）把 `close()` 与 `closeAllConnections()` 配对使用，因为处理器可能像 SSE（Server-Sent Events）那样保持响应打开，而这类连接永远不会自行结束；没有强制关闭，拆卸就会挂起。TLS socket 只有完成握手后才计入连接，因此服务器会把原始 TLS socket 与升级后的 socket 一并跟踪，并在 dispose 时销毁两者。该包从不打印输出：URL 行归 shell 所有。逐包运维细节（含开发模式的 bundle 监视流水线）留在 [README](../../packages/host/webserver/README.zh.md) 中。
 
@@ -190,6 +192,13 @@ The browser HTTP carrier service. Activation loads any configured TLS material, 
  * @throws before `listen` binds a port, or when the bind address has no URL form.
  */
 getOrigin(): string
+
+/**
+ * Choose a directly usable URL, preferring IPv4 then IPv6 loopback over other binds.
+ * @returns an origin, or undefined when only non-URL-addressable scoped addresses are bound.
+ * @throws before all listeners have bound their shared port.
+ */
+getLocalOrigin(): string | undefined
 
 /**
  * Register a named route. Duplicate (kind, path) throws — route patterns are

@@ -3,8 +3,11 @@
  * @module @deepseek-ai/dsh-web-app/listen-file
  */
 
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { randomUUID } from 'node:crypto'
+import { isIP } from 'node:net'
+import type { WebListenAddress } from '@deepseek-ai/dsh-host-webserver'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 
 /** File name under `$DSH_HOME` for the active Web listen record. */
@@ -12,10 +15,14 @@ export const WEB_LISTEN_FILE_NAME = 'web-listen.json'
 
 /** Facts a second `dsh web open` process needs to call the running GUI. */
 export interface WebListenRecord {
+  /** Current writer format; absent in legacy single-origin records. */
+  readonly version?: 2
+  /** Effective listeners, required in version 2. */
+  readonly listeners?: readonly WebListenAddress[]
   /** Process id of the serving `dsh web` invocation. */
   readonly pid: number
-  /** Canonical loopback origin, for example `http://127.0.0.1:3080`. */
-  readonly origin: string
+  /** Preferred direct origin; absent in version 2 when only scoped IPv6 is bound. */
+  readonly origin?: string
   /**
    * Process launch token accepted as `Authorization: Bearer`; absent when the
    * serving process disabled browser authentication with `--no-auth`, which
@@ -40,7 +47,13 @@ export function webListenFilePath(home: string = resolveDshHome()): string {
  * @param path - file to replace.
  */
 export function writeWebListenFile(record: WebListenRecord, path: string = webListenFilePath()): void {
-  writeFileSync(path, `${JSON.stringify(record)}\n`, { encoding: 'utf8', mode: 0o600 })
+  const temporary = `${path}.${randomUUID()}.tmp`
+  try {
+    writeFileSync(temporary, `${JSON.stringify(record)}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
+    renameSync(temporary, path)
+  } finally {
+    if (existsSync(temporary)) unlinkSync(temporary)
+  }
 }
 
 /**
@@ -86,8 +99,15 @@ export function readWebListenFile(path: string = webListenFilePath()): WebListen
 function isListenRecord(value: unknown): value is WebListenRecord {
   if (typeof value !== 'object' || value === null) return false
   const record = value as Record<string, unknown>
+  const originValid = typeof record.origin === 'string' && /^https?:\/\//u.test(record.origin)
+  const listenersValid = Array.isArray(record.listeners) && record.listeners.length > 0 && record.listeners.every((value: unknown) => {
+    if (typeof value !== 'object' || value === null) return false
+    const listener = value as Record<string, unknown>
+    return typeof listener.host === 'string' && isIP(listener.host) !== 0
+      && typeof listener.port === 'number' && Number.isInteger(listener.port) && listener.port > 0 && listener.port <= 65535
+  })
   return typeof record.pid === 'number' && Number.isInteger(record.pid) && record.pid > 0
-    && typeof record.origin === 'string' && /^https?:\/\//u.test(record.origin)
+    && (record.version === undefined ? originValid : record.version === 2 && listenersValid && (record.origin === undefined || originValid))
     && (record.token === undefined || (typeof record.token === 'string' && record.token.length > 0))
 }
 

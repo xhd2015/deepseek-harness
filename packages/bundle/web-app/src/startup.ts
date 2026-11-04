@@ -41,6 +41,8 @@ export interface WebStartupValues {
   initialPrompt?: { readonly text: string; readonly submit: boolean }
   /** `--host`, absent when the invocation did not name one. */
   host?: string
+  /** Repeated --host literals; omitted for the legacy single-host invocation. */
+  hosts?: string[]
   /** `--port`, absent when the invocation did not name one. */
   port?: number
   /**
@@ -64,7 +66,7 @@ export interface WebStartupValues {
 
 /** Serve-mode flags, as commander parsed them. */
 interface ServeOptions {
-  host?: string
+  host?: string[]
   open: boolean
   port?: string
   publicUrl?: string
@@ -125,6 +127,13 @@ function requireSettingsAuthorities(program: Command, entries: string[], trusted
 }
 
 /**
+ * Repeatable `--host` collector. Commander omits `previous` on the first flag.
+ */
+function collectHost(host: string, previous: string[] = []): string[] {
+  return [...previous, host]
+}
+
+/**
  * This app's command: its flags, its description, and its help text.
  * @returns a fresh program, so one process can parse more than once (tests).
  */
@@ -134,9 +143,9 @@ function webCommand(): Command {
     .description('Serve the DeepSeek Harness browser UI.')
     .enablePositionalOptions()
     .helpOption('-h, --help', 'show this help')
-    .option('--host <host>', 'bind address: one concrete IPv4 or IPv6 literal of a local interface; wildcard addresses are rejected')
+    .option('--host <host>', 'bind a concrete local IPv4 or IPv6 address; repeat for same-port listeners; wildcards are rejected', collectHost)
     .option('--no-open', 'do not open the Web UI in a browser')
-    .option('--port <port>', 'listen port; pass 0 to let the OS pick a free one')
+    .option('--port <port>', 'shared listen port; 0 selects one free port for all addresses')
     .option('--public-url <url>', 'advertise this HTTP(S) root in the printed, opened, runtime-context, and DSH_WEB_URL forms; grants no trust')
     .option('--trusted-host <authority...>', 'extra authority the /api browser-trust fence accepts (host or host:port; repeatable)')
     .option('--tls-cert <file>', 'PEM server certificate chain; requires --tls-key')
@@ -151,6 +160,8 @@ Examples:
   dsh --profile web --browser brave          serve and open Brave
   dsh --profile web --port 8080              serve on another port
   dsh --profile web --host 10.0.0.7          bind one local interface address
+  dsh --profile web --host 127.0.0.1 --host ::1 --port 3080
+                                              serve IPv4 and IPv6 on one shared port
   dsh --profile web --public-url https://app.example/ui/ --trusted-host app.example
                                              advertise a prefix-stripping HTTPS proxy entry and admit its authority
   dsh --profile web --tls-cert ./server-chain.pem --tls-key ./server-key.pem
@@ -181,8 +192,10 @@ Examples:
  */
 function publishServe(ctx: Context, program: Command): void {
   const options = program.opts<ServeOptions>()
-  if (options.host !== undefined && isWildcardHost(options.host)) {
-    program.error(`error: --host ${options.host} is an unspecified (wildcard) address, which is not supported: binding every interface would expose remote code execution to the network; bind one concrete IPv4 or IPv6 address instead`)
+  for (const host of options.host ?? []) {
+    if (isWildcardHost(host)) {
+      program.error(`error: --host ${host} is an unspecified (wildcard) address, which is not supported: binding every interface would expose remote code execution to the network; bind one concrete IPv4 or IPv6 address instead`)
+    }
   }
   if (options.port !== undefined && !/^\d+$/.test(options.port)) {
     program.error(`error: --port must be a number, got ${JSON.stringify(options.port)}`)
@@ -203,18 +216,20 @@ function publishServe(ctx: Context, program: Command): void {
   const browser = requireBrowser(program, options.browser)
   const trustedHosts = options.trustedHost ?? []
   const trustedHostsForSettings = requireSettingsAuthorities(program, options.trustedHostForSettings ?? [], trustedHosts)
+  const hosts = options.host
+  const [firstHost] = hosts ?? []
   delete process.env.DSH_WEB_OPEN
   ctx.provide(WEB_STARTUP_SERVICE, {
     mode: 'serve',
     openBrowser: options.open,
     ...browser !== undefined && { browser },
-    ...options.host !== undefined && { host: options.host },
+    ...hosts !== undefined && (hosts.length === 1 && firstHost !== undefined ? { host: firstHost } : { hosts }),
     ...options.port !== undefined && { port: Number(options.port) },
     ...options.publicUrl !== undefined && { publicUrl: options.publicUrl },
     ...tls !== undefined && { tls },
     trustedHosts,
     trustedHostsForSettings,
-    disableAuth: options.auth === false,
+    disableAuth: !options.auth,
   } satisfies WebStartupValues)
 }
 

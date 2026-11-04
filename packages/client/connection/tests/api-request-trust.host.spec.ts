@@ -8,6 +8,19 @@ function request(headers: Record<string, string | undefined>): { headers: Record
 }
 
 describe('isTrustedApiRequest', () => {
+  it('admits every effective bind address but still denies unknown and cross-origin authorities', () => {
+    const hosts = ['127.0.0.1', '10.1.2.3', 'fe80::1%en7']
+    for (const host of ['10.1.2.3:3080', '[fe80::1]:3080']) {
+      expect(isTrustedApiRequest(request({ host }), [], hosts)).toBe(true)
+      expect(isTrustedApiRequest(request({ host, origin: 'https://evil.example' }), [], hosts)).toBe(false)
+      expect(isTrustedApiRequest(request({ host, 'sec-fetch-site': 'cross-site' }), [], hosts)).toBe(false)
+    }
+    expect(isTrustedApiRequest(request({ host: '10.1.2.4:3080' }), [], hosts)).toBe(false)
+    for (const host of ['first.example', 'second.example']) {
+      expect(isTrustedApiRequest(request({ host, origin: `https://${host}` }), ['first.example', 'second.example'], hosts)).toBe(true)
+    }
+  })
+
   it('holds markerless requests to the same Host fence — a plain-HTTP browser read carries no markers', () => {
     // Over plain HTTP a browser attaches neither Origin nor Fetch-Metadata to
     // reads (EventSource, images, navigations), so a rebound-origin GET is

@@ -886,6 +886,13 @@ inspect( sessionId: SessionId, signal?: AbortSignal, ): Promise<SessionInspectio
 @Remote('selectModel') selectModel(request: SessionSelectModelRequest): Promise<SessionSelectModelValue>
 
 /**
+ * Record whether this Session auto-continues a reasoning-only thinking-cap stop.
+ * @param request - Session identity and requested policy.
+ * @returns the policy stored on the Session log and the seq the Client applies.
+ */
+@Remote('setThinkingCapAutoContinue') setThinkingCapAutoContinue( request: SessionSetThinkingCapAutoContinueRequest, ): Promise<SessionSetThinkingCapAutoContinueValue>
+
+/**
  * Select the first available account model after login when no provider API key is configured.
  * @returns after saving the first available model or retaining the existing default.
  */

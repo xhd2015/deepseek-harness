@@ -68,7 +68,7 @@ export const SURFACE_PACKAGES: Record<DirectoryPickerBackendKind, string> = {
  */
 export async function apply(ctx: Context): Promise<void> {
   const backend = resolveDirectoryPickerBackend({
-    bindHost: ctx.webServer.host,
+    bindHosts: ctx.webServer.hosts,
     allowsRemoteAuthorities: ctx.connection.allowsRemoteAuthorities,
     platform: process.platform,
     ssh: launchedThroughSsh(launchEnvironmentOf(ctx)),

@@ -2107,6 +2107,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the normalized selection installed for the Session, without waiting for default persistence.',
       },
       {
+        signature: '@Remote(\'setThinkingCapAutoContinue\') setThinkingCapAutoContinue( request: SessionSetThinkingCapAutoContinueRequest, ): Promise<SessionSetThinkingCapAutoContinueValue>',
+        description: 'Record whether this Session auto-continues a reasoning-only thinking-cap stop.',
+        parameters: [{ name: 'request', description: 'Session identity and requested policy.' }],
+        returns: 'the policy stored on the Session log and the seq the Client applies.',
+      },
+      {
         signature: '@Remote async initializeDefaultModel(): Promise<void>',
         description: 'Select the first available account model after login when no provider API key is configured.',
         parameters: [],
@@ -3698,6 +3704,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [],
         returns: 'the origin, for example `http://127.0.0.1:3080`.',
         throws: ['before `listen` binds a port, or when the bind address has no URL form.'],
+      },
+      {
+        signature: 'getLocalOrigin(): string | undefined',
+        description: 'Choose a directly usable URL, preferring IPv4 then IPv6 loopback over other binds.',
+        parameters: [],
+        returns: 'an origin, or undefined when only non-URL-addressable scoped addresses are bound.',
+        throws: ['before all listeners have bound their shared port.'],
       },
       {
         signature: 'register(route: WebRoute): () => void',
@@ -5998,6 +6011,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type LogExporterOptions = Omit<OTLPExporterNodeConfigBase, \'selfObsMeterProvider\'> & {\n    url: string;\n};',
   },
   {
+    name: 'LogOnlyAppendOptions',
+    declaration: 'export interface LogOnlyAppendOptions {\n    readonly ignorable?: true;\n}',
+  },
+  {
     name: 'LspHover',
     declaration: 'export interface LspHover {\n    readonly contents: string;\n    readonly range?: LspRange;\n}',
   },
@@ -7007,7 +7024,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'Session',
-    declaration: 'export class Session {\n    get surface(): SessionSurface;\n    readonly header: SessionHeader;\n    readonly inheritedEventCount: SessionLogOffset;\n    get id(): SessionId;\n    readonly firstLiveSeq: SessionLogOffset;\n    readonly firstLifecycleSeq: SessionLogOffset;\n    static create(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader, inheritedEventCount?: SessionLogOffset, projections?: readonly SessionMessageProjection[]): Session;\n    static fromRestore(id: SessionId, seed: readonly SessionEvent[], header: SessionHeader, inheritedEventCount: SessionLogOffset, eventState: SessionSeedEventState, projections?: readonly SessionMessageProjection[]): Session;\n    eventAt(seq: SessionSeq): SessionEvent | undefined;\n    snapshotEvents(fromSeq: SessionLogOffset = SessionLogOffset(0), toSeqExclusive: SessionLogOffset = this.seq): readonly SessionEvent[];\n    ownEvents(): readonly SessionEvent[];\n    isOwnSeq(seq: SessionSeq): boolean;\n    get seq(): SessionLogOffset;\n    append<T extends SessionEventType>(type: T, data: SessionEventMap[T], ...opts: T extends SurfaceEventType ? [\n        opts: SurfaceIntent<T>\n    ] : [\n    ]): SessionEvent<T>;\n    requestHeader(): EpochHeader | undefined;\n    requestContext(): RequestContext | undefined;\n    toolHistory(): ToolHistory;\n    deriveMessages(): Message[];\n    deriveEventMessage(event: SessionEvent): Message | null;\n}',
+    declaration: 'export class Session {\n    get surface(): SessionSurface;\n    readonly header: SessionHeader;\n    readonly inheritedEventCount: SessionLogOffset;\n    get id(): SessionId;\n    readonly firstLiveSeq: SessionLogOffset;\n    readonly firstLifecycleSeq: SessionLogOffset;\n    static create(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader, inheritedEventCount?: SessionLogOffset, projections?: readonly SessionMessageProjection[]): Session;\n    static fromRestore(id: SessionId, seed: readonly SessionEvent[], header: SessionHeader, inheritedEventCount: SessionLogOffset, eventState: SessionSeedEventState, projections?: readonly SessionMessageProjection[]): Session;\n    eventAt(seq: SessionSeq): SessionEvent | undefined;\n    snapshotEvents(fromSeq: SessionLogOffset = SessionLogOffset(0), toSeqExclusive: SessionLogOffset = this.seq): readonly SessionEvent[];\n    ownEvents(): readonly SessionEvent[];\n    isOwnSeq(seq: SessionSeq): boolean;\n    get seq(): SessionLogOffset;\n    append<T extends SessionEventType>(type: T, data: SessionEventMap[T], ...opts: T extends SurfaceEventType ? [\n        opts: SurfaceIntent<T>\n    ] : [\n        opts?: LogOnlyAppendOptions\n    ]): SessionEvent<T>;\n    requestHeader(): EpochHeader | undefined;\n    requestContext(): RequestContext | undefined;\n    toolHistory(): ToolHistory;\n    deriveMessages(): Message[];\n    deriveEventMessage(event: SessionEvent): Message | null;\n}',
   },
   {
     name: 'SessionAccess',
@@ -7468,6 +7485,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionSetDraftRequest',
     declaration: 'export interface SessionSetDraftRequest extends SessionDraftRequest {\n    readonly text: string;\n}',
+  },
+  {
+    name: 'SessionSetThinkingCapAutoContinueRequest',
+    declaration: 'export interface SessionSetThinkingCapAutoContinueRequest {\n    readonly sessionId: SessionId;\n    readonly enabled: boolean;\n}',
+  },
+  {
+    name: 'SessionSetThinkingCapAutoContinueValue',
+    declaration: 'export interface SessionSetThinkingCapAutoContinueValue {\n    readonly enabled: boolean;\n    readonly seq: number;\n}',
   },
   {
     name: 'SessionStartInput',

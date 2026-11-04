@@ -33,6 +33,15 @@ function recordRpc(failedEndpoint?: string): Array<{ endpoint: string; request: 
 }
 
 describe('runOpen', () => {
+  it('reports scoped-only discovery without attempting RPC or leaking its token', async () => {
+    internals.readListen = () => ({ version: 2, pid: process.pid, listeners: [{ host: 'fe80::1%en7', port: 3080 }], token: 'private-scoped-token' })
+    const fetch = vi.fn<typeof internals.fetch>()
+    internals.fetch = fetch
+    await expect(runOpen({ directory: '/tmp/proj', openBrowser: false, signal: new AbortController().signal }))
+      .rejects.toThrow('web has no URL-addressable direct listener; add --host 127.0.0.1 or --host ::1 to enable dsh web open')
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
   it.each([true, false])('delivers the initial text before browser launch with submit=%s', async (submit) => {
     const calls = recordRpc()
     const text = '任务\r\n'.repeat(100_000)

@@ -125,14 +125,15 @@ function isBindAddressAuthority(hostUrl: URL, bindHost: string | undefined): boo
  * Decide whether one /api request may reach the RPC bridge.
  * @param request - Node HTTP or Fetch request facts (headers).
  * @param trustedHosts - non-loopback authorities this deployment serves: exact `host:port`, or port-less `host` matching any port.
- * @param bindHost - the listener's own bind IP literal, accepted on any port independently of `trustedHosts`.
+ * @param bindHost - effective bind literals (or a legacy single literal), accepted independently of
+ *   `trustedHosts`; absent accepts no additional bind authority.
  * @param protocol - listener protocol for default Host ports; HTTP when no Web carrier is mounted.
  * @returns true when the Host is ours (loopback, the bind address, or trusted) and any attached browser markers are same-origin.
  */
 export function isTrustedApiRequest(
   request: ConnectionTrustRequest,
   trustedHosts: readonly string[],
-  bindHost?: string,
+  bindHost?: string | readonly string[],
   protocol: 'http:' | 'https:' = 'http:',
 ): boolean {
   // Host fence (DNS-rebinding defense), applied to every request: the browser
@@ -148,7 +149,7 @@ export function isTrustedApiRequest(
   if (hostUrl === undefined) return false
   if (!isLoopbackHostname(hostUrl.hostname)
     && !isTrustedAuthority(hostUrl, trustedHosts, protocol)
-    && !isBindAddressAuthority(hostUrl, bindHost)) return false
+    && !(typeof bindHost === 'string' ? [bindHost] : bindHost ?? []).some(host => isBindAddressAuthority(hostUrl, host))) return false
   // Cross-site fence: modern browsers label the initiator relationship on
   // every fetch; an explicit cross-site marker is refused regardless of Origin.
   if (header(request.headers, 'sec-fetch-site') === 'cross-site') return false

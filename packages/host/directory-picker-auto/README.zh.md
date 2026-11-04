@@ -29,7 +29,7 @@ kind: "package-reference"
 
 ### 选择是如何作出的
 
-`native` 要求「操作者看得到宿主屏幕、且原生后端能服务它」的全部信号：无远程 authority 信任（`allowsRemoteAuthorities` 为 false——每条通过校验的 `trustedHosts` 条目都只命名回环主机名）；仅回环的绑定（从注入的 `webServer` 读取；远程 authority 信任或非回环绑定都会接入任何 OS 选择器都触及不到的远程浏览器）；非 SSH 启动（共用的 [launch-environment](../../util/launch-environment/README.zh.md) 判断忽略项目与用户 `.env` 中的值，只检查继承的非空 `SSH_CONNECTION`／`SSH_TTY`）；以及可服务的显示会话——darwin 与 win32 上视为存在；linux 上要求 `DISPLAY`／`WAYLAND_DISPLAY`，外加 `PATH` 上有 zenity 或 kdialog 二进制；其余任何平台上都不成立。任何含糊情形都判定为处处可用的 `browse`。
+`native` 要求「操作者看得到宿主屏幕、且原生后端能服务它」的全部信号：无远程 authority 信任（`allowsRemoteAuthorities` 为 false——每条通过校验的 `trustedHosts` 条目都只命名回环主机名）；仅回环的绑定（检查注入的 `webServer.hosts` 中的每个地址；远程 authority 信任或非回环绑定都会接入任何 OS 选择器都触及不到的远程浏览器）；非 SSH 启动（共用的 [launch-environment](../../util/launch-environment/README.zh.md) 判断忽略项目与用户 `.env` 中的值，只检查继承的非空 `SSH_CONNECTION`／`SSH_TTY`）；以及可服务的显示会话——darwin 与 win32 上视为存在；linux 上要求 `DISPLAY`／`WAYLAND_DISPLAY`，外加 `PATH` 上有 zenity 或 kdialog 二进制；其余任何平台上都不成立。任何含糊情形都判定为处处可用的 `browse`。
 
 ### 你会得到什么
 

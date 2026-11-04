@@ -1,6 +1,6 @@
 /** Built Web-profile acceptance for concrete bind addresses, the advertised public root, and browser authentication. */
 
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { request as httpRequest, type IncomingMessage } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import { tmpdir } from 'node:os'
@@ -69,6 +69,7 @@ function spawnWeb(root: string, patch: string, interrupt: string, flags: string[
 
 /** One booted Web process: its child, bound port, printed startup URL, and bounded stop. */
 interface RunningWeb {
+  root: string
   child: WebChild
   port: number
   startup: URL
@@ -109,7 +110,7 @@ async function bootWeb(root: string, flags: string[]): Promise<RunningWeb> {
   let startup: URL | undefined
   const announced = (): void => {
     if (port === undefined || startup === undefined) return
-    ready.resolve({ child, port, startup, stop: () => stopping ??= stop(child, interrupt) })
+    ready.resolve({ root, child, port, startup, stop: () => stopping ??= stop(child, interrupt) })
   }
   lines.on('line', (line) => {
     if (line.startsWith('public-url-listen-port: ')) port = Number(line.slice('public-url-listen-port: '.length))
@@ -213,6 +214,28 @@ async function exchange(
 }
 
 describe.skipIf(!builtArtifactsExist)('dsh Web profile bind address and advertised root', () => {
+  it.each([false, true])('shares both IP families and multiple trusted authorities with no-auth=%s', async (disableAuth) => {
+    await withWeb(['--host', '::1', '--host', '127.0.0.1', '--trusted-host', 'first.example', '--trusted-host', 'second.example', ...disableAuth ? ['--no-auth'] : []], async (web) => {
+      expect(web.startup.hostname).toBe('127.0.0.1')
+      const token = web.startup.searchParams.get('token')
+      expect(token === null).toBe(disableAuth)
+      const record: unknown = JSON.parse(readFileSync(join(web.root, 'home', 'web-listen.json'), 'utf8'))
+      expect(record).toMatchObject({ version: 2, origin: `http://127.0.0.1:${web.port}`, listeners: [{ host: '::1', port: web.port }, { host: '127.0.0.1', port: web.port }] })
+      for (const dial of ['127.0.0.1', '::1']) {
+        for (const host of ['first.example', 'second.example']) {
+          const cookie = disableAuth ? undefined : (await exchange('http:', dial, web.port, `/?token=${encodeURIComponent(token!)}`, host)).cookie
+          const response = await request('http:', dial, web.port, '/api/session/create', host, 'POST', cookie)
+          expect(response.status).toBe(200)
+          expect(await response.json()).toMatchObject({ result: { ok: true } })
+        }
+        const denied = await request('http:', dial, web.port, '/api/session/create', 'untrusted.example', 'POST')
+        expect(denied.status).toBe(403)
+        await denied.arrayBuffer()
+      }
+      expectCleanExit(await web.stop())
+    })
+  }, 90_000)
+
   it('serves the default advertised URL over verified TLS with Secure browser authentication', async () => {
     const root = mkdtempSync(join(tmpdir(), 'dsh-web-tls-'))
     try {

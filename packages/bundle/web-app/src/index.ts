@@ -19,7 +19,7 @@ import z from '@deepseek-ai/schemastery'
 import { auditStartupEntries } from '@deepseek-ai/dsh-app-boot'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import * as FrontendStatic from '@deepseek-ai/dsh-host-frontend-static'
-import { bindUrlHost, isLoopbackHost } from '@deepseek-ai/dsh-host-webserver'
+import { bindUrlHost, isLoopbackHost, type WebListenAddress } from '@deepseek-ai/dsh-host-webserver'
 import { launchedThroughSsh, launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-shell-env'
@@ -105,13 +105,16 @@ function resolveDistIndex(): string {
  * The origin is the listener's own address, not an advertised public URL,
  * so a second process on this machine can reach it.
  * @param authenticatedUrl - URL that includes the process token query.
- * @param origin - listener origin, for example `http://127.0.0.1:3080`.
+ * @param origin - preferred direct origin; absent when only scoped addresses are bound.
+ * @param listeners - the completely acquired listener group.
  */
-function publishListenRecord(authenticatedUrl: string, origin: string): void {
+function publishListenRecord(authenticatedUrl: string, origin: string | undefined, listeners: readonly WebListenAddress[]): void {
   const token = new URL(authenticatedUrl).searchParams.get('token')
   writeWebListenFile({
+    version: 2,
     pid: process.pid,
-    origin,
+    listeners,
+    ...origin === undefined ? {} : { origin },
     ...token === null ? {} : { token },
   })
 }
@@ -152,15 +155,17 @@ export function apply(ctx: Context, config: Config): void {
   // The schema validates a present string; an explicit YAML `null` bypasses
   // the string transform and reaches here, meaning unset.
   const publicUrl = config.publicUrl ?? undefined
-  const boundHost = ctx.webServer.host
-  if (publicUrl === undefined && bindUrlHost(boundHost) === undefined) {
+  const boundHosts = ctx.webServer.hosts
+  if (publicUrl === undefined && boundHosts.every(host => bindUrlHost(host) === undefined)) {
     throw new Error(
-      `web-app: bind address ${JSON.stringify(boundHost)} carries an interface zone id, which no URL can express;`
+      `web-app: bind address ${JSON.stringify(boundHosts[0])} carries an interface zone id, which no URL can express;`
       + ' pass --public-url with the root browsers actually reach it through',
     )
   }
-  if (ctx.webServer.protocol === 'http:' && !isLoopbackHost(boundHost)) {
-    console.warn(`dsh web: listening on ${boundHost} over plain HTTP; restrict this port to a trusted proxy or network`)
+  for (const host of boundHosts) {
+    if (ctx.webServer.protocol === 'http:' && !isLoopbackHost(host)) {
+      console.warn(`dsh web: listening on ${host} over plain HTTP; restrict this port to a trusted proxy or network`)
+    }
   }
   ctx.effect(() => () => { clearWebListenFile(process.pid) }, 'web-app: listen file')
   // The bind URL belongs to this host. Under SSH, the operator reaches it
@@ -189,10 +194,20 @@ export function apply(ctx: Context, config: Config): void {
       // route owner are still mounting. Await Loader settlement first; a
       // hand-built tree without a Loader is already the complete tree.
       const announceReady = (): void => {
-        if (ANNOUNCED_ROOTS.has(connectionCtx.root)) return
         const webUrl = appRootUrl()
         const authenticatedUrl = connectionCtx.connection.authenticatedUrl(webUrl)
         const browser = (connectionCtx.get(WEB_STARTUP_SERVICE) as WebStartupValues | undefined)?.browser
+        const server = connectionCtx.webServer
+        const origin = server.getLocalOrigin()
+        publishListenRecord(authenticatedUrl, origin, server.endpoints)
+        if (ANNOUNCED_ROOTS.has(connectionCtx.root)) return
+        if (origin === undefined) console.warn('warning: no URL-addressable direct listener; add --host 127.0.0.1 or --host ::1 to enable dsh web open')
+        if (server.hosts.length > 1) {
+          for (const endpoint of server.endpoints) {
+            const host = endpoint.host.includes(':') ? `[${endpoint.host}]` : endpoint.host
+            console.error(`dsh web: bound ${host}:${String(endpoint.port)}`)
+          }
+        }
         ANNOUNCED_ROOTS.add(connectionCtx.root)
         if (config.printUrl) {
           console.log(`dsh web: ${authenticatedUrl}`)
@@ -210,7 +225,6 @@ export function apply(ctx: Context, config: Config): void {
             console.error(`web-app: could not open ${which} because ${reason}; use the dsh web URL printed at startup`)
           })
         }
-        publishListenRecord(authenticatedUrl, connectionCtx.webServer.getOrigin())
       }
       // This row's own activation can precede a sibling failure. The app owns
       // readiness by waiting for its Loader tree, or announces at once in a
