@@ -37,6 +37,7 @@ export async function runCli(options: RunCliOptions = {}): Promise<void> {
           profile: invocation.profile,
           fromDefaultProfile: invocation.fromDefaultProfile,
           patchFiles: invocation.patches,
+          modelListingDynamic: invocation.modelListingDynamic,
           args: invocation.args,
           ...profileOptions,
         })

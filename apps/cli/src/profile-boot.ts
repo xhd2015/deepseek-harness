@@ -34,6 +34,7 @@ import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { installProxyFromEnvironment } from '@deepseek-ai/dsh-http-proxy'
 import { DSH_LAUNCH_ENVIRONMENT_KEY, type LaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
 import { provideCmdline, type AppReady } from '@deepseek-ai/dsh-cmdline'
+import type { ModelListingDynamicSpec } from './model-listing-dynamic.ts'
 import { createProcessShutdown, type ProcessShutdown } from './process-shutdown.ts'
 
 const NAME = 'dsh'
@@ -252,6 +253,8 @@ export interface RunProfileOptions {
   fromDefaultProfile?: string | undefined
   /** `--patch` overlay paths, in argv order. */
   patchFiles: readonly string[]
+  /** `--model-listing-dynamic` shells, in argv order. */
+  modelListingDynamic?: readonly ModelListingDynamicSpec[]
   /** The invocation's inner arguments, handed to the tree through `ctx.cmdlineArgs`. */
   args: readonly string[]
   /** Application-owned package runtime, scoped to plugin package operations. */
@@ -346,6 +349,10 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
         exit: code => void shutdown.shutdown(code),
         ready: appReady.service,
       })
+      const listings = options.modelListingDynamic ?? []
+      if (listings.length > 0) {
+        hostCtx.provide('modelListingDynamic' as never, { get: () => listings } as never)
+      }
     })
     app.current = ctx
     if (!signalShutdown.signal.aborted

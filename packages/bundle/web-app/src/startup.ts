@@ -71,7 +71,8 @@ function collectHost(value: string, previous: string[] | undefined): string[] {
 interface ServeOptions {
   host?: string[]
   open: boolean
-  noAuth?: boolean
+  /** `--no-auth` sets commander's negated `auth` flag to false. */
+  auth?: boolean
   port?: string
   publicUrl?: string
   trustedHost?: string[]
@@ -203,7 +204,7 @@ function publishServe(ctx: Context, program: Command): void {
     ...options.port !== undefined && { port: Number(options.port) },
     ...options.publicUrl !== undefined && { publicUrl: options.publicUrl },
     ...tls !== undefined && { tls },
-    ...options.noAuth === true && { disableAuth: true },
+    ...options.auth === false && { disableAuth: true },
     ...options.trustedHostForSettings !== undefined && { trustedHostsForSettings: options.trustedHostForSettings },
     trustedHosts,
   } satisfies WebStartupValues)
