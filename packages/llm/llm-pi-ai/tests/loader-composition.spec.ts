@@ -120,15 +120,16 @@ describe('llm-pi-ai real dormant composition', () => {
     ] }])
     const { ctx, settingsPath } = await loadComposition()
     await writeFile(settingsPath, [
-      'llm-proxy-providers:',
-      '  providers:',
-      '    llm-proxy-codex:',
-      '      apiKeyEnv: PI_COMPOSITION_KEY',
-      '      api: openai-responses',
-      `      baseURL: ${server.url}/v1`,
-      '      models:',
-      '        - id: proxy-model',
-      '          input: [ text, image ]',
+      '- id: llm-pi-ai',
+      '  config:',
+      '    providers:',
+      '      llm-proxy-codex:',
+      '        apiKeyEnv: PI_COMPOSITION_KEY',
+      '        api: openai-responses',
+      `        baseURL: ${server.url}/v1`,
+      '        models:',
+      '          - id: proxy-model',
+      '            input: [ text, image ]',
       '',
     ].join('\n'))
     await vi.waitFor(() => {
@@ -210,7 +211,7 @@ describe('llm-pi-ai real dormant composition', () => {
       expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['acme-gateway'])
     }, { timeout: 5000 })
 
-    await expect(ctx.llm.discoverModels('llm-proxy-providers', {
+    await expect(ctx.llm.discoverModels('llm-pi-ai', {
       provider: 'acme-gateway',
       baseURL: server.url,
       api: 'openai-completions',

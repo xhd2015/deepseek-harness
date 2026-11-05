@@ -129,6 +129,12 @@ export interface PiAiAdapterOptions {
    */
   onReplayDegrade?: (detail: { provider: string; model: string; reason: string }) => void
   /**
+   * Wait for live listings to finish their first probe before an operation
+   * reads a configuration snapshot: discovery, resolution, and `prepareCall`.
+   * The snapshot taken afterwards stays frozen for that call.
+   */
+  awaitLiveCatalog?: () => Promise<void>
+  /**
    * Observe one request that sent replayed assistant messages without their
    * signed Anthropic thinking because the request prefix changed or was never
    * recorded. Stale messages stay omitted, so later requests of the
@@ -350,6 +356,7 @@ export class PiAiAdapter extends LlmAdapter {
    */
   override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
     return Promise.resolve().then(async () => {
+      await this.config.awaitLiveCatalog?.()
       const snapshot = this.current()
       const profile = this.profileOf(snapshot, provider)
       try { await this.config.resolveApiKey(provider, profile) }
@@ -375,7 +382,8 @@ export class PiAiAdapter extends LlmAdapter {
     model: string,
     _signal?: AbortSignal,
   ): Promise<LlmResolvedModelInfo> {
-    return Promise.resolve().then(() => {
+    return Promise.resolve().then(async () => {
+      await this.config.awaitLiveCatalog?.()
       const snapshot = this.current()
       return this.modelInfo(snapshot, provider, model)
     })
@@ -401,14 +409,20 @@ export class PiAiAdapter extends LlmAdapter {
   }
 
   override prepareCall(provider: string, model: string, _signal?: AbortSignal): Promise<PreparedAdapterCall> {
-    const snapshot = this.current()
-    return Promise.resolve({
-      model: this.modelInfo(snapshot, provider, model),
-      stream: options => this.streamWithSnapshot(options, snapshot),
+    return Promise.resolve().then(async () => {
+      await this.config.awaitLiveCatalog?.()
+      const snapshot = this.current()
+      return {
+        model: this.modelInfo(snapshot, provider, model),
+        stream: (options: GenerateOptions) => this.streamWithSnapshot(options, snapshot),
+      }
     })
   }
 
   stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+    // The snapshot is read before the generator's first await, so a request
+    // finishes under the configuration it started with. Waiting for live
+    // listings belongs to `prepareCall`, the path a model call takes.
     return this.streamWithSnapshot(options, this.current())
   }
 
