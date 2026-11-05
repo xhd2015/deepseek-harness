@@ -97,7 +97,6 @@ export type {
   ResolvedPiAiProviderProfile,
 } from './config.ts'
 export { recordKeyFor } from './auth.ts'
-export { parseModelListingDynamicSpec } from './live-catalog.ts'
 export type { ModelListingDynamicSpec } from './live-catalog.ts'
 export { supportedProtocols } from './provider.ts'
 
@@ -436,6 +435,7 @@ function shellFromSpec(spec: ModelListingDynamicSpec): LiveCatalogShell {
     baseURL: spec.baseURL,
     groupByProviders: spec.groupByProviders,
     apiKeyEnv: spec.apiKeyEnv,
+    ...spec.agentRunner === undefined ? {} : { agentRunner: spec.agentRunner },
     timeoutMs: DEFAULT_MODELS_TIMEOUT_MS,
     maxAgeMs: DEFAULT_MODELS_MAX_AGE_MS,
   }

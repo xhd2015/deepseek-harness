@@ -114,7 +114,7 @@ profile 的 `models` 列表会替换而非扩展路由的已安装目录；每�
 
 ### 从端点发现模型
 
-自定义路由可设 `modelListingMode: dynamic` 并省略 `models`。适配器按间隔请求 `GET {origin}/v1/models`，并在有字段时使用 `owned_by` 与 `protocol`。`groupByProviders: true` 会注册 `{路由}-{owned_by}` 提供方，使 llm-proxy 这类聚合网关按上游各占一张选择器卡。启动器 flag `--model-listing-dynamic id=url` 在内存中提供同样的壳，不写 patch 文件；该 flag 默认开启分组。与静态路由同名的 live id 会替换静态路由并打印 warning。
+自定义路由可设 `modelListingMode: dynamic` 并省略 `models`。适配器按间隔请求 `GET {origin}/v1/models`，并在有字段时使用 `owned_by` 与 `protocol`。`groupByProviders: true` 会注册 `{路由}-{owned_by}` 提供方，使 llm-proxy 这类聚合网关按上游各占一张选择器卡。启动器 flag `--model-listing-dynamic id=url` 在内存中提供同样的壳，不写 patch 文件；该 flag 默认开启分组。与静态路由同名的 live id 会替换静态路由并打印 warning。该 flag 还接受 `,agent-runner=NAME`，它会给每个列表请求追加 `?agent-runner=NAME`，因此按客户端提供同一上游模型变体的网关只返回该 runner 的变体，未声明变体的模型块则返回基础模型；省略时请求不带该参数，每个变体都作为独立模型列出。`modelListingMode: dynamic` 的 profile 路由没有该选项。
 
 插件会回答「该提供方可以提供哪些模型？」，供配置界面正在编辑或起草的路由使用。已安装目录提供的路由直接由目录回答，不发网络请求，并将其 `input` 数组保留为发现结果的 `inputModalities`；只有目录未描述的路由才会经网络询问。`openai-completions` 与 `openai-responses` 使用带 bearer 鉴权的 `GET {baseURL}/models`，`anthropic-messages` 则以 `x-api-key` 和 `anthropic-version` 使用原生 `GET /v1/models?limit=1000` 语义；其列表 URL 接受带或不带末尾 `/v1` 的 API 根地址，因为网关文档两种写法都会发布，且只有该列表 URL 会归一化这一段，模型请求收到的仍是配置原样的 `baseURL`。已配置且具名的路由会在 Host 内部提供已存凭据与 profile `headers`，因此通过 `cordis.patch.yml` 或 Cordis 配置设置的部署标头可以到达模型发现请求，但不会成为发现请求或 Models 页面的字段；表单中新键入的密钥仍优先于已存凭据。解析器接受标准 `data` 数组或富信息 `models` 对象，并归一化每个候选的 id、显示名、上下文窗口与最大输出 token 数；Anthropic 的 `max_input_tokens` 与 `max_tokens` 会进入相同容量字段，即使对象条目点名了另一个规范 id，对象键仍是请求 id，原始类型的对象属性会被忽略，缺失的显示名则回退到该请求 id。回答是界面可以提供给用户采纳的候选元数据——不存储任何内容，`cordis.patch.yml` 仍然是决定路由服务内容的唯一事实。
 

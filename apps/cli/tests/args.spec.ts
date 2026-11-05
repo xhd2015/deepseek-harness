@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parseDshArgs } from '../src/args.ts'
+import { parseModelListingDynamicSpec } from '../src/model-listing-dynamic.ts'
 
 const parse = (argv: string[], manageDesktopProfile = false) => parseDshArgs(argv, '1.2.3', manageDesktopProfile)
 
@@ -276,6 +277,44 @@ describe('parseDshArgs', () => {
     expect(exitCode(['web', '--model-listing-dynamic'])).toBe(1)
     expect(exitCode(['web', '--model-listing-dynamic', 'http://127.0.0.1:8890'])).toBe(1)
     expect(exitCode(['web', '--model-listing-dynamic', 'gw=http://127.0.0.1:8890', '--model-listing-dynamic', 'gw=http://127.0.0.1:8891'])).toBe(1)
+  })
+
+  it('reads the suffixes a shell may carry in any order', () => {
+    expect(parseModelListingDynamicSpec('gw=https://x.test,keyEnv=X,agent-runner=codex')).toEqual({
+      id: 'gw',
+      baseURL: 'https://x.test',
+      groupByProviders: true,
+      apiKeyEnv: 'X',
+      agentRunner: 'codex',
+    })
+    // Without the suffix the shell names no runner, so the gateway keeps every
+    // variant instead of receiving an empty one.
+    expect(parseModelListingDynamicSpec('llm-proxy=http://127.0.0.1:8890')).not.toHaveProperty('agentRunner')
+  })
+
+  it('parses an agent-runner suffix into the query the gateway reads', () => {
+    expect(parse([
+      'web',
+      '--model-listing-dynamic', 'llm-proxy=http://127.0.0.1:8890,groupByProviders=true,agent-runner=dsh',
+    ])).toMatchObject({
+      modelListingDynamic: [{
+        id: 'llm-proxy',
+        baseURL: 'http://127.0.0.1:8890',
+        groupByProviders: true,
+        apiKeyEnv: 'LLM_PROXY_API_KEY',
+        agentRunner: 'dsh',
+      }],
+    })
+  })
+
+  it('rejects a runner value and a url the listing request cannot carry', () => {
+    expect(() => parseModelListingDynamicSpec('gw=https://x.test,agent-runner=')).toThrow('agent-runner needs a value')
+    expect(() => parseModelListingDynamicSpec('gw=https://x.test,agent-runner=dsh x'))
+      .toThrow('agent-runner "dsh x" must match [A-Za-z0-9._-]+')
+    // `baseURL` also becomes the inference origin, so a query or fragment here
+    // would be dropped by the listing URL and leak into every model request.
+    expect(() => parseModelListingDynamicSpec('gw=https://x.test/?a=1')).toThrow(/^invalid url https:\/\/x\.test\/\?a=1: /)
+    expect(() => parseModelListingDynamicSpec('gw=https://x.test/#a')).toThrow(/^invalid url https:\/\/x\.test\/#a: /)
   })
 
   it('keeps its own help for an invocation with no app to hand it to', () => {

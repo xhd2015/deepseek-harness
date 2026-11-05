@@ -99,8 +99,8 @@ Examples:
                                             recreate rescue from the shipped web template, then boot it
   dsh headless "run the tests"              answer one task, print the result, and exit
   dsh tui --patch ./extra.yml               boot a custom profile with one extra overlay
-  dsh web --model-listing-dynamic llm-proxy=http://127.0.0.1:8890,groupByProviders=true
-                                            discover providers and models from a gateway listing
+  dsh web --model-listing-dynamic 'llm-proxy=http://127.0.0.1:8890,groupByProviders=true,agent-runner=dsh'
+                                            discover providers and models from a gateway listing, narrowed to one runner's variants
   dsh tui --resume <session>                arguments after the launcher flags reach the app
   dsh web --help                            the web app's own flags and help
   dsh plugin --profile tui add <package>    install a plugin into the tui profile
@@ -193,7 +193,7 @@ export function parseDshArgs(argv: readonly string[], version: string, manageDes
     .option('--patch <path>', 'extra patch-list overlay applied after the profile layer (repeatable)', collect)
     .option(
       '--model-listing-dynamic <id=url>',
-      'discover providers and models from GET {url}/v1/models (repeatable; optional ,groupByProviders=true|false and ,keyEnv=ENV)',
+      'discover providers and models from GET {url}/v1/models (repeatable; optional comma suffixes: groupByProviders=true|false, keyEnv=ENV, agent-runner=NAME sent as ?agent-runner=)',
       collect,
     )
     .option('--dump-config', 'print the composed profile tree and exit')
