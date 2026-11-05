@@ -59,6 +59,7 @@ import type {} from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 
 import type { Context } from '@deepseek-ai/cordis'
+import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import { assertUsableApiKey, LlmError, resolveImageAttachmentAccess } from '@deepseek-ai/dsh-llm'
 import type { AdapterRegistrationHandle, DirectoryRegistrationHandle, LlmConfigurableProvider } from '@deepseek-ai/dsh-llm'
@@ -71,6 +72,13 @@ import { assertServiceable, Config, resolveProfiles } from './config.ts'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { discoverModels } from './discovery.ts'
 import type { StoredModelDiscoveryProfile } from './discovery.ts'
+import {
+  createLiveCatalogController,
+  DEFAULT_MODELS_MAX_AGE_MS,
+  DEFAULT_MODELS_TIMEOUT_MS,
+  defaultApiKeyEnv,
+} from './live-catalog.ts'
+import type { LiveCatalogShell, ModelListingDynamicSpec } from './live-catalog.ts'
 import { registerPiAiFlows } from './login.ts'
 import { providerDefaultsOf } from './provider-data.ts'
 
@@ -89,12 +97,21 @@ export type {
   ResolvedPiAiProviderProfile,
 } from './config.ts'
 export { recordKeyFor } from './auth.ts'
+export { parseModelListingDynamicSpec } from './live-catalog.ts'
+export type { ModelListingDynamicSpec } from './live-catalog.ts'
 export { supportedProtocols } from './provider.ts'
 
 export const name = 'llm-pi-ai'
 export const inject = ['llm']
 
 const NS = 'llm-proxy-providers'
+
+/**
+ * Credential value sent for a launcher shell whose derived env name resolves to
+ * nothing. Gateways that ignore client credentials never read it; one that
+ * authenticates answers 401, and the listing failure names the flag's `keyEnv`.
+ */
+const LIVE_CATALOG_CREDENTIAL = 'dsh-live-listing'
 
 /**
  * The registry captures these per route; a change here must re-register.
@@ -178,7 +195,7 @@ export function apply(ctx: Context, config: Config): void {
    * stored configuration remains visible after an installed catalog changes.
    * Scalar configuration errors still reject resolution.
    */
-  const profiles = (): ReadonlyMap<string, ResolvedPiAiProviderProfile> => {
+  const resolvedConfig = (): ReadonlyMap<string, ResolvedPiAiProviderProfile> => {
     const raw = config.providers.get()
     if (raw === lastRaw && memoized !== undefined) return memoized
     const next = resolveProfiles(structuredClone(raw) as import('./config.ts').Options['providers'], 'deferred')
@@ -186,7 +203,21 @@ export function apply(ctx: Context, config: Config): void {
     memoized = next
     return next
   }
-  profiles()
+  const servedStatic = (): Map<string, ResolvedPiAiProviderProfile> => {
+    const served = new Map<string, ResolvedPiAiProviderProfile>()
+    for (const [provider, profile] of resolvedConfig()) {
+      if (profile.modelListingMode === 'dynamic') continue
+      served.set(provider, profile)
+    }
+    return served
+  }
+  let liveRoutes: ReadonlyMap<string, ResolvedPiAiProviderProfile> = new Map()
+  const profiles = (): ReadonlyMap<string, ResolvedPiAiProviderProfile> => {
+    const merged = servedStatic()
+    for (const [provider, profile] of liveRoutes) merged.set(provider, profile)
+    return merged
+  }
+  resolvedConfig()
   ctx.on('internal/config', function (this: import('@deepseek-ai/cordis').Fiber, _raw, next) {
     const raw: unknown = next()
     if (this !== ctx.fiber) return raw
@@ -198,6 +229,16 @@ export function apply(ctx: Context, config: Config): void {
     return raw
   })
 
+  // `--model-listing-dynamic id=url` names no credential; the environment name
+  // is derived from the id here. Because the deployment never wrote that
+  // reference, resolving it to nothing is not a misconfiguration to report —
+  // and a gateway that ignores client credentials still needs a value for pi-ai
+  // to send. References the deployment did write keep the fail-loud path below.
+  const specs = ctx.get('modelListingDynamic')?.get() ?? []
+  const derivedCredentialRefs: ReadonlySet<string> = new Set(specs.map(spec => defaultApiKeyEnv(spec.id)))
+  const injectedCredential = (ref: string): string | undefined =>
+    derivedCredentialRefs.has(ref) ? LIVE_CATALOG_CREDENTIAL : undefined
+
   const resolveApiKey = async (
     provider: string,
     profile: ResolvedPiAiProviderProfile,
@@ -207,7 +248,8 @@ export function apply(ctx: Context, config: Config): void {
     // provider-native discovery. Once one is named, a miss must fail loud:
     // handing pi-ai `undefined` would let it pick up an unrelated ambient key
     // (OPENAI_API_KEY and friends), billing another tenant for a request the
-    // deployment meant to authenticate differently.
+    // deployment meant to authenticate differently. The launcher-derived name
+    // is the one exception, and it stops at the placeholder.
     if (ref === undefined) return undefined
     const credentials = ctx.get('credentials')
     const hit = credentials !== undefined
@@ -215,6 +257,8 @@ export function apply(ctx: Context, config: Config): void {
       // Without the seam the environment is the whole credential plane.
       : launchEnvironmentOf(ctx).get(ref)?.value
     if (hit !== undefined && hit.length > 0) return assertUsableApiKey(hit, 'llm-pi-ai', ref)
+    const injected = injectedCredential(ref)
+    if (injected !== undefined) return injected
     throw new LlmError(
       `llm-pi-ai: no credential for provider route "${provider}"; its profile resolves ${ref}, which is not`
       + ` set — store ${ref} through the credentials service (the web Models page writes it) or export it,`
@@ -227,9 +271,60 @@ export function apply(ctx: Context, config: Config): void {
   // through `ctx` per call, so they stay correct across the collection rebuilds
   // a configuration change causes, and a sign-in survives one.
   const auth = { credentials: credentialStoreFrom(ctx), authContext: authContextFrom(ctx) }
+  const shells: LiveCatalogShell[] = []
+  for (const spec of specs) {
+    shells.push(shellFromSpec(spec))
+  }
+  for (const [id, profile] of resolvedConfig()) {
+    if (profile.modelListingMode !== 'dynamic' || profile.baseURL === undefined) continue
+    shells.push({
+      id,
+      baseURL: profile.baseURL,
+      groupByProviders: profile.groupByProviders === true,
+      ...profile.apiKeyEnv === undefined ? {} : { apiKeyEnv: profile.apiKeyEnv },
+      displayName: profile.displayName,
+      ...profile.modelOverrides === undefined ? {} : { modelOverrides: profile.modelOverrides },
+      ...profile.headers === undefined ? {} : { headers: profile.headers },
+      timeoutMs: profile.modelsTimeoutMs ?? DEFAULT_MODELS_TIMEOUT_MS,
+      maxAgeMs: profile.modelsMaxAgeMs ?? DEFAULT_MODELS_MAX_AGE_MS,
+    })
+  }
+  const replacedWarning = new Set<string>()
+  const live = createLiveCatalogController(
+    shells,
+    async (apiKeyEnv) => {
+      if (apiKeyEnv === undefined) return undefined
+      const credentials = ctx.get('credentials')
+      const hit = credentials !== undefined
+        ? (await credentials.resolve(credentialRef(apiKeyEnv)))?.value
+        : launchEnvironmentOf(ctx).get(apiKeyEnv)?.value
+      if (hit !== undefined && hit.length > 0) return assertUsableApiKey(hit, 'llm-pi-ai', apiKeyEnv)
+      // Same rule as `resolveApiKey`: the listing probe and the requests it
+      // enables must agree on how a launcher shell authenticates.
+      return injectedCredential(apiKeyEnv)
+    },
+    () => {
+      liveRoutes = live.current()
+      const staticIds = servedStatic()
+      for (const id of liveRoutes.keys()) {
+        if (!staticIds.has(id) || replacedWarning.has(id)) continue
+        replacedWarning.add(id)
+        ctx.logger.warn(`llm-pi-ai: live catalog replaces static provider "${id}" from cordis.patch.yml`)
+      }
+      try {
+        ensureRegistrationFacts()
+        ensureDirectory()
+      } catch (error) {
+        ctx.logger.error('llm-pi-ai: live catalog registration failed')
+        ctx.logger.error(error)
+      }
+    },
+  )
+  ctx.effect(() => () => { live.dispose() }, 'llm-pi-ai: live model listing')
   const adapter = new PiAiAdapter({
     profiles,
     resolveApiKey,
+    awaitLiveCatalog: () => live.ready(),
     auth,
     resolveAttachments: () => ctx.get('attachments'),
     resolveImageAccess: (attachments, ref) => resolveImageAttachmentAccess(
@@ -324,6 +419,7 @@ export function apply(ctx: Context, config: Config): void {
     registeredFacts = facts
   }
   ensureRegistrationFacts()
+  live.start()
 
   ctx.on('loader/volatile-update', () => {
     try { ensureRegistrationFacts(); ensureDirectory() }
@@ -332,4 +428,15 @@ export function apply(ctx: Context, config: Config): void {
       ctx.logger.error(error)
     }
   })
+}
+
+function shellFromSpec(spec: ModelListingDynamicSpec): LiveCatalogShell {
+  return {
+    id: spec.id,
+    baseURL: spec.baseURL,
+    groupByProviders: spec.groupByProviders,
+    apiKeyEnv: spec.apiKeyEnv,
+    timeoutMs: DEFAULT_MODELS_TIMEOUT_MS,
+    maxAgeMs: DEFAULT_MODELS_MAX_AGE_MS,
+  }
 }

@@ -33,21 +33,25 @@ dsh: boot a DeepSeek Harness profile — an ordered stack of plugin-bundle patch
 layers under your own overrides.
 
 Arguments:
-  args                           arguments for the booted profile's app (see:
-                                 dsh --profile <name> --help)
+  args                              arguments for the booted profile's app (see:
+                                    dsh --profile <name> --help)
 
 Options:
-  -V, --version                  output the version number
-  --profile <name>               the profile under $DSH_HOME/profiles to boot
-  --from-default-profile <name>  replace a custom profile with a fresh copy of a
-                                 shipped profile template
-  --patch <path>                 extra patch-list overlay applied after the
-                                 profile layer (repeatable)
-  --dump-config                  print the composed profile tree and exit
-  --dump-config-schema           print JSON Schema for profile entries and
-                                 patches without mounting
-  --dump-default-config          print the profile tree without its user layer
-                                 or --patch overlays and exit
+  -V, --version                     output the version number
+  --profile <name>                  the profile under $DSH_HOME/profiles to boot
+  --from-default-profile <name>     replace a custom profile with a fresh copy
+                                    of a shipped profile template
+  --patch <path>                    extra patch-list overlay applied after the
+                                    profile layer (repeatable)
+  --model-listing-dynamic <id=url>  discover providers and models from GET
+                                    {url}/v1/models (repeatable; optional
+                                    ,groupByProviders=true|false and
+                                    ,keyEnv=ENV)
+  --dump-config                     print the composed profile tree and exit
+  --dump-config-schema              print JSON Schema for profile entries and
+                                    patches without mounting
+  --dump-default-config             print the profile tree without its user
+                                    layer or --patch overlays and exit
 
 Examples:
   dsh web                                   boot the web profile (same as: dsh --profile web)
@@ -55,6 +59,8 @@ Examples:
                                             recreate rescue from the shipped web template, then boot it
   dsh headless "run the tests"              answer one task, print the result, and exit
   dsh tui --patch ./extra.yml               boot a custom profile with one extra overlay
+  dsh web --model-listing-dynamic llm-proxy=http://127.0.0.1:8890,groupByProviders=true
+                                            discover providers and models from a gateway listing
   dsh tui --resume <session>                arguments after the launcher flags reach the app
   dsh web --help                            the web app's own flags and help
   dsh plugin --profile tui add <package>    install a plugin into the tui profile

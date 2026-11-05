@@ -217,7 +217,7 @@ describe('request-level dynamic profiles', () => {
     expect(directory).toContainEqual({
       provider: 'openai',
       displayName: 'openai',
-      settingsNs: 'llm-proxy-providers',
+      settingsNs: 'llm-pi-ai',
       settingsPath: ['providers', 'openai'],
       declared: false,
       defaultBaseURL: 'https://api.openai.com/v1',
