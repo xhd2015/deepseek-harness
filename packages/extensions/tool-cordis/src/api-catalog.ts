@@ -2083,10 +2083,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'authorized bounded Session search results.',
       },
       {
+        signature: '@Remote(\'status\') status(request: SessionStatusRequest): SessionStatusValue',
+        description: 'Report whether each named or loaded Session is running a turn, without listing, resuming, or projecting. The answer names only Sessions whose Agent this caller admits, so an omitted id is unknown here rather than idle, and a reader with its own liveness source keeps that source.',
+        parameters: [{ name: 'request', description: 'Session ids to report, or every loaded Agent when omitted.' }],
+        returns: 'the running flag of each admitted Session that currently has an Agent.',
+      },
+      {
         signature: '@Remote(\'create\') create(request: SessionCreateRequest): Promise<SessionCreateValue>',
         description: 'Create one ordinary Session for a new conversation, reusing the named blank Session while it is reusable.',
-        parameters: [{ name: 'request', description: 'optional blank Session to reuse, location, and Agent preset.' }],
-        returns: 'the created or reused Session identity and its preset when configured.',
+        parameters: [{ name: 'request', description: 'optional blank Session, location, preset, and initial Session-only model selection.' }],
+        returns: 'the created or reused identity, configured preset, and accepted initial model choice when requested.',
       },
       {
         signature: '@Remote(\'getDraft\') getDraft(request: SessionDraftRequest): Promise<SessionDraftValue>',
@@ -7096,11 +7102,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionCreateRequest',
-    declaration: 'export interface SessionCreateRequest {\n    readonly workspaceId?: WorkspaceId;\n    readonly cwd?: string;\n    readonly sessionId?: SessionId;\n    readonly agentPreset?: string;\n}',
+    declaration: 'export interface SessionCreateRequest {\n    readonly workspaceId?: WorkspaceId;\n    readonly cwd?: string;\n    readonly sessionId?: SessionId;\n    readonly agentPreset?: string;\n    readonly modelSelection?: ModelSelection;\n}',
   },
   {
     name: 'SessionCreateValue',
-    declaration: 'export interface SessionCreateValue {\n    readonly sessionId: SessionId;\n    readonly agentPreset?: string;\n}',
+    declaration: 'export interface SessionCreateValue {\n    readonly sessionId: SessionId;\n    readonly agentPreset?: string;\n    readonly modelSelection?: ModelSelection;\n}',
   },
   {
     name: 'SessionDraftRequest',
@@ -7505,6 +7511,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionStartSource',
     declaration: 'export type SessionStartSource = \'startup\' | \'resume\' | \'clear\' | \'compact\';',
+  },
+  {
+    name: 'SessionStatusRequest',
+    declaration: 'export interface SessionStatusRequest {\n    readonly ids?: readonly SessionId[];\n}',
+  },
+  {
+    name: 'SessionStatusValue',
+    declaration: 'export interface SessionStatusValue {\n    readonly running: Readonly<Record<string, boolean>>;\n}',
   },
   {
     name: 'SessionStorageMetadata',

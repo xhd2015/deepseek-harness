@@ -117,7 +117,7 @@ export class ApiSessionList {
       updatedAt: updatedAt(session.header, metadata),
       agentAvailable: this.ctx.agents.get(session.id)?.session === session,
       formatStatus: 'current',
-      running: this.ctx.agents.get(session.id)?.status === 'running',
+      running: isSessionRunning(this.ctx, session.id),
       blank: metadata?.blank ?? session.seq === 0,
       ...listFields(session.header),
       ...(projections === undefined ? {} : { projections }),
@@ -344,6 +344,18 @@ function normalizeSearchQuery(query: string): string {
     throw new RemoteError('gateway/bad-request', 'session search query must not contain NUL', {})
   }
   return normalized
+}
+
+/**
+ * Report whether the loaded Agent of one Session is executing a turn. The Agent
+ * registry is the only authority: a Session with no Agent reads as not running
+ * because nothing can be executing without one.
+ * @param ctx - composition that owns the Agent registry.
+ * @param sessionId - Session whose Agent status is read.
+ * @returns true only while that Session's Agent reports the running status.
+ */
+export function isSessionRunning(ctx: Context, sessionId: SessionId): boolean {
+  return ctx.agents.get(sessionId)?.status === 'running'
 }
 
 function updatedAt(header: SessionHeader, metadata: SessionListMetadata | undefined): number {

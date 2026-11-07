@@ -1,7 +1,7 @@
 /**
  * Session Controller under non-owner callers: the Session resource kind it
  * registers, the Session readers of `session/page` and `session/follow`,
- * `session/list`, `session/search`, and `session/control` called through a
+ * `session/list`, `session/status`, `session/search`, and `session/control` called through a
  * `global` role and filtered per Session through `remoteAccess.allows()`, the caller recorded
  * on prompt sources, and `session/projections` admitted per Session through
  * the Gateway.
@@ -48,6 +48,13 @@ const SEARCH_CALLS: RemoteAccessBinding = {
 }
 const SEARCHES_SHARED: RemoteAccessBinding = {
   role: { name: 'test:session-search-reader', resource: 'session', actions: ['session/search'] },
+  resource: { kind: 'session', id: SHARED },
+}
+/** Calls the batch run-status method; each reported Session still needs a Session role. */
+const STATUSER: RemoteAccessRole<'global'> = { name: 'test:session-status-caller', resource: 'global', actions: ['session/status'] }
+/** Reports one Session's run status through `session/status`. */
+const STATUS_READS_SHARED: RemoteAccessBinding = {
+  role: { name: 'test:session-status-reader', resource: 'session', actions: ['session/status'] },
   resource: { kind: 'session', id: SHARED },
 }
 
@@ -141,6 +148,19 @@ describe('Session Controller access', () => {
     })
     const owner = await as(OWNER, 'list').sessionController.list({}, new AbortController().signal)
     expect(owner.items.map(item => item.sessionId).sort()).toEqual([PRIVATE, SHARED].sort())
+  })
+
+  it('reports a non-owner only the loaded Sessions a Session role admits', async () => {
+    const { ctx, as } = await harness()
+    await ctx.plugin(TypertGatewayService)
+    guestPolicy(ctx, { role: STATUSER, resource: { kind: 'global' } }, STATUS_READS_SHARED)
+    // Both Agents are idle and loaded; only the shared Session is admitted.
+    await expect(guestCall(ctx, 'status', { request: {} })).resolves.toEqual({ running: { [SHARED]: false } })
+    await expect(guestCall(ctx, 'status', { request: { ids: [SHARED, PRIVATE] } })).resolves.toEqual({
+      running: { [SHARED]: false },
+    })
+    const owner = as(OWNER, 'status').sessionController.status({})
+    expect(Object.keys(owner.running).sort()).toEqual([PRIVATE, SHARED].sort())
   })
 
   it('returns a non-owner only the session/search hits whose Session a Session role admits', async () => {

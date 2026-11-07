@@ -293,6 +293,21 @@ export interface SessionSearchValue {
   readonly hasMore: boolean
 }
 
+/** Batch run-status request: which Sessions to report, or every loaded Agent when omitted. */
+export interface SessionStatusRequest {
+  /** Session ids the caller asks about; duplicates collapse and the answer keeps only admitted ids. */
+  readonly ids?: readonly SessionId[]
+}
+
+/**
+ * Batch run-status value. A Session appears only when it has an Agent the caller
+ * may see, so an absent id means "unknown here" — never "loaded and idle".
+ */
+export interface SessionStatusValue {
+  /** Whether each loaded and admitted Session is running a turn. */
+  readonly running: Readonly<Record<string, boolean>>
+}
+
 /** Request for a Session for a new conversation. */
 export interface SessionCreateRequest {
   /** Workspace the Session joins; exclusive with `cwd`. */

@@ -59,6 +59,8 @@ import type {
   SessionRenameValue,
   SessionSearchRequest,
   SessionSearchValue,
+  SessionStatusRequest,
+  SessionStatusValue,
   SessionSelectModelRequest,
   SessionSelectModelValue,
   SessionSetThinkingCapAutoContinueRequest,
@@ -76,6 +78,7 @@ export interface TestSessionRemote {
   canOpenWorkspacePath(): Promise<RemoteResult<boolean>>
   list(request: SessionListRequest, signal?: AbortSignal): Promise<RemoteResult<SessionListValue>>
   search(request: SessionSearchRequest, signal?: AbortSignal): Promise<RemoteResult<SessionSearchValue>>
+  status(request: SessionStatusRequest): Promise<RemoteResult<SessionStatusValue>>
   create(request: SessionCreateRequest): Promise<RemoteResult<SessionCreateValue>>
   selectModel(request: SessionSelectModelRequest): Promise<RemoteResult<SessionSelectModelValue>>
   setThinkingCapAutoContinue(
@@ -367,6 +370,7 @@ export function createSessionTestRemote(
       () => direct.search(request, signal),
       signal,
     ),
+    status: request => remoteResult(() => direct.status(request)),
     create: request => remoteResult(() => direct.create(request)),
     selectModel: request => remoteResult(() => direct.selectModel(request)),
     setThinkingCapAutoContinue: request => remoteResult(() => direct.setThinkingCapAutoContinue(request)),

@@ -27,7 +27,7 @@ import { SessionControlController } from './control.ts'
 import { SessionDraftController } from './drafts.ts'
 import { SessionHistoryController } from './history.ts'
 import { SessionFileReferences } from './file-references.ts'
-import { ApiSessionList } from './list.ts'
+import { ApiSessionList, isSessionRunning } from './list.ts'
 import { buildModelCatalog, hasProviderApiKey } from './catalog.ts'
 import { installModelSelectionProjection } from './model-selection-projection.ts'
 import { SessionSkillCatalog } from './skill-catalog.ts'
@@ -67,6 +67,8 @@ import type {
   SessionSelectModelValue,
   SessionSetThinkingCapAutoContinueRequest,
   SessionSetThinkingCapAutoContinueValue,
+  SessionStatusRequest,
+  SessionStatusValue,
   SessionProjectionsRequest,
   SessionProjectionsValue,
   SessionProjectionValues,
@@ -304,6 +306,26 @@ export class SessionController extends TypertRemoteService {
   async search(request: SessionSearchRequest, signal: AbortSignal): Promise<SessionSearchValue> {
     const result = await this.listState.search(request.query, signal)
     return { ...result, items: result.items.filter(item => this.ctx.remoteAccess.allows({ kind: 'session', id: item.sessionId })) }
+  }
+
+  /**
+   * Report whether each named or loaded Session is running a turn, without
+   * listing, resuming, or projecting. The answer names only Sessions whose
+   * Agent this caller admits, so an omitted id is unknown here rather than
+   * idle, and a reader with its own liveness source keeps that source.
+   * @param request - Session ids to report, or every loaded Agent when omitted.
+   * @returns the running flag of each admitted Session that currently has an Agent.
+   */
+  @Remote('status')
+  status(request: SessionStatusRequest): SessionStatusValue {
+    const ids = request.ids ?? this.ctx.agents.list().map(agent => agent.id)
+    const running: Record<string, boolean> = {}
+    for (const sessionId of ids) {
+      if (this.ctx.agents.get(sessionId) === undefined) continue
+      if (!this.ctx.remoteAccess.allows({ kind: 'session', id: sessionId })) continue
+      running[sessionId] = isSessionRunning(this.ctx, sessionId)
+    }
+    return { running }
   }
 
   /**
