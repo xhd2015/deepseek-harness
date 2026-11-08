@@ -14,6 +14,7 @@ describe('/export Web download command', () => {
       },
     } as never)
     ctx.provide('connection', {
+      apiPath: '/api',
       fetch: { register: () => () => Promise.resolve() },
     } as never)
     const fiber = await ctx.plugin(SessionLogDownload)

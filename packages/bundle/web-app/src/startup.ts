@@ -12,7 +12,7 @@ import { Command } from 'commander'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import { assertTrustedAuthority } from '@deepseek-ai/dsh-client-connection'
+import { API_PATH, assertApiPrefix, assertTrustedAuthority } from '@deepseek-ai/dsh-client-connection'
 import { parseCmdline } from '@deepseek-ai/dsh-cmdline'
 import { isWildcardHost, type TlsConfig } from '@deepseek-ai/dsh-host-webserver'
 import { isWebBrowserId, WEB_BROWSER_IDS, type WebBrowserId } from './browsers.ts'
@@ -62,6 +62,8 @@ export interface WebStartupValues {
   trustedHostsForSettings: string[]
   /** When true, skip process-token and cookie checks (outer reverse-proxy auth). */
   disableAuth: boolean
+  /** Absolute HTTP prefix for the shared API channel. Default `/api`. */
+  apiPrefix: string
 }
 
 /** Serve-mode flags, as commander parsed them. */
@@ -76,6 +78,7 @@ interface ServeOptions {
   trustedHostForSettings?: string[]
   browser?: string
   auth: boolean
+  apiPrefix?: string
 }
 
 /** `open` subcommand flags. */
@@ -126,6 +129,15 @@ function requireSettingsAuthorities(program: Command, entries: string[], trusted
   return entries
 }
 
+function resolveApiPrefix(program: Command, value: string | undefined): string {
+  if (value === undefined) return API_PATH
+  try {
+    return assertApiPrefix(value)
+  } catch (error) {
+    program.error(`error: ${(error as Error).message}`)
+  }
+}
+
 /**
  * Repeatable `--host` collector. Commander omits `previous` on the first flag.
  */
@@ -152,6 +164,7 @@ function webCommand(): Command {
     .option('--tls-key <file>', 'unencrypted PEM private key; requires --tls-cert')
     .option('--trusted-host-for-settings <authority...>', 'authority whose page may also read and write Host settings, including credentials (host or host:port; repeatable; each must also be a --trusted-host)')
     .option('--no-auth', 'disable process-token browser authentication (use when an outer reverse proxy already authenticates)')
+    .option('--api-prefix <path>', 'absolute HTTP prefix for the shared API channel (default /api; use /api/dsh when embedding behind another /api)')
     .option('--browser <name>', `browser to open (${WEB_BROWSER_IDS.join(', ')})`)
     .addHelpText('after', `
 Examples:
@@ -230,6 +243,7 @@ function publishServe(ctx: Context, program: Command): void {
     trustedHosts,
     trustedHostsForSettings,
     disableAuth: !options.auth,
+    apiPrefix: resolveApiPrefix(program, options.apiPrefix),
   } satisfies WebStartupValues)
 }
 
@@ -255,6 +269,7 @@ function publishOpen(ctx: Context, program: Command, dir: string | undefined, op
     trustedHosts: [],
     trustedHostsForSettings: [],
     disableAuth: false,
+    apiPrefix: API_PATH,
   } satisfies WebStartupValues)
 }
 

@@ -284,6 +284,9 @@ describe('connection node half', () => {
         {
           kind: 'global', name: '__DSH_SETTINGS_TRUST__', value: { trustedHosts: [] },
         },
+        {
+          kind: 'global', name: '__DSH_API_PREFIX__', value: '/api',
+        },
       ])
       await dispose()
       const after: IndexInjection[] = []
@@ -391,6 +394,20 @@ describe('connection node half', () => {
     await dispose()
     expect(routes).toHaveLength(0)
     expect(upgrades).toHaveLength(0)
+  })
+
+  it('mounts the shared API channel under a nested prefix', async () => {
+    const { routes, connection, dispose } = await mounted({ apiPrefix: '/api/dsh' })
+    expect(connection.apiPath).toBe('/api/dsh')
+    expect(routes[0]).toMatchObject({ kind: 'prefix', path: '/api/dsh' })
+    await dispose()
+  })
+
+  it('rejects a malformed apiPrefix at load', async () => {
+    const ctx = new Context()
+    provideBrowserCredentials(ctx)
+    const fiber = ctx.plugin({ inject: [...inject], apply }, { apiPrefix: 'api/dsh' })
+    await expect(fiber).rejects.toThrow(/apiPrefix/)
   })
 
   it('refuses an untrusted Host on any /api path before the bridge runs', async () => {

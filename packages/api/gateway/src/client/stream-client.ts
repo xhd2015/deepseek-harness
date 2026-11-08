@@ -4,7 +4,6 @@ import type { ConnectionWebSocket } from '@deepseek-ai/dsh-client-connection/cli
 
 import {
   parseRemoteStreamServerMessage,
-  REMOTE_STREAM_MUX_PATH,
   REMOTE_UNARY_STREAM_ENDPOINT,
   type RemoteStreamClientMessage,
   type RemoteStreamServerMessage,
@@ -267,7 +266,7 @@ export class RemoteStreamMuxClient {
 
   private async connect(): Promise<ConnectionWebSocket> {
     const socket = (sharedWorkerSocket() as ConnectionWebSocket | undefined)
-      ?? this.openSocket(REMOTE_STREAM_MUX_PATH)
+      ?? this.openSocket(`${browserApiPrefix()}/remote.mux`)
     const closed = new Promise<void>((resolve) => { socket.addEventListener('close', () => { resolve() }, { once: true }) })
     this.socketClosures.add(closed)
     void closed.then(() => { this.socketClosures.delete(closed) })
@@ -425,7 +424,7 @@ export class RemoteStreamMuxClient {
 function sharedWorkerSocket(): WebSocket | undefined {
   if (typeof SharedWorker === 'undefined' || typeof location === 'undefined') return undefined
   return new SharedMuxSocket(new SharedWorker(
-    new URL('/api/remote.shared-mux-worker.js', location.origin),
+    new URL(`${browserApiPrefix()}/remote.shared-mux-worker.js`, location.origin),
     { type: 'module', name: 'dsh-gateway-mux' },
   )) as unknown as WebSocket
 }
@@ -575,12 +574,25 @@ export class ClientUplinkQueue implements AsyncIterable<unknown>, AsyncIterator<
   }
 }
 
+function browserApiPrefix(): string {
+  const globals = globalThis as {
+    __DSH_API_PREFIX__?: unknown
+    __DSH_TRANSPORT__?: { apiPrefix?: unknown; streamBaseUrl?: string }
+  }
+  const fromTransport = globals.__DSH_TRANSPORT__?.apiPrefix
+  if (typeof fromTransport === 'string' && fromTransport !== '') return fromTransport
+  const fromGlobal = globals.__DSH_API_PREFIX__
+  if (typeof fromGlobal === 'string' && fromGlobal !== '') return fromGlobal
+  return '/api'
+}
+
 function remoteStreamUrl(): string {
   // The mux route is registered absolute; a page resolves its document-relative
   // form against its own document base. A shell-owned Host on another origin
-  // supplies that base through the transport.
+  // supplies that base through the transport. apiPrefix relocates `/api` for
+  // embeddings that already own `/api`.
   const globals = globalThis as { __DSH_TRANSPORT__?: { streamBaseUrl?: string } }
-  const url = new URL(REMOTE_STREAM_MUX_PATH.slice(1), globals.__DSH_TRANSPORT__?.streamBaseUrl ?? document.baseURI)
+  const url = new URL(`${browserApiPrefix()}/remote.mux`.slice(1), globals.__DSH_TRANSPORT__?.streamBaseUrl ?? document.baseURI)
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
   return url.href
 }

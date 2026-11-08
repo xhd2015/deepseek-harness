@@ -69,6 +69,7 @@ export const apply = ctx => globalThis.__webStartupApply(ctx)
     '    tls: !!js ctx.webStartup.tls',
     '    trustedHostsForSettings: !!js ctx.webStartup.trustedHostsForSettings',
     '    disableAuth: !!js ctx.webStartup.disableAuth === true',
+    '    apiPrefix: !!js ctx.webStartup.apiPrefix',
     '- id: provider',
     `  name: ${pathToFileURL(join(dir, 'provider.mjs')).href}`,
     '',
@@ -127,6 +128,7 @@ describe('web command-line provider', () => {
       tls: { certFile: 'fullchain.pem', keyFile: 'private-key.pem' },
       trustedHostsForSettings: ['lab.internal'],
       disableAuth: false,
+      apiPrefix: '/api',
     })
     expect(observed.readerConfig).toEqual({
       host: '127.0.0.1',
@@ -136,6 +138,7 @@ describe('web command-line provider', () => {
       tls: { certFile: 'fullchain.pem', keyFile: 'private-key.pem' },
       trustedHostsForSettings: ['lab.internal'],
       disableAuth: false,
+      apiPrefix: '/api',
     })
     expect(observed.exits).toEqual([])
   })
@@ -158,6 +161,7 @@ describe('web command-line provider', () => {
       trustedHosts: [],
       trustedHostsForSettings: [],
       disableAuth: false,
+      apiPrefix: '/api',
     })
     expect(observed.readerConfig).toEqual({
       host: '127.0.0.1',
@@ -166,6 +170,7 @@ describe('web command-line provider', () => {
       trustedHosts: [],
       trustedHostsForSettings: [],
       disableAuth: false,
+      apiPrefix: '/api',
     })
   })
 
@@ -196,7 +201,14 @@ describe('web command-line provider', () => {
       trustedHosts: [],
       trustedHostsForSettings: [],
       disableAuth: true,
+      apiPrefix: '/api',
     })
+  })
+
+  it('publishes --api-prefix for an embedded mount', async () => {
+    const { values, observed } = await bootProvider(['--api-prefix', '/api/dsh'])
+    expect(values?.apiPrefix).toBe('/api/dsh')
+    expect(observed.readerConfig).toMatchObject({ apiPrefix: '/api/dsh' })
   })
 
   it('publishes a named browser on serve', async () => {
@@ -313,6 +325,7 @@ describe('web command-line provider', () => {
       trustedHosts: ['lab.internal'],
       trustedHostsForSettings: [],
       disableAuth: false,
+      apiPrefix: '/api',
     })
     expect(observed.readerConfig).toEqual({
       host: '127.0.0.1',
@@ -322,6 +335,7 @@ describe('web command-line provider', () => {
       trustedHosts: ['lab.internal'],
       trustedHostsForSettings: [],
       disableAuth: false,
+      apiPrefix: '/api',
     })
     expect(observed.exits).toEqual([])
   })

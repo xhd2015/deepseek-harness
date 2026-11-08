@@ -265,6 +265,7 @@
         # Subset of the fence authorities whose page is settings-trusted.
         trustedHostsForSettings: !!js ctx.webStartup.trustedHostsForSettings
         disableAuth: !!js ctx.webStartup.disableAuth === true
+        apiPrefix: !!js ctx.webStartup.apiPrefix
 
     # Raw Blob and ReadableStream uploads run independently of Connection's
     # RPC and generation service.

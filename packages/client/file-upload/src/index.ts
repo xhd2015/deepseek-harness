@@ -9,7 +9,6 @@ import type { CommandFileReceiptResolver } from '@deepseek-ai/dsh-commands'
 import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { handleFileUploadHttp } from './http-route.ts'
-import { FILE_UPLOAD_PATH } from './protocol.ts'
 import type { EncodedFileUploadRequest, FileUploadReceiptId, FileUploadValue } from './types.ts'
 
 export type * from './types.ts'
@@ -70,7 +69,7 @@ export class FileUploads extends TypertRemoteService {
     )
     ctx.effect(
       () => ctx.connection.fetch.register({
-        path: FILE_UPLOAD_PATH,
+        path: `${ctx.connection.apiPath}/session/uploadFileBinary`,
         methods: ['POST'],
         requestBody: 'streaming',
         fetch: request => handleFileUploadHttp(this, request),

@@ -68,7 +68,7 @@ export const SessionMediaReferences = {
   apply(ctx: Context): void {
     const maxBytes = ctx.attachments.imageLimits.maxImageBytes
     ctx.effect(() => ctx.connection.fetch.register({
-      path: '/api/file',
+      path: `${ctx.connection.apiPath}/file`,
       methods: ['GET', 'HEAD'],
       requestBody: 'buffered',
       fetch: request => serveFile(request, ctx.fs, maxBytes),

@@ -33,6 +33,7 @@ describe('SessionMediaReferences /api/file', () => {
     let handler: ((request: Request) => Promise<Response>) | undefined
     const unregister = vi.fn(() => {})
     ctx.provide('connection', {
+      apiPath: '/api',
       fetch: {
         register: (registered: { fetch: (request: Request) => Promise<Response> }) => {
           handler = registered.fetch

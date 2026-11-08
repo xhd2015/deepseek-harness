@@ -35,6 +35,7 @@ describe('session-log-download real Loader composition', () => {
     context = new Context()
     context.baseUrl = pathToFileURL(root).href + '/'
     context.provide('connection', {
+      apiPath: '/api',
       fetch: { register: () => () => Promise.resolve() },
     } as never)
     await context.plugin(Loader)

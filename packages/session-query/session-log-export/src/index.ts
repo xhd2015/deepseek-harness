@@ -17,8 +17,6 @@ import {
   type SessionLogCompressionLevel,
   type SessionLogExportReady,
 } from './archive.ts'
-import { SESSION_LOG_EXPORT_PATH } from './routes.ts'
-
 export {
   DEFAULT_SESSION_LOG_COMPRESSION_LEVEL,
   flushLiveSessionLog,
@@ -55,6 +53,7 @@ export const Config: Schema<Config> = Schema.object({
 })
 
 interface SessionLogConnection {
+  readonly apiPath: string
   readonly fetch: {
     register(route: {
       readonly path: string
@@ -85,7 +84,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       : { kind: 'error', text: 'The Web /export command does not accept a path.' }),
   }), 'session-log-download: command')
   connectionOf(ctx).fetch.register({
-    path: SESSION_LOG_EXPORT_PATH,
+    path: `${connectionOf(ctx).apiPath}/session.export`,
     methods: ['GET', 'HEAD'],
     requestBody: 'buffered',
     fetch: async (request) => {

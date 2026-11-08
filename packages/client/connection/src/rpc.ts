@@ -189,14 +189,14 @@ export interface HostConnectionRpc {
   ): () => Promise<void>
 
   /**
-   * Intercept owned endpoints on the shared `/api` channel before its fallback.
-   * @param channel - reserved shared channel; currently `/api`.
+   * Intercept owned endpoints on the shared API channel before its fallback.
+   * @param channel - the mounted API prefix; `/api` by default, or a nested prefix such as `/api/dsh`.
    * @param matches - synchronous endpoint ownership test.
    * @param handler - decoded endpoint handler returning the existing RPC result shape.
    * @returns asynchronous disposer removing the interceptor.
    */
   intercept(
-    channel: '/api',
+    channel: string,
     matches: ConnectionRpcEndpointMatcher,
     handler: ConnectionRpcHandler,
   ): () => Promise<void>
@@ -217,12 +217,15 @@ export interface HostConnectionHandle {
    */
   readonly allowsRemoteAuthorities: boolean
 
+  /** Absolute HTTP prefix of the shared API channel (`/api` or a nested prefix). */
+  readonly apiPath: string
+
   /**
    * Compose exact Fetch routes and the shared-channel RPC interceptor.
    * @param channel - shared channel mounted by Connection.
    * @returns Fetch handler for trusted, authenticated requests.
    */
-  createSharedFetchHandler(channel: '/api'): ConnectionFetchHandler
+  createSharedFetchHandler(channel: string): ConnectionFetchHandler
 
   /**
    * Apply Connection's Host/Origin checks and browser authentication to

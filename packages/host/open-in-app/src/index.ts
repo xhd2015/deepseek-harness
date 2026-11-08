@@ -35,9 +35,6 @@ import {
 } from './resolver.ts'
 import { extractAppIcon, type OpenInAppIcon } from './icons.ts'
 import { internals } from './internals.ts'
-import {
-  OPEN_IN_APP_APPS_PATH, OPEN_IN_APP_ICON_PREFIX_PATH, OPEN_IN_APP_OPEN_PATH,
-} from './shared.ts'
 
 export type * from './shared.ts'
 
@@ -78,6 +75,7 @@ export const Config: z<Config> = z.object({
 /** Trust surface consumed here; the browser-side connection package owns the full type. */
 interface OpenInAppConnection {
   requestRejection(request: { readonly headers: IncomingMessage['headers'] }): 401 | 403 | undefined
+  readonly apiPath?: string
 }
 
 /** The composition's connection service (typed locally: its package is browser-side). */
@@ -136,6 +134,11 @@ function parseOpenBody(text: string): { app: string; path: string } | null {
 
 /** Register the apps, icon, and open routes behind the connection trust fence. */
 export function apply(ctx: Context, config: Config): void {
+  const apiPath = connectionOf(ctx).apiPath || '/api'
+  const openRoot = apiPath === '/api' ? '/open-in-app' : `${apiPath}/open-in-app`
+  const appsPath = `${openRoot}/apps`
+  const iconPrefix = `${openRoot}/icon`
+  const openPath = `${openRoot}/open`
   const ssh = launchedThroughSsh(launchEnvironmentOf(ctx))
   /** Test-seam facts completed with the composition's PATH resolver. */
   const catalogInternals = (): OpenInAppInternals => ({
@@ -192,7 +195,7 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact',
-    path: OPEN_IN_APP_APPS_PATH,
+    path: appsPath,
     handler: async (req, res) => {
       if (rejected(req, res)) return
       if (req.method !== 'GET') {
@@ -201,11 +204,11 @@ export function apply(ctx: Context, config: Config): void {
       }
       sendJson(res, 200, { apps: [...(await availability()).keys()] })
     },
-  }), `open-in-app: GET ${OPEN_IN_APP_APPS_PATH}`)
+  }), `open-in-app: GET ${appsPath}`)
 
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix',
-    path: OPEN_IN_APP_ICON_PREFIX_PATH,
+    path: iconPrefix,
     handler: async (req, res) => {
       if (rejected(req, res)) return
       if (req.method !== 'GET') {
@@ -214,7 +217,7 @@ export function apply(ctx: Context, config: Config): void {
       }
       // Node always sets url on server requests; String keeps that fact local.
       const pathname = new URL(String(req.url), 'http://localhost').pathname
-      const id = pathname.slice(OPEN_IN_APP_ICON_PREFIX_PATH.length).replace(/^\//, '')
+      const id = pathname.slice(iconPrefix.length).replace(/^\//, '')
       const noIcon = (): void => { sendJson(res, 404, { code: 'not-found', message: `no icon for ${id}` }) }
       const app = OPEN_IN_APP_CATALOG.find(entry => entry.id === id)
       if (app === undefined) {
@@ -236,11 +239,11 @@ export function apply(ctx: Context, config: Config): void {
       res.setHeader('cache-control', 'public, max-age=3600')
       res.end(icon.bytes)
     },
-  }), `open-in-app: GET ${OPEN_IN_APP_ICON_PREFIX_PATH}/<id>`)
+  }), `open-in-app: GET ${iconPrefix}/<id>`)
 
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact',
-    path: OPEN_IN_APP_OPEN_PATH,
+    path: openPath,
     handler: async (req, res) => {
       if (rejected(req, res)) return
       if (req.method !== 'POST') {
@@ -307,5 +310,5 @@ export function apply(ctx: Context, config: Config): void {
         sendJson(res, 502, { code: 'launch-failed', message: `failed to launch ${app.id}` })
       }
     },
-  }), `open-in-app: POST ${OPEN_IN_APP_OPEN_PATH}`)
+  }), `open-in-app: POST ${openPath}`)
 }
