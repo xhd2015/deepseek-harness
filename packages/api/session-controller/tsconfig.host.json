@@ -106,6 +106,9 @@
       "path": "../../util/values"
     },
     {
+      "path": "../../util/workspace-path"
+    },
+    {
       "path": "../../typert/protocol"
     },
     {

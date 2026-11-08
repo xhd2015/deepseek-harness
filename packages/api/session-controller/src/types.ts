@@ -390,6 +390,12 @@ export interface SessionForkRequest {
   readonly atSeq?: number
   /** False asks the Host to check for required migration before forking. Defaults to true. */
   readonly allowMigration?: boolean
+  /**
+   * Child working directory. Omission copies the source header cwd and
+   * attaches the source Workspace. A set value must be a fully qualified
+   * directory; the child attaches a Workspace at that path when one exists.
+   */
+  readonly cwd?: string
 }
 
 /** Identity of a newly forked Session. */

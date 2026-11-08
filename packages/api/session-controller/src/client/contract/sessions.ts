@@ -127,14 +127,17 @@ export interface ISessions {
    * @param opts - source session id, the optional exact inclusive boundary
    *   seq (a real event seq the caller already knows; a cut inside an open
    *   turn is balanced Host-side with synthetic closers, and omission selects
-   *   the latest completed-turn prefix), and whether to increment an
-   *   inherited durable title before resolving. `onCreated` observes the catalogued child before that optional rename.
+   *   the latest completed-turn prefix), an optional fully qualified child
+   *   cwd, and whether to increment an inherited durable title before
+   *   resolving. `onCreated` observes the catalogued child before that optional rename.
    * @returns the child session id.
    * @throws when the fork fails, or when a requested child-title rename fails after creation.
    */
   fork(opts: {
     sessionId: SessionId
     atSeq?: number
+    /** Child working directory; omission copies the source cwd. */
+    cwd?: string
     increaseTitle?: boolean
     onCreated?: (childId: SessionId) => void
     /** False refuses source migration; omission preserves the Host default. */
