@@ -357,6 +357,9 @@ export interface SessionSelectModelValue {
   readonly selected: ModelSelection
 }
 
+/** Deployment-default model selection with no Session identity. */
+export type SessionSelectDefaultModelRequest = ModelSelection
+
 /** Session thinking-cap auto-continue request. */
 export interface SessionSetThinkingCapAutoContinueRequest {
   readonly sessionId: SessionId

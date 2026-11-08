@@ -2113,6 +2113,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the normalized selection installed for the Session, without waiting for default persistence.',
       },
       {
+        signature: '@Remote(\'selectDefaultModel\') selectDefaultModel(request: SessionSelectDefaultModelRequest): Promise<SessionSelectModelValue>',
+        description: 'Persist the deployment default model without addressing a Session.',
+        parameters: [{ name: 'request', description: 'provider, model, and optional reasoning effort.' }],
+        returns: 'the normalized selection after the default is durable.',
+      },
+      {
         signature: '@Remote(\'setThinkingCapAutoContinue\') setThinkingCapAutoContinue( request: SessionSetThinkingCapAutoContinueRequest, ): Promise<SessionSetThinkingCapAutoContinueValue>',
         description: 'Record whether this Session auto-continues a reasoning-only thinking-cap stop.',
         parameters: [{ name: 'request', description: 'Session identity and requested policy.' }],

@@ -63,6 +63,7 @@ import type {
   SessionRenameValue,
   SessionSearchRequest,
   SessionSearchValue,
+  SessionSelectDefaultModelRequest,
   SessionSelectModelRequest,
   SessionSelectModelValue,
   SessionSetThinkingCapAutoContinueRequest,
@@ -366,6 +367,16 @@ export class SessionController extends TypertRemoteService {
   @Remote('selectModel')
   selectModel(request: SessionSelectModelRequest): Promise<SessionSelectModelValue> {
     return this.commands.selectModel(request)
+  }
+
+  /**
+   * Persist the deployment default model without addressing a Session.
+   * @param request - provider, model, and optional reasoning effort.
+   * @returns the normalized selection after the default is durable.
+   */
+  @Remote('selectDefaultModel')
+  selectDefaultModel(request: SessionSelectDefaultModelRequest): Promise<SessionSelectModelValue> {
+    return this.commands.selectDefaultModel(request)
   }
 
   /**

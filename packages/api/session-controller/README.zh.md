@@ -43,7 +43,7 @@ Client 列表行和驻留 Session 使用当前 `sessionListMetadata` 投影纠�
 
 `session.create` 返回一个用于新对话的 Session，响应指明实际使用的 Session。请求指明的 `sessionId` 在满足以下条件时被复用：仍为空白（尚未开始任何轮次）、属于请求的目录、是请求的工作区中未归档的成员，且未被其他写者占用；活动 Session 原地复用，持久化 Session 被恢复并持续持有其写锁。被复用的 Session 运行请求的 `agentPreset`，请求未指明时运行配置的默认 preset：不解析它记录的 preset，变更在 Agent 发布前记录为 `agent-preset/selected`。指明的 Session 若已开始、不满足工作区归属，或被其他写者占用，则保持不变，改为新建 Session。没有对应已存储 Session 的 `sessionId` 成为新 Session 的标识。指明其他目录中的 Session 返回 `session/conflict`，指明由 subagent 路由拥有的 Session 返回 `session/agent-busy`；这两项检查先于 preset 解析。指明同一标识的创建请求按到达顺序执行，preset 解析也包含在内，每个响应报告其自身请求完成时该 Session 运行的 preset。`session.list` 根据缓存元数据列出持久化空白会话，不打开冷日志正文。
 
-`session.create({ modelSelection: { provider, model, reasoningEffort? } })` 在创建前校验确切路由与 effort，在 Agent 发布前将解析后的选择记录到 Session，不保存部署默认值。仅在请求指定时，响应回显 `modelSelection`。对空白 Session 重复初始化相同的解析后选择不会追加事件；已有不同选择时以 `session/model-conflict` 拒绝。省略参数时保留原有默认值和已记录选择的行为。`selectModel` 仍是同时保存默认值的显式选择器操作。
+`session.create({ modelSelection: { provider, model, reasoningEffort? } })` 在创建前校验确切路由与 effort，在 Agent 发布前将解析后的选择记录到 Session，不保存部署默认值。仅在请求指定时，响应回显 `modelSelection`。对空白 Session 重复初始化相同的解析后选择不会追加事件；已有不同选择时以 `session/model-conflict` 拒绝。省略参数时保留原有默认值和已记录选择的行为。`selectModel` 仍是同时保存默认值的显式选择器操作。`selectDefaultModel` 校验同一路由并只持久化部署默认值，不指定 Session。
 
 Client 列表刷新保留未变化的行对象，并在顺序和值均相同时复用条目数组。每行的 `retainedBy` 包含正数的本地引用来源计数，Host 元数据刷新不能覆盖它们。缓存成员检查使用每次刷新构建的 ID 集合，因此对账成本随当前列表和保留缓存的规模线性增长。 Host 摘要更新会替换运行状态与 Agent 可用性；本地 create/fork 响应只补充已有行缺失的元数据。普通 Session 被移除后，仅在目录仍有子项时保留其投影 store。
 

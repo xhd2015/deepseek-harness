@@ -49,6 +49,7 @@ import type {
   SessionPromptValue,
   SessionRenameRequest,
   SessionRenameValue,
+  SessionSelectDefaultModelRequest,
   SessionSelectModelRequest,
   SessionSelectModelValue,
   SessionSetThinkingCapAutoContinueRequest,
@@ -184,6 +185,17 @@ export class SessionCommandController {
         )
       }
     })
+  }
+
+  /**
+   * Validate one deployment-default model and persist it. Does not change any Session.
+   * @param request - provider, model, and optional reasoning effort.
+   * @returns the normalized selection after the default is durable.
+   */
+  async selectDefaultModel(request: SessionSelectDefaultModelRequest): Promise<SessionSelectModelValue> {
+    const selected = await this.resolveModel(request)
+    await this.ctx.agentDefaultModel.saveSelection(selected)
+    return { selected: { ...selected } }
   }
 
   /**
