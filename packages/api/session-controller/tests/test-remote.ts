@@ -87,6 +87,7 @@ export interface TestSessionRemote {
     request: SessionSetThinkingCapAutoContinueRequest,
   ): Promise<RemoteResult<SessionSetThinkingCapAutoContinueValue>>
   modelCatalog(): Promise<RemoteResult<ModelCatalog>>
+  refreshModelCatalog(): Promise<RemoteResult<ModelCatalog>>
   rename(request: SessionRenameRequest): Promise<RemoteResult<SessionRenameValue>>
   fork(request: SessionForkRequest): Promise<RemoteResult<SessionForkValue>>
   prompt(request: SessionPromptRequest, signal?: AbortSignal): Promise<RemoteResult<SessionPromptValue>>
@@ -378,6 +379,7 @@ export function createSessionTestRemote(
     selectDefaultModel: request => remoteResult(() => direct.selectDefaultModel(request)),
     setThinkingCapAutoContinue: request => remoteResult(() => direct.setThinkingCapAutoContinue(request)),
     modelCatalog: () => remoteResult(() => direct.modelCatalog()),
+    refreshModelCatalog: () => remoteResult(() => direct.refreshModelCatalog()),
     rename: request => remoteResult(() => direct.rename(request)),
     fork: request => remoteResult(() => direct.fork(request)),
     prompt: (request, signal = new AbortController().signal) => remoteResult(

@@ -321,6 +321,12 @@ export interface LiveCatalogController {
   ready(): Promise<void>
   /** Begin the first probe of every shell. */
   start(): void
+  /**
+   * Probe every shell now, ignoring max-age. A failed probe keeps last-known-good
+   * routes. Restarts the background max-age timer after each shell settles.
+   * @returns after every shell probe has settled.
+   */
+  refresh(): Promise<void>
   /** Stop refresh timers. */
   dispose(): void
 }
@@ -372,6 +378,19 @@ export function createLiveCatalogController(
     start() {
       if (first.length > 0 || shells.length === 0) return
       first = shells.map(shell => probe(shell, true))
+    },
+    async refresh() {
+      if (disposed) return
+      if (first.length === 0) {
+        first = shells.map(shell => probe(shell, true))
+        await Promise.all(first)
+        return
+      }
+      await Promise.all(first)
+      if (disposed) return
+      for (const timer of timers) clearTimeout(timer)
+      timers.length = 0
+      await Promise.all(shells.map(shell => probe(shell, true)))
     },
     dispose() {
       disposed = true

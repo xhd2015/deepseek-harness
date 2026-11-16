@@ -324,6 +324,7 @@ export function apply(ctx: Context, config: Config): void {
     profiles,
     resolveApiKey,
     awaitLiveCatalog: () => live.ready(),
+    refreshLiveCatalog: () => live.refresh(),
     auth,
     resolveAttachments: () => ctx.get('attachments'),
     resolveImageAccess: (attachments, ref) => resolveImageAttachmentAccess(

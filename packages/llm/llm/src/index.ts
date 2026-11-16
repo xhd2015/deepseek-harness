@@ -264,6 +264,16 @@ export abstract class LlmAdapter {
   }
 
   /**
+   * Re-probe any live model listing this adapter owns. The default is a no-op:
+   * static catalogs have nothing to refetch. Dynamic adapters override this so
+   * a selector can force a gateway round-trip instead of waiting for max-age.
+   * @returns after every owned listing has settled (success or last-known-good).
+   */
+  refreshListing(): Promise<void> {
+    return Promise.resolve()
+  }
+
+  /**
    * Resolve all metadata available for one exact model. This query is
    * independent of the advisory catalog and does not validate request routing.
    * @param provider - one provider route owned by this adapter.
@@ -390,6 +400,22 @@ export class LlmRuntime extends TypertRemoteService {
   private warnAdaptersListenerFailure(error: unknown): void {
     this.ctx.logger.warn('llm: an llm/adapters-updated listener failed')
     this.ctx.logger.warn(error)
+  }
+
+  /**
+   * Re-probe live listings on every registered adapter, then notify topology
+   * observers. Adapters without a live catalog no-op. One adapter serving many
+   * routes is refreshed once.
+   * @returns after every adapter's refresh has settled.
+   */
+  async refreshListings(): Promise<void> {
+    const seen = new Set<LlmAdapter>()
+    for (const registration of this.adapters.values()) {
+      if (seen.has(registration.adapter)) continue
+      seen.add(registration.adapter)
+      await registration.adapter.refreshListing()
+    }
+    this.emitAdaptersUpdated()
   }
 
   /**

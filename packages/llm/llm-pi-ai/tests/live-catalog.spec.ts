@@ -164,6 +164,29 @@ describe('live catalog plugin', () => {
     await ctx.fiber.dispose()
   })
 
+  it('refreshListings re-probes the gateway before max-age', async () => {
+    const rows: Record<string, unknown>[] = [{ ...grokRow }]
+    const origin = await listingServer(rows, [])
+    vi.stubEnv('LIVE_CATALOG_KEY', 'probe')
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, {
+      providers: {
+        'llm-proxy': {
+          modelListingMode: 'dynamic',
+          groupByProviders: true,
+          baseURL: origin,
+          apiKeyEnv: 'LIVE_CATALOG_KEY',
+        },
+      },
+    })
+    expect((await listedModels(ctx, 'llm-proxy-grok')).map(model => model.id)).toEqual(['grok-4.6'])
+    rows[0] = { ...grokRow, id: 'grok-4.7', display_name: 'Grok 4.7' }
+    await ctx.llm.refreshListings()
+    expect((await listedModels(ctx, 'llm-proxy-grok')).map(model => model.id)).toEqual(['grok-4.7'])
+    await ctx.fiber.dispose()
+  })
+
   it('asks the gateway to narrow variants to the shell runner', async () => {
     const requested: string[] = []
     const origin = await listen((request, response) => {

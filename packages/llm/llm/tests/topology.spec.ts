@@ -76,6 +76,24 @@ describe('llm/adapters-updated', () => {
     }
   })
 
+  it('refreshListings calls each adapter once and then notifies observers', async () => {
+    const ctx = await setup()
+    class CountingAdapter extends NoopAdapter {
+      calls = 0
+      override refreshListing(): Promise<void> {
+        this.calls += 1
+        return Promise.resolve()
+      }
+    }
+    const adapter = new CountingAdapter()
+    ctx.llm.registerAdapter(['a', 'b'], adapter)
+    const events = vi.fn()
+    ctx.on('llm/adapters-updated', events)
+    await ctx.llm.refreshListings()
+    expect(adapter.calls).toBe(1)
+    expect(events).toHaveBeenCalledTimes(1)
+  })
+
   it('replaces a route set in one event, never publishing an empty registry between the two', async () => {
     // The retry-policy swap in llm-deepseek: disposing and re-registering
     // would let an observer see the provider disappear and come back.
