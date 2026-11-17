@@ -222,7 +222,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-api-gateway`
 
 - `inject`: `typert` · `remoteAccess`
-- `source`: [`packages/api/gateway/src/index.ts:165`](../packages/api/gateway/src/index.ts)
+- `source`: [`packages/api/gateway/src/index.ts:164`](../packages/api/gateway/src/index.ts)
 
 ```ts config-catalog
 /** Gateway transport configuration. */
