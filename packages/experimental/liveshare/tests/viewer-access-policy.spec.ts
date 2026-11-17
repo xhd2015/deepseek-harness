@@ -53,7 +53,8 @@ const SESSION_READS = [
   'commands/list', 'fileReferences/list', 'fileUploads/upload', 'goals/get', 'goals/edit',
   'goals/clear', 'goals/complete', 'goals/create', 'goals/pause', 'goals/resume', 'job/list', 'job/follow',
   'session/attachment', 'session/control',
-  'session/events', 'session/follow', 'session/list', 'session/observeEvent', 'session/observeProjections',
+  'session/events', 'session/follow', 'session/getDraft', 'session/list', 'session/observeEvent',
+  'session/observeProjections',
   'session/observeState', 'session/page', 'session/projections', 'session/state', 'session/wait',
   'sessionReferenceResolver/candidates', 'userQuestions/answer', 'userQuestions/attachWait',
   'skills/list', 'toolResults/watch',
@@ -395,10 +396,10 @@ describe('share reader access policy', () => {
     const reads = [...SESSION_READS].sort()
     expect(grants()).toEqual([
       { resource: GLOBAL, actions: [...GLOBAL_ACTIONS].sort() },
-      { resource: session('source'), actions: [...reads, 'session/cancel', 'session/fork', 'session/prompt'].sort() },
+      { resource: session('source'), actions: [...reads, 'session/cancel', 'session/fork', 'session/prompt', 'session/setDraft'].sort() },
       // The reader's own fork carries the source grant's fork verb, and is the only Session it may rename.
       { resource: session('own-child'), actions: [...reads, 'session/cancel', 'session/fork', 'session/prompt',
-        'session/rename'].sort() },
+        'session/rename', 'session/setDraft'].sort() },
       // A revoked fork stays readable, so the page states it as read-only rather than unknown.
       { resource: session('revoked-child'), actions: [...reads].sort() },
       { resource: workspace('shared-ws'), actions: ['workspace/follow'] },
@@ -415,19 +416,20 @@ describe('share reader access policy', () => {
       (await fixture(options)).grants().find(grant => grant.resource.kind === 'session' && grant.resource.id === 'source')?.actions
     const childActions = async (options: FixtureOptions) =>
       (await fixture(options)).grants().find(grant => grant.resource.kind === 'session' && grant.resource.id === 'own-child')?.actions
-    const driving = [...SESSION_READS, 'session/cancel', 'session/fork', 'session/prompt'].sort()
+    const driving = [...SESSION_READS, 'session/cancel', 'session/fork', 'session/prompt', 'session/setDraft'].sort()
     expect(await sourceActions({ mode: 'view' })).toEqual(driving)
     expect(await sourceActions({ mode: 'write' })).toEqual(driving)
     // Without the confined layer the Session is not driven, and without the switch it is not forked.
     expect(await sourceActions({ confined: false })).toEqual([...SESSION_READS, 'session/fork'].sort())
     expect(await sourceActions({ allowsFork: false }))
-      .toEqual([...SESSION_READS, 'session/cancel', 'session/prompt'].sort())
+      .toEqual([...SESSION_READS, 'session/cancel', 'session/prompt', 'session/setDraft'].sort())
     const { grants } = await fixture({ mode: 'view' })
     expect(grants().find(grant => grant.resource.kind === 'session' && grant.resource.id === 'own-child')?.actions)
-      .toEqual([...SESSION_READS, 'session/cancel', 'session/fork', 'session/prompt', 'session/rename'].sort())
+      .toEqual([...SESSION_READS, 'session/cancel', 'session/fork', 'session/prompt', 'session/rename',
+        'session/setDraft'].sort())
     // The switch removes the child's fork alone: the child role and its rename stay in the snapshot.
     expect(await childActions({ allowsFork: false }))
-      .toEqual([...SESSION_READS, 'session/cancel', 'session/prompt', 'session/rename'].sort())
+      .toEqual([...SESSION_READS, 'session/cancel', 'session/prompt', 'session/rename', 'session/setDraft'].sort())
   })
 })
 
@@ -443,6 +445,8 @@ describe('derived policy actions', () => {
       'session/cancel',
       'session/fork',
       'session/rename',
+      'session/setDraft',
+      'session/getDraft',
       'fileUploads/upload',
     ])
     expect([...POLICY_DECIDED_ACTIONS].sort()).toEqual([...roleActions].sort())
@@ -507,13 +511,13 @@ describe('viewer page startup contract', () => {
     for (const action of GLOBAL_ACTIONS) expect(global).toContain(action)
     for (const action of SESSION_READS) expect(await source({})).toContain(action)
     // The driving actions ride the same reads, and the confined layer is what decides them.
-    for (const action of ['session/prompt', 'session/cancel', 'session/fork']) expect(await source({})).toContain(action)
+    for (const action of ['session/prompt', 'session/cancel', 'session/setDraft', 'session/fork']) expect(await source({})).toContain(action)
     // The tier decides no driving action: both tiers carry the prompt and the fork switch of their own.
     for (const action of SESSION_READS) expect(await source({ mode: 'view' })).toContain(action)
-    for (const action of ['session/prompt', 'session/cancel', 'session/fork']) {
+    for (const action of ['session/prompt', 'session/cancel', 'session/setDraft', 'session/fork']) {
       expect(await source({ mode: 'view' })).toContain(action)
     }
-    for (const action of ['session/prompt', 'session/cancel']) {
+    for (const action of ['session/prompt', 'session/cancel', 'session/setDraft']) {
       expect(await source({ confined: false })).not.toContain(action)
     }
   })
