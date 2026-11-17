@@ -120,7 +120,7 @@ function publishListenRecord(authenticatedUrl: string, origin: string): void {
 /** Test hooks for the built dist and native browser handoff; production never mutates them. */
 export const internals: {
   resolveDistIndex: () => string
-  openBrowser: (url: string, browser?: string) => Promise<void>
+  openBrowser: (url: string, signal?: AbortSignal, browser?: string) => Promise<void>
 } = {
   resolveDistIndex,
   get openBrowser() { return openerInternals.openBrowser },
@@ -190,7 +190,7 @@ export function apply(ctx: Context, config: Config): void {
         console.log(browser === undefined
           ? 'dsh web: opening the default browser; pass --no-open to disable'
           : `dsh web: opening a new ${browser} window; pass --no-open to disable`)
-        opening = internals.openBrowser(entry.url, browser).catch((error: unknown) => {
+        opening = internals.openBrowser(entry.url, lifetime.signal, browser).catch((error: unknown) => {
           if (lifetime.signal.aborted) return
           const reason = (error instanceof Error ? error.message : String(error)).replaceAll(entry.url, '[login URL]')
           const which = browser === undefined ? 'the default browser' : 'the browser'

@@ -310,9 +310,11 @@ export class TypertGatewayService extends Service implements TypertGateway {
         kind: 'exact',
         path: REMOTE_SHARED_MUX_WORKER_PATH,
         handler: (req, res) => {
-          const rejection = webCtx.connection.requestRejection(req)
-          if (rejection !== undefined) {
-            res.writeHead(rejection)
+          const admission = webCtx.connection.admit({
+            headers: req.headers, method: req.method, url: req.url, socket: req.socket,
+          })
+          if ('rejection' in admission) {
+            res.writeHead(admission.rejection)
             res.end()
             return
           }

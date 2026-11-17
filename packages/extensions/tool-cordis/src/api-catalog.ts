@@ -5182,6 +5182,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         throws: ['before `listen` binds a port, or when the bind address has no URL form.'],
       },
       {
+        signature: 'getLocalOrigin(): string | undefined',
+        description: 'Choose a URL a local client can use, preferring IPv4 loopback, then any loopback, then the first URL-expressible address.',
+        parameters: [],
+        returns: 'the origin, or undefined when every bound address carries a zone id.',
+        throws: ['before every listener bound its shared port.'],
+      },
+      {
         signature: 'register(route: WebRoute | WebResourceRoute): () => void',
         description: 'Register a named route. Duplicate (kind, path) throws — route patterns are a composition-level contract, so a collision is a misconfiguration.',
         parameters: [{ name: 'route', description: 'kind, path, and the owning handler or resource.' }],
@@ -8752,7 +8759,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ModelCatalogModel',
-    declaration: 'export interface ModelCatalogModel {\n    readonly id: string;\n    readonly name: string;\n    readonly description?: string;\n    readonly reasoning?: ModelReasoning;\n    readonly badge?: LlmModelBadge;\n    unavailable?: string;\n}',
+    declaration: 'export interface ModelCatalogModel {\n    readonly id: string;\n    readonly name: string;\n    readonly description?: string;\n    readonly reasoning?: ModelReasoning;\n    readonly badge?: LlmModelBadge;\n    readonly unavailable?: string;\n}',
   },
   {
     name: 'ModelMessageSource',
@@ -9885,6 +9892,8 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionDraftValue',
     declaration: 'export interface SessionDraftValue {\n    readonly text: string;\n}',
+  },
+  {
     name: 'SessionEndInput',
     declaration: 'export interface SessionEndInput {\n    reason: \'clear\' | \'logout\' | \'prompt_input_exit\' | \'resume\' | \'other\';\n    sessionId: string;\n}',
   },
@@ -10339,6 +10348,8 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionSetDraftRequest',
     declaration: 'export interface SessionSetDraftRequest extends SessionDraftRequest {\n    readonly text: string;\n}',
+  },
+  {
     name: 'SessionStartInput',
     declaration: 'export interface SessionStartInput {\n    cwd: string;\n    surface: string | null;\n    isInteractive: boolean;\n}',
   },

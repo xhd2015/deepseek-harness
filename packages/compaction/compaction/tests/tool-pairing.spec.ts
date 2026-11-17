@@ -131,10 +131,10 @@ describe('tool-pairing boundaries', () => {
   })
 
   it('a later cut is balanced after an ended step left unanswered tool-calls', () => {
-    const session = Session.create(SessionId('ended-orphan-calls'))
+    const session = Session.create(brandString<SessionId>('ended-orphan-calls'))
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'checkpoint' }],
-      source: { kind: 'plugin', plugin: 'compact' },
+      source: { kind: 'compaction-basic' },
     }), SURFACE)
     session.append('turn/start', { turn: 1 })
     session.append('step/start', { turn: 1, step: 1 })
@@ -145,8 +145,8 @@ describe('tool-pairing boundaries', () => {
       message: createMessage({
         role: 'assistant',
         content: [
-          { type: 'tool-call', id: ToolCallId('orphan-a'), name: 'read', arguments: '{}' },
-          { type: 'tool-call', id: ToolCallId('orphan-b'), name: 'read', arguments: '{}' },
+          { type: 'tool-call', id: brandString<ToolCallId>('orphan-a'), name: 'read', arguments: '{}' },
+          { type: 'tool-call', id: brandString<ToolCallId>('orphan-b'), name: 'read', arguments: '{}' },
         ],
         source: {
           kind: 'model',
@@ -155,7 +155,7 @@ describe('tool-pairing boundaries', () => {
       }),
     }, SURFACE)
     session.append('tool/call', {
-      turn: 1, step: 1, callId: ToolCallId('orphan-a'), name: 'read', arguments: '{}',
+      turn: 1, step: 1, callId: brandString<ToolCallId>('orphan-a'), name: 'read', arguments: '{}',
     })
     session.append('step/end', { turn: 1, step: 1 })
     session.append('turn/end', {

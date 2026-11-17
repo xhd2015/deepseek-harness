@@ -132,7 +132,9 @@ export function apply(ctx: ClientContext): void {
   // locale/change re-registration wiring.
   const t = ctx.locale.bind(NS)
   // The shared ConfigForm mirror updates after document commits and reconnects.
-  const documentController = ctx.remote.$host.isLoopback
+  // A loopback page always qualifies; a non-loopback page only through
+  // --trusted-host-for-settings.
+  const documentController = ctx.remote.$host.settingsTrusted
     ? new SettingsDocumentStore(ctx, ctx.configForms.describe())
     : undefined
   const documentInjected = documentController === undefined

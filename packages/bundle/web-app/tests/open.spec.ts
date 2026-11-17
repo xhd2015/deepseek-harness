@@ -98,7 +98,7 @@ describe('runOpen', () => {
       origin: 'http://127.0.0.1:3080',
       token: 'launch-token',
     })
-    openerInternals.openBrowser = async (url, browser) => {
+    openerInternals.openBrowser = async (url, _signal, browser) => {
       opened.push(browser === undefined ? { url } : { url, browser })
     }
     const calls: string[] = []

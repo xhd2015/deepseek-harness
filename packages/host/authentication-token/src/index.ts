@@ -20,7 +20,7 @@ export interface Config {
    * Skip process-token and cookie checks. Host and Origin trust still apply,
    * so enable it only behind an outer proxy that authenticates the caller.
    */
-  disableAuth: boolean
+  disableAuth?: boolean
 }
 
 /** Validate cookie lifetime and the credential bypass before activating. */

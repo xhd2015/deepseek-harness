@@ -13,6 +13,13 @@ export interface ConnectionConfig {
    * an entry here. A non-canonical or non-bare authority fails plugin load.
    */
   trustedHosts?: string[]
+  /**
+   * Subset of {@link trustedHosts} whose page may read and write Host settings.
+   * The page receives the list as the `__DSH_SETTINGS_TRUST__` boot global.
+   * Every entry must also appear in {@link trustedHosts}: a settings grant is
+   * strictly narrower than the fence, so anything else is a misconfiguration.
+   */
+  trustedHostsForSettings?: string[]
   /** Maximum buffered JSON body for every `/api` request. Default: 300 MiB. */
   maxRequestBodyBytes?: number
 }

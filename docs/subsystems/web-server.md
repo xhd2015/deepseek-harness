@@ -272,6 +272,14 @@ The browser HTTP carrier service. Activation loads any configured TLS material, 
 getOrigin(): string
 
 /**
+ * Choose a URL a local client can use, preferring IPv4 loopback, then any
+ * loopback, then the first URL-expressible address.
+ * @returns the origin, or undefined when every bound address carries a zone id.
+ * @throws before every listener bound its shared port.
+ */
+getLocalOrigin(): string | undefined
+
+/**
  * Register a named route. Duplicate (kind, path) throws — route patterns are
  * a composition-level contract, so a collision is a misconfiguration.
  * @param route - kind, path, and the owning handler or resource.

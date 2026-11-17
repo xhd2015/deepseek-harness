@@ -95,6 +95,7 @@ export type { ConnectionConfig } from './types.ts'
 export const Config: z<Omit<ConnectionConfig, 'recovery'> & { recovery?: ConnectionRecoveryConfig }, ConnectionConfig> = z.object({
   recovery: ConnectionRecoveryConfigSchema.default({}).volatile(),
   trustedHosts: z.array(String).default([]),
+  trustedHostsForSettings: z.array(String).default([]),
   maxRequestBodyBytes: z.natural().min(1).default(DEFAULT_MAX_REQUEST_BODY_BYTES),
 })
 
@@ -111,16 +112,28 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
   resolveConnectionConfig(config?.recovery?.get())
   // The Loader resolves schema defaults; hand-built test contexts may pass none.
   const trustedHosts = config?.trustedHosts ?? []
+  const trustedHostsForSettings = config?.trustedHostsForSettings ?? []
   const maxRequestBodyBytes = config?.maxRequestBodyBytes ?? DEFAULT_MAX_REQUEST_BODY_BYTES
   // Config boundary: a malformed entry fails the load loudly here rather than
   // silently authorizing its hostname prefix at request time.
   for (const entry of trustedHosts) assertTrustedAuthority(entry)
+  for (const entry of trustedHostsForSettings) {
+    assertTrustedAuthority(entry)
+    if (!trustedHosts.includes(entry)) {
+      throw new Error(`client-connection: trustedHostsForSettings entry ${JSON.stringify(entry)} is not also a trustedHosts authority`)
+    }
+  }
   assertImageBodyCapacity(ctx, maxRequestBodyBytes)
   new ConnectionAuthentication(ctx)
   ctx.inject(['connection.authentication'], (connectionCtx) => {
     const connection = new HostConnectionService(connectionCtx, trustedHosts)
     connectionCtx.inject(['webServer'], (webCtx) => {
       assertImageBodyCapacity(webCtx, maxRequestBodyBytes)
+      webCtx.on('webserver/index-inject', (table) => {
+        // The browser classifies its own page authority, so the deployment's
+        // settings-trusted names travel to the page; the fence list stays Host-side.
+        table.push({ kind: 'global', name: '__DSH_SETTINGS_TRUST__', value: { trustedHosts: trustedHostsForSettings } })
+      })
       const fetchHandler = connection.createSharedFetchHandler(API_PATH)
       const route: WebRoute = {
         kind: 'prefix',

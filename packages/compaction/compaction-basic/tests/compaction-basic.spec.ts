@@ -223,14 +223,14 @@ function endedOrphanCallsThenPairedTail(): {
   checkpointSeq: SessionSeq
   laterUserSeq: SessionSeq
 } {
-  const session = Session.create(SessionId('ended-orphan-then-tail'))
-  const orphanIds = [ToolCallId('orphan-a'), ToolCallId('orphan-b')] as const
-  const laterCallId = ToolCallId('later-paired')
+  const session = Session.create(brandString<SessionId>('ended-orphan-then-tail'))
+  const orphanIds = [brandString<ToolCallId>('orphan-a'), brandString<ToolCallId>('orphan-b')] as const
+  const laterCallId = brandString<ToolCallId>('later-paired')
 
   session.append('turn/start', { turn: 1 })
   const checkpoint = session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: 'checkpoint '.repeat(40) }],
-    source: { kind: 'plugin', plugin: 'compact' },
+    source: { kind: 'compaction-basic' },
   }), { surfaceOp: 'append' })
   session.append('step/start', { turn: 1, step: 1 })
   session.append('request/header', {

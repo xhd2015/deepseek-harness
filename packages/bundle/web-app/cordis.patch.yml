@@ -261,6 +261,8 @@
         # deployment values, for example: ['app.internal', ...ctx.webStartup.trustedHosts].
         # The listener's bind IP is accepted separately from this list.
         trustedHosts: !!js ctx.webStartup.trustedHosts
+        # `--trusted-host-for-settings` pages may also edit Host settings.
+        trustedHostsForSettings: !!js ctx.webStartup.trustedHostsForSettings ?? []
 
     # `--no-auth` drops the credential layer only; the trust fence above still
     # decides which authorities may reach this listener.

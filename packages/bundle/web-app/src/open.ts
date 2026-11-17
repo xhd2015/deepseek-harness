@@ -113,7 +113,7 @@ export async function runOpen(request: OpenRequest): Promise<string> {
   if (request.openBrowser) {
     const url = sessionLaunchUrl(listen.origin, listen.token, created.sessionId)
     try {
-      await openerInternals.openBrowser(url, request.browser)
+      await openerInternals.openBrowser(url, undefined, request.browser)
     } catch (error) {
       // Opener errors may contain the authenticated URL; never echo them.
       void error

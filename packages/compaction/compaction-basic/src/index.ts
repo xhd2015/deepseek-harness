@@ -11,7 +11,6 @@ import type { CompactionResult, CompactionTrigger } from '@deepseek-ai/dsh-compa
 import type { EpochHeader, Session, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
 import { CONTEXT_WINDOW_EXCEEDED_CODE, LlmError } from '@deepseek-ai/dsh-llm'
-import type { LlmCallConfig } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-token-meter/src/projection.ts'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
@@ -525,7 +524,7 @@ export class BasicCompactionEngine extends CompactionEngine {
     if (typeof projectedWindow === 'number' && Number.isInteger(projectedWindow) && projectedWindow > 0) {
       return retainTokensForSummarizerOnSurface(agent.session, measurement, projectedWindow)
     }
-    const target = routedTarget(agent.session) ?? conversationTarget(agent)
+    const target = routedTarget(agent.session) ?? conversationTarget(agent, (await this.answeredRoute).stateOf(agent.session))
     if (target === undefined) return 0
     try {
       const context = (await this.ctx.llm.resolveModelInfo(target.provider, target.model, signal)).context

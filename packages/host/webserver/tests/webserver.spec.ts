@@ -12,7 +12,7 @@ import { generateKeyPairSync } from 'node:crypto'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { once } from 'node:events'
 import { Agent, request as httpsRequest } from 'node:https'
-import { connect, createServer as createTcpServer, type AddressInfo } from 'node:net'
+import { connect, createServer, createServer as createTcpServer, type AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { Duplex } from 'node:stream'
@@ -88,6 +88,22 @@ async function tlsFixture(): Promise<TlsFixture> {
  * for an explicit empty `tls:` (what a user's `tls:` with no value parses to),
  * or undefined to omit the field entirely.
  */
+/** Whether this host can bind one address, so a listener test can skip instead of fail. */
+async function canBind(host: string): Promise<boolean> {
+  const probe = createServer()
+  try {
+    await new Promise<void>((resolve, reject) => {
+      probe.once('error', reject)
+      probe.listen(0, host, resolve)
+    })
+    return true
+  } catch {
+    return false
+  } finally {
+    await new Promise<void>((resolve) => { probe.close(() => { resolve() }) })
+  }
+}
+
 async function loadComposition(
   port = 0,
   gzip = false,
@@ -595,6 +611,37 @@ describe('real Loader composition', () => {
       ['::127.0.0.1%lo', undefined],
     ]
     for (const [host, text] of rows) expect(bindUrlHost(host)).toBe(text)
+  })
+
+  it('binds every configured address on the one listening port', async () => {
+    // IPv6 loopback is the second address a real deployment serves; a host
+    // without ::1 skips rather than fails, as the CI matrix varies there.
+    if (!await canBind('::1')) return
+    const ctx = new Context()
+    const server = new HttpServer(ctx, HttpServer.Config({ hosts: ['127.0.0.1', '::1'], port: 0 }))
+    await ((server as unknown as { [key: symbol]: (() => Promise<void>) | undefined })[Symbol.for('cordis.init')]?.())
+    try {
+      expect(server.hosts).toEqual(['127.0.0.1', '::1'])
+      const port = server.port
+      expect(port).toBeTypeOf('number')
+      expect(server.endpoints).toEqual([
+        { host: '127.0.0.1', port },
+        { host: '::1', port },
+      ])
+      // A URL client prefers IPv4 loopback over IPv6 on the same port.
+      expect(server.getOrigin()).toBe(`http://127.0.0.1:${String(port)}`)
+      // No fallback owner in a bare composition: 404 still proves the IPv6
+      // listener accepts a connection on the shared port.
+      const response = await fetch(`http://[::1]:${String(port)}/fallback`)
+      expect(response.status).toBe(404)
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('rejects a host list that also names one host', () => {
+    expect(() => new HttpServer(new Context(), HttpServer.Config({ host: '127.0.0.1', hosts: ['127.0.0.2'], port: 0 })))
+      .toThrow('webserver: host and hosts are mutually exclusive; use hosts for multiple addresses')
   })
 
   it('reports no origin before binding or for a bind address that no URL can express', () => {

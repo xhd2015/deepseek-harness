@@ -80,6 +80,7 @@ export const VIEWER_ENDPOINT_CLASSES = {
   'session/observeProjections': 'reader-session-read', // the page follows visible Session projections
   'session/observeState': 'reader-session-read', // the page follows a visible Session's passive state
   'session/state': 'reader-session-read', // the page reads a visible Session's passive state
+  'session/getDraft': 'reader-session-read', // the page reads the durable composer draft of a visible Session
   'session/wait': 'reader-session-read', // the page waits on a visible Session's passive state
   'toolResults/watch': 'reader-session-read', // the page inspects retained tool results of a visible Session
 
@@ -87,6 +88,7 @@ export const VIEWER_ENDPOINT_CLASSES = {
   'workspace/follow': 'reader-workspace-read', // the page follows a Workspace holding a visible Session (also granted globally)
 
   // ── reader-session-input ─────────────────────────────────────────────────────────────
+  'session/setDraft': 'reader-session-input', // the reader replaces the draft of a Session it may prompt
   'session/prompt': 'reader-session-input', // the reader prompts the confined source (either tier) or its own child under its ceiling
   'session/cancel': 'reader-session-input', // the reader stops its own child; a concrete source cancel is performed by the share host
 

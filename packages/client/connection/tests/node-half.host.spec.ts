@@ -361,19 +361,21 @@ describe('connection node half', () => {
     }
   })
 
-  it('declares browser recovery timing as a synced field and injects nothing into served pages', async () => {
+  it('declares browser recovery timing as a synced field and injects only the settings-trust row', async () => {
     expect(Config({ recovery: { generationReadyTimeoutMs: 25_000 } }).recovery?.get()).toEqual({
       backoffBaseMs: 500, backoffFactor: 2, backoffMaxMs: 10_000,
       generationReadyWarnMs: 3_000, generationReadyTimeoutMs: 25_000,
     })
     const { ctx, dispose } = await mounted(Config({ recovery: { generationReadyTimeoutMs: 25_000 } }))
-    try {
-      const rows: IndexInjection[] = []
-      ctx.emit('webserver/index-inject', rows, PAGE_PEER)
-      expect(rows).toEqual([])
-    } finally {
-      await dispose()
-    }
+    const rows: IndexInjection[] = []
+    ctx.emit('webserver/index-inject', rows, PAGE_PEER)
+    expect(rows).toEqual([
+      { kind: 'global', name: '__DSH_SETTINGS_TRUST__', value: { trustedHosts: [] } },
+    ])
+    await dispose()
+    const after: IndexInjection[] = []
+    ctx.emit('webserver/index-inject', after, PAGE_PEER)
+    expect(after).toEqual([])
   })
 
   it.each([

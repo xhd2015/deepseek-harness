@@ -51,6 +51,11 @@ export interface WebStartupValues {
    * applies, so it fits a deployment behind an authenticating outer proxy.
    */
   disableAuth?: boolean
+  /**
+   * `--trusted-host-for-settings` authorities: pages served there may read and
+   * write the Host settings document. Every entry is also a `trustedHosts` one.
+   */
+  trustedHostsForSettings?: string[]
   /** Explicit `--trusted-host` authorities, in argument order. */
   trustedHosts: string[]
   /** Server certificate chain and unencrypted private key supplied together. */
@@ -70,6 +75,7 @@ interface ServeOptions {
   port?: string
   publicUrl?: string
   trustedHost?: string[]
+  trustedHostForSettings?: string[]
   tlsCert?: string
   tlsKey?: string
   browser?: string
@@ -113,6 +119,7 @@ function webCommand(): Command {
     .option('--port <port>', 'listen port; pass 0 to let the OS pick a free one')
     .option('--public-url <url>', 'advertise this HTTP(S) root in the printed, opened, runtime-context, and DSH_WEB_URL forms; grants no trust')
     .option('--trusted-host <authority...>', 'extra authority the /api browser-trust fence accepts (host or host:port; repeatable)')
+    .option('--trusted-host-for-settings <authority...>', 'authority whose page may also read and write Host settings, including credentials (host or host:port; repeatable; each must also be a --trusted-host)')
     .option('--tls-cert <file>', 'PEM server certificate chain; requires --tls-key')
     .option('--tls-key <file>', 'unencrypted PEM private key; requires --tls-cert')
     .option('--browser <name>', `browser to open (${WEB_BROWSER_IDS.join(', ')})`)
@@ -126,6 +133,8 @@ Examples:
   dsh --profile web --host 10.0.0.7          bind one local interface address
   dsh --profile web --host 127.0.0.1 --host ::1
                                              serve loopback over IPv4 and IPv6 on one port
+  dsh --profile web --trusted-host app.example --trusted-host-for-settings app.example
+                                             also let that authority edit Host settings
   dsh --profile web --no-auth --trusted-host app.example
                                              serve behind a proxy that already authenticates
   dsh --profile web --public-url https://app.example/ui/ --trusted-host app.example
@@ -176,6 +185,14 @@ function publishServe(ctx: Context, program: Command): void {
       program.error(`error: ${(error as Error).message}`)
     }
   }
+  const trustedHosts = options.trustedHost ?? []
+  for (const authority of options.trustedHostForSettings ?? []) {
+    // A settings grant is strictly narrower than the fence: an authority the
+    // fence rejects can never load the page that would use the grant.
+    if (!trustedHosts.includes(authority)) {
+      program.error(`error: --trusted-host-for-settings ${authority} is not also a --trusted-host authority`)
+    }
+  }
   const browser = requireBrowser(program, options.browser)
   delete process.env.DSH_WEB_OPEN
   ctx.provide(WEB_STARTUP_SERVICE, {
@@ -187,7 +204,8 @@ function publishServe(ctx: Context, program: Command): void {
     ...options.publicUrl !== undefined && { publicUrl: options.publicUrl },
     ...tls !== undefined && { tls },
     ...options.noAuth === true && { disableAuth: true },
-    trustedHosts: options.trustedHost ?? [],
+    ...options.trustedHostForSettings !== undefined && { trustedHostsForSettings: options.trustedHostForSettings },
+    trustedHosts,
   } satisfies WebStartupValues)
 }
 
