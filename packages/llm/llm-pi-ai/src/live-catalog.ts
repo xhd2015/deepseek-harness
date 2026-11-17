@@ -2,7 +2,9 @@
  * Dynamic model listing for hand-declared pi-ai routes and launcher
  * `--model-listing-dynamic` shells. A listing is `GET {origin}/v1/models`.
  * `groupByProviders` splits rows by `owned_by` into `{shell}-{owned_by}`
- * routes; otherwise the shell id is the one served provider.
+ * routes; otherwise the shell id is the one served provider. A shell that names
+ * an `agentRunner` appends it as `?agent-runner=`, letting a gateway that serves
+ * per-client variants return only the variant that runner can use.
  *
  * @module dsh-llm-pi-ai/live-catalog
  */
@@ -37,6 +39,12 @@ export interface ModelListingDynamicSpec {
   groupByProviders: boolean
   /** Credential environment name resolved per request. */
   apiKeyEnv: string
+  /**
+   * Runner sent to the gateway as `?agent-runner=`, from the flag's
+   * `,agent-runner=NAME` suffix. Omitted, the listing keeps every variant the
+   * gateway knows.
+   */
+  agentRunner?: string
 }
 
 /** One row of an inspect listing after unknown fields are dropped. */
@@ -57,6 +65,12 @@ export interface LiveCatalogShell {
   baseURL: string
   groupByProviders: boolean
   apiKeyEnv?: string
+  /**
+   * Client runner reported to the gateway as `?agent-runner=`, letting it return
+   * only the variant that runner can use. Omitted, the listing keeps every
+   * variant.
+   */
+  agentRunner?: string
   displayName?: string
   modelOverrides?: Record<string, PiAiModelOverride>
   headers?: Readonly<Record<string, string>>
@@ -79,56 +93,6 @@ const DEFAULT_EFFORTS: readonly string[] = ['low', 'medium', 'high', 'xhigh', 'm
 export function defaultApiKeyEnv(id: string): string {
   const body = id.replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').toUpperCase()
   return `${body}_API_KEY`
-}
-
-/**
- * Parse one `--model-listing-dynamic` value. Trailing `,groupByProviders=` and
- * `,keyEnv=` are stripped from the URL side; the flag default for grouping is on.
- * @param raw - `id=url` plus optional suffixes.
- * @returns the spec.
- * @throws Error when the token is not `id=url` or the URL is not http(s).
- */
-export function parseModelListingDynamicSpec(raw: string): ModelListingDynamicSpec {
-  const trimmed = raw.trim()
-  const eq = trimmed.indexOf('=')
-  if (eq <= 0) throw new Error('needs id=url')
-  const id = trimmed.slice(0, eq).trim()
-  if (id.length === 0) throw new Error('needs id=url')
-  let rest = trimmed.slice(eq + 1)
-  let groupByProviders: boolean | undefined
-  let keyEnv: string | undefined
-  for (;;) {
-    const grouped = /,groupByProviders=(true|false)$/i.exec(rest)
-    if (grouped?.[1] !== undefined) {
-      groupByProviders = grouped[1].toLowerCase() === 'true'
-      rest = rest.slice(0, rest.length - grouped[0].length)
-      continue
-    }
-    const key = /,keyEnv=([^,]+)$/.exec(rest)
-    if (key?.[1] !== undefined) {
-      keyEnv = key[1]
-      rest = rest.slice(0, rest.length - key[0].length)
-      continue
-    }
-    break
-  }
-  const baseURL = rest.trim()
-  if (baseURL.length === 0) throw new Error('needs id=url')
-  let parsed: URL
-  try {
-    parsed = new URL(baseURL)
-  } catch {
-    throw new Error(`invalid url ${baseURL}`)
-  }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error(`invalid url ${baseURL}`)
-  }
-  return {
-    id,
-    baseURL,
-    groupByProviders: groupByProviders ?? true,
-    apiKeyEnv: keyEnv ?? defaultApiKeyEnv(id),
-  }
 }
 
 /**
@@ -314,8 +278,10 @@ export function profilesFromListing(
 }
 
 async function fetchListing(shell: LiveCatalogShell, resolveKey: LiveCatalogResolveKey, signal?: AbortSignal): Promise<LiveListingRow[]> {
-  const origin = listingOrigin(shell.baseURL)
-  const url = `${origin}/v1/models`
+  const url = new URL(`${listingOrigin(shell.baseURL)}/v1/models`)
+  // The gateway answers for the declared runner; without one it lists every
+  // variant as a model of its own.
+  if (shell.agentRunner !== undefined) url.searchParams.set('agent-runner', shell.agentRunner)
   const apiKey = await resolveKey(shell.apiKeyEnv)
   const headers = new Headers(shell.headers === undefined ? undefined : Object.entries(shell.headers))
   headers.set('accept', 'application/json')
@@ -355,6 +321,12 @@ export interface LiveCatalogController {
   ready(): Promise<void>
   /** Begin the first probe of every shell. */
   start(): void
+  /**
+   * Probe every shell now, ignoring max-age. A failed probe keeps last-known-good
+   * routes. Restarts the background max-age timer after each shell settles.
+   * @returns after every shell probe has settled.
+   */
+  refresh(): Promise<void>
   /** Stop refresh timers. */
   dispose(): void
 }
@@ -406,6 +378,19 @@ export function createLiveCatalogController(
     start() {
       if (first.length > 0 || shells.length === 0) return
       first = shells.map(shell => probe(shell, true))
+    },
+    async refresh() {
+      if (disposed) return
+      if (first.length === 0) {
+        first = shells.map(shell => probe(shell, true))
+        await Promise.all(first)
+        return
+      }
+      await Promise.all(first)
+      if (disposed) return
+      for (const timer of timers) clearTimeout(timer)
+      timers.length = 0
+      await Promise.all(shells.map(shell => probe(shell, true)))
     },
     dispose() {
       disposed = true

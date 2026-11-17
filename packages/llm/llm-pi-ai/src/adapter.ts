@@ -136,6 +136,11 @@ export interface PiAiAdapterOptions {
    */
   awaitLiveCatalog?: () => Promise<void>
   /**
+   * Re-probe live listings immediately. Used by {@link PiAiAdapter.refreshListing}
+   * so a selector can force a gateway round-trip.
+   */
+  refreshLiveCatalog?: () => Promise<void>
+  /**
    * Observe one request that sent replayed assistant messages without their
    * signed Anthropic thinking because the request prefix changed or was never
    * recorded. Stale messages stay omitted, so later requests of the
@@ -355,6 +360,14 @@ export class PiAiAdapter extends LlmAdapter {
    * A refused entry has no materialized model, so the id the document names is
    * its label, and it holds no position in the adapter's own catalog order.
    */
+  /**
+   * Re-probe every live listing this adapter owns.
+   * @returns after those probes settle.
+   */
+  override refreshListing(): Promise<void> {
+    return this.config.refreshLiveCatalog?.() ?? Promise.resolve()
+  }
+
   override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
     return Promise.resolve().then(async () => {
       await this.config.awaitLiveCatalog?.()

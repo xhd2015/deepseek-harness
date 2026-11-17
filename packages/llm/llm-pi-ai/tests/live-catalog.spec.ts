@@ -8,7 +8,6 @@ import { resolveProfiles } from '../src/config.ts'
 import {
   listingOrigin,
   parseLiveListing,
-  parseModelListingDynamicSpec,
   profilesFromListing,
   requestBaseURLForProtocol,
 } from '../src/live-catalog.ts'
@@ -72,29 +71,6 @@ async function listedModels(ctx: Context, provider: string): Promise<readonly { 
     }
   }
 }
-
-describe('parseModelListingDynamicSpec', () => {
-  it('defaults grouping on and derives the credential env name', () => {
-    expect(parseModelListingDynamicSpec('llm-proxy=http://127.0.0.1:8890')).toEqual({
-      id: 'llm-proxy',
-      baseURL: 'http://127.0.0.1:8890',
-      groupByProviders: true,
-      apiKeyEnv: 'LLM_PROXY_API_KEY',
-    })
-  })
-
-  it('reads grouping and keyEnv suffixes in either order', () => {
-    expect(parseModelListingDynamicSpec('gw=https://x.test/v1,keyEnv=X,groupByProviders=false')).toMatchObject({
-      groupByProviders: false,
-      apiKeyEnv: 'X',
-      baseURL: 'https://x.test/v1',
-    })
-  })
-
-  it('rejects a missing id=url pair', () => {
-    expect(() => parseModelListingDynamicSpec('http://127.0.0.1:8890')).toThrow(/needs id=url/)
-  })
-})
 
 describe('profilesFromListing', () => {
   const rows = parseLiveListing({
@@ -188,13 +164,54 @@ describe('live catalog plugin', () => {
     await ctx.fiber.dispose()
   })
 
+  it('refreshListings re-probes the gateway before max-age', async () => {
+    const rows: Record<string, unknown>[] = [{ ...grokRow }]
+    const origin = await listingServer(rows, [])
+    vi.stubEnv('LIVE_CATALOG_KEY', 'probe')
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, {
+      providers: {
+        'llm-proxy': {
+          modelListingMode: 'dynamic',
+          groupByProviders: true,
+          baseURL: origin,
+          apiKeyEnv: 'LIVE_CATALOG_KEY',
+        },
+      },
+    })
+    expect((await listedModels(ctx, 'llm-proxy-grok')).map(model => model.id)).toEqual(['grok-4.6'])
+    rows[0] = { ...grokRow, id: 'grok-4.7', display_name: 'Grok 4.7' }
+    await ctx.llm.refreshListings()
+    expect((await listedModels(ctx, 'llm-proxy-grok')).map(model => model.id)).toEqual(['grok-4.7'])
+    await ctx.fiber.dispose()
+  })
+
+  it('asks the gateway to narrow variants to the shell runner', async () => {
+    const requested: string[] = []
+    const origin = await listen((request, response) => {
+      requested.push(request.url ?? '')
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({ data: [grokRow] }))
+    })
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    ctx.provide('modelListingDynamic' as never, {
+      get: () => [{ id: 'gw', baseURL: origin, groupByProviders: true, apiKeyEnv: 'GW_API_KEY', agentRunner: 'dsh' }],
+    } as never)
+    await ctx.plugin(LlmPiAi, { providers: {} })
+    expect((await listedModels(ctx, 'gw-grok')).map(model => model.id)).toEqual(['grok-4.6'])
+    expect(requested).toEqual(['/v1/models?agent-runner=dsh'])
+    await ctx.fiber.dispose()
+  })
+
   it('injects a credential for a launcher shell that configures none', async () => {
     const probes: (string | undefined)[] = []
     const origin = await listingServer([grokRow], probes)
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)
     ctx.provide('modelListingDynamic' as never, {
-      get: () => [LlmPiAi.parseModelListingDynamicSpec(`gw=${origin}`)],
+      get: () => [{ id: 'gw', baseURL: origin, groupByProviders: true, apiKeyEnv: 'GW_API_KEY' }],
     } as never)
     await ctx.plugin(LlmPiAi, { providers: {} })
     // A non-empty list also proves the request path resolved a credential:
@@ -211,7 +228,7 @@ describe('live catalog plugin', () => {
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)
     ctx.provide('modelListingDynamic' as never, {
-      get: () => [LlmPiAi.parseModelListingDynamicSpec(`gw=${origin}`)],
+      get: () => [{ id: 'gw', baseURL: origin, groupByProviders: true, apiKeyEnv: 'GW_API_KEY' }],
     } as never)
     await ctx.plugin(LlmPiAi, { providers: {} })
     expect((await listedModels(ctx, 'gw-grok')).map(model => model.id)).toEqual(['grok-4.6'])
@@ -225,7 +242,7 @@ describe('live catalog plugin', () => {
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)
     ctx.provide('modelListingDynamic' as never, {
-      get: () => [LlmPiAi.parseModelListingDynamicSpec(`gw=${origin},keyEnv=GW_UNSET`)],
+      get: () => [{ id: 'gw', baseURL: origin, groupByProviders: true, apiKeyEnv: 'GW_UNSET' }],
     } as never)
     await ctx.plugin(LlmPiAi, { providers: {} })
     // The route registers, but serves nothing: only the name this plugin
