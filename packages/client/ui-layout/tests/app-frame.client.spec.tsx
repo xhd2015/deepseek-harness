@@ -283,7 +283,7 @@ describe('AppFrame', () => {
     const { frame, instance, sidebarOwner, getByTestId } = mountFrame()
     act(() => { instance.actions.collapseSidebar() })
     expect(tracks(frame)).toEqual([56, 0])
-    expect(sidebarOwner()).toEqual({ collapsed: true, width: 56 })
+    expect(sidebarOwner()).toEqual({ collapsed: true, width: 56, drawer: false })
     expect(frame.getAttribute('data-sidebar-collapsed')).toBe('true')
     expect(getByTestId('sidebar-content')).toBeTruthy()
   })
