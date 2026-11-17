@@ -266,7 +266,12 @@ class ClientRemoteService extends Service implements ClientRemote {
   ): Promise<ConnectionRpcResult<unknown>> {
     const connection = this.ownerCtx.get('connection') as ConnectionHandle | undefined
     if (connection === undefined) throw new Error(noConnection)
-    if (connection.rpc.open !== undefined) return connection.rpc.call('/api', endpoint, payload, signal)
+    // Only a page that shares the origin-wide mux worker rides it for unary
+    // calls; every other carrier — the in-process Host and a non-page Client —
+    // keeps Connection's HTTP call, which needs no socket of its own.
+    if (connection.rpc.open !== undefined || !muxWorkerAvailable()) {
+      return connection.rpc.call('/api', endpoint, payload, signal)
+    }
     return parseMuxUnaryResult(await this.streams.call(endpoint, payload, signal))
   }
 
@@ -790,6 +795,15 @@ const REMOTE_NAMESPACE_FIELDS = new Set(['ctx', 'empty', 'invokeRemote', 'method
 
 function remoteServiceKey(namespace: string): string {
   return `remote.${namespace}`
+}
+
+/**
+ * Whether this Client runs in a page, the only realm that rides the mux for
+ * unary calls. A Node Client keeps Connection's HTTP call.
+ * @returns true when a document supplies the page's base URL.
+ */
+function muxWorkerAvailable(): boolean {
+  return typeof document !== 'undefined'
 }
 
 function endpointOf(descriptor: Pick<InvocationDescriptor, 'namespace' | 'method'>): string {
