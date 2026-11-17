@@ -299,15 +299,11 @@ export class TypertGatewayService extends Service implements TypertGateway {
       webCtx.effect(() => webCtx.webServer.register({
         kind: 'exact',
         path: REMOTE_SHARED_MUX_WORKER_PATH,
+        // `required` routes the request through Connection's trust fence and
+        // credential verification, the same admission every /api request takes;
+        // the handler only answers the artifact once a Peer exists.
+        auth: 'required',
         handler: (req, res) => {
-          const admission = webCtx.connection.admit({
-            headers: req.headers, method: req.method, url: req.url, socket: req.socket,
-          })
-          if ('rejection' in admission) {
-            res.writeHead(admission.rejection)
-            res.end()
-            return
-          }
           if (req.method !== 'GET' && req.method !== 'HEAD') {
             res.writeHead(405, { allow: 'GET, HEAD' })
             res.end()

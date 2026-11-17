@@ -137,7 +137,7 @@ describe('hand-declared providers', () => {
     expect(directory).toContainEqual({
       provider: 'acme-gateway',
       displayName: 'Acme Gateway',
-      settingsNs: 'llm-proxy-providers',
+      settingsNs: 'llm-pi-ai',
       settingsPath: ['providers', 'acme-gateway'],
       // Nothing in the installed catalog answers for this route, which is what
       // configuration surfaces mark as a route this deployment declared.
@@ -1343,7 +1343,7 @@ describe('configurable-provider directory', () => {
     expect(ctx.llm.listConfigurableProviders()).toContainEqual({
       provider: 'openai-codex',
       displayName: 'openai-codex',
-      settingsNs: 'llm-proxy-providers',
+      settingsNs: 'llm-pi-ai',
       settingsPath: ['providers', 'openai-codex'],
       declared: false,
       defaultBaseURL: 'https://chatgpt.com/backend-api',

@@ -29,7 +29,7 @@ function otherRow(overrides: Partial<ProviderRow> = {}): ProviderRow {
     entry: {
       provider: 'hfai',
       displayName: 'HFAI',
-      settingsNs: 'llm-proxy-providers',
+      settingsNs: 'llm-pi-ai',
       settingsPath: ['providers', 'hfai'],
       active: true,
     },
