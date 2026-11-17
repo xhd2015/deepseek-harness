@@ -464,7 +464,7 @@ describe('real Loader composition', () => {
       socket.destroy()
       return { kind: 'allow' }
     })
-    const server = Reflect.get(ctx.webServer, 'server') as { emit(event: 'upgrade', req: object, socket: Duplex, head: Buffer): boolean }
+    const server = (Reflect.get(ctx.webServer, 'servers') as { emit(event: 'upgrade', req: object, socket: Duplex, head: Buffer): boolean }[])[0]!
     server.emit('upgrade', { url: '/closed', method: 'GET', headers: {} }, socket, Buffer.alloc(0))
     await closed
     expect(handler).not.toHaveBeenCalled()
@@ -1025,7 +1025,7 @@ describe('real Loader composition', () => {
       once: (event: string, listener: () => void) => res.on(event, listener),
       off: (event: string, listener: () => void) => { listeners.get(event)?.delete(listener); return res },
     }
-    const httpServer = Reflect.get(server, 'server') as { emit(event: 'request', req: object, res: object): boolean }
+    const httpServer = (Reflect.get(server, 'servers') as { emit(event: 'request', req: object, res: object): boolean }[])[0]!
     httpServer.emit('request', { url: '/tunnel', method: 'GET', headers: { host: 'tunnel.invalid' } }, res)
     await vi.waitFor(() => { expect(listeners.get('close')?.size ?? 0).toBeGreaterThan(0) })
     finished = true

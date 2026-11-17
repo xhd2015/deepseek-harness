@@ -37,8 +37,8 @@ export interface WebStartupValues {
   directory?: string
   /** Validated initial text and whether to submit it; absent without a prompt source. */
   initialPrompt?: { readonly text: string; readonly submit: boolean }
-  /** `--host`, absent when the invocation did not name one. */
-  host?: string
+  /** `--host` addresses in argument order, absent when the invocation named none. */
+  hosts?: string[]
   /** `--port`, absent when the invocation did not name one. */
   port?: number
   /**
@@ -57,9 +57,14 @@ export interface WebStartupValues {
   tls?: TlsConfig
 }
 
+/** Collect repeated `--host` values in argument order. */
+function collectHost(value: string, previous: string[] | undefined): string[] {
+  return [...previous ?? [], value]
+}
+
 /** Serve-mode flags, as commander parsed them. */
 interface ServeOptions {
-  host?: string
+  host?: string[]
   open: boolean
   noAuth?: boolean
   port?: string
@@ -103,7 +108,7 @@ function webCommand(): Command {
     .description('Serve the DeepSeek Harness browser UI.')
     .enablePositionalOptions()
     .helpOption('-h, --help', 'show this help')
-    .option('--host <host>', 'bind address: one concrete IPv4 or IPv6 literal of a local interface; wildcard addresses are rejected')
+    .option('--host <host>', 'bind address: one concrete IPv4 or IPv6 literal of a local interface; repeat for several addresses sharing --port; wildcard addresses are rejected', collectHost)
     .option('--no-open', 'do not open the Web UI in a browser')
     .option('--port <port>', 'listen port; pass 0 to let the OS pick a free one')
     .option('--public-url <url>', 'advertise this HTTP(S) root in the printed, opened, runtime-context, and DSH_WEB_URL forms; grants no trust')
@@ -119,6 +124,8 @@ Examples:
   dsh --profile web --browser brave          serve and open Brave
   dsh --profile web --port 8080              serve on another port
   dsh --profile web --host 10.0.0.7          bind one local interface address
+  dsh --profile web --host 127.0.0.1 --host ::1
+                                             serve loopback over IPv4 and IPv6 on one port
   dsh --profile web --no-auth --trusted-host app.example
                                              serve behind a proxy that already authenticates
   dsh --profile web --public-url https://app.example/ui/ --trusted-host app.example
@@ -148,8 +155,10 @@ Examples:
  */
 function publishServe(ctx: Context, program: Command): void {
   const options = program.opts<ServeOptions>()
-  if (options.host !== undefined && isWildcardHost(options.host)) {
-    program.error(`error: --host ${options.host} is an unspecified (wildcard) address, which is not supported: binding every interface would expose remote code execution to the network; bind one concrete IPv4 or IPv6 address instead`)
+  for (const host of options.host ?? []) {
+    if (isWildcardHost(host)) {
+      program.error(`error: --host ${host} is an unspecified (wildcard) address, which is not supported: binding every interface would expose remote code execution to the network; bind one concrete IPv4 or IPv6 address instead`)
+    }
   }
   if (options.port !== undefined && !/^\d+$/.test(options.port)) {
     program.error(`error: --port must be a number, got ${JSON.stringify(options.port)}`)
@@ -173,7 +182,7 @@ function publishServe(ctx: Context, program: Command): void {
     mode: 'serve',
     openBrowser: options.open,
     ...browser !== undefined && { browser },
-    ...options.host !== undefined && { host: options.host },
+    ...options.host !== undefined && { hosts: options.host },
     ...options.port !== undefined && { port: Number(options.port) },
     ...options.publicUrl !== undefined && { publicUrl: options.publicUrl },
     ...tls !== undefined && { tls },

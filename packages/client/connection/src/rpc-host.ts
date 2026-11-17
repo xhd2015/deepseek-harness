@@ -132,7 +132,7 @@ export class HostConnectionService extends Service implements HostConnectionHand
   /** Check the deployment's request-source policy without credential verification. */
   private isTrustedRequest(request: ConnectionTrustRequest): boolean {
     const carrier = this.owner.get('webServer')
-    return isTrustedApiRequest(request, this.trustedHosts, carrier?.host, carrier?.protocol ?? 'http:')
+    return isTrustedApiRequest(request, this.trustedHosts, carrier?.hosts ?? carrier?.host, carrier?.protocol ?? 'http:')
   }
 
   /**
