@@ -576,9 +576,13 @@ describe('package payload constraints', () => {
       'lib/startup.js',
       'lib/open.js',
       'cordis.patch.yml',
+      'lib/public-url-*.js',
       'lib/startup-*.js',
       'lib/opener-*.js',
       'lib/types/**/*.d.ts',
+      'lib/types/**/*.d.ts.map',
+      'lib/**/*.js.map',
+      'src',
     ])
   })
 })
