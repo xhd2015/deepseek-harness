@@ -351,7 +351,7 @@ const compatProfile: z<PiAiCompatProfile> = z.object({
  */
 const reasoningEfforts = z.dict(
   z.union([z.string(), z.const(null)]),
-) as unknown as z<PiAiReasoningEfforts>
+) as z<PiAiReasoningEfforts>
 
 /** The fields a `models` entry and a `modelOverrides` value share; only the id's home differs. */
 const modelFields = {

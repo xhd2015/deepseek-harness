@@ -188,6 +188,9 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   // Tools entry points share error classes and invocation stages through runtime chunks.
   '@deepseek-ai/dsh-tools': ['lib/pipeline.js', 'lib/shared-*.js'],
   '@deepseek-ai/dsh-tool-executor-ptc': ['lib/run-code.js', 'lib/_chunks/*.js'],
+  // Gateway ships the browser-wide Remote mux as its own module Worker bundle,
+  // reached through the `./shared-mux-worker` export rather than the entry.
+  '@deepseek-ai/dsh-api-gateway': ['lib/shared-mux-worker.js'],
   // The embedded OAR implementation retains its upstream license.
   '@deepseek-ai/dsh-experimental-subagent-oar': ['LICENSE-OAR'],
   // CUA publishes its client API and attributed native source for local macOS builds.

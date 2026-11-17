@@ -1201,9 +1201,6 @@
   "packages/llm/llm-pi-ai/src/catalog.ts": {
     "5b1064d0195802d24eaa5155c66eb381da6046a8ccd0cacc3d852336475da7ef": 1
   },
-  "packages/llm/llm-pi-ai/src/config.ts": {
-    "3b75d3d9ef1c54f306d105f274846b0cc0ab482aa9b558409db7f231132489ed": 1
-  },
   "packages/llm/llm-pi-ai/src/replay.ts": {
     "46197efe57255c9d92d64476470c89d0602c7333bf98ad75509bf43c1b357a3b": 1
   },

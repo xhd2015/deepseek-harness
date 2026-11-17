@@ -26,7 +26,7 @@ const streams = new Map<string, MessagePort>()
 
 /** Convert the Worker origin into the Gateway's same-origin WebSocket URL. */
 function socketUrl(): string {
-  const url = new URL(REMOTE_STREAM_MUX_PATH, self.location.origin)
+  const url = new URL(REMOTE_STREAM_MUX_PATH.slice(1), self.location.origin)
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
   return url.href
 }
@@ -114,7 +114,7 @@ function isHmrUnsubscribe(value: unknown): boolean {
 /** Open the single SSE carrier while at least one page has an HMR subscription. */
 function ensureHmrSource(): void {
   if (hmrSource !== undefined) return
-  const source = new EventSource('/plugins/events')
+  const source = new EventSource('plugins/events')
   hmrSource = source
   source.addEventListener('message', (event: MessageEvent<string>) => {
     if (hmrSource !== source) return

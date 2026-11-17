@@ -100,7 +100,6 @@ export type {
   PiAiThinkingFormat,
   ResolvedPiAiProviderProfile,
 } from './config.ts'
-export { recordKeyFor } from './auth.ts'
 export type { ModelListingDynamicSpec } from './live-catalog.ts'
 export { supportedProtocols } from './provider.ts'
 

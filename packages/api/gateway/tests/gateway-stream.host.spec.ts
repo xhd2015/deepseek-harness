@@ -30,8 +30,8 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
   }
 }
 import { browserCookie, provideBrowserCredentials } from './browser-credentials.ts'
+import { REMOTE_SHARED_MUX_WORKER_PATH } from '../src/shared-mux-worker.ts'
 import TypertGatewayService, {
-  REMOTE_SHARED_MUX_WORKER_PATH,
   TypertGatewayError,
   type Config as GatewayConfig,
   type TypertRemoteEventDispatch,
