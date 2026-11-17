@@ -97,8 +97,11 @@ export function isStrictlyWider(requestedMode: string, effectiveMode: SandboxMod
  * @param effectiveMode - the mode the call already runs under.
  * @returns the error to throw before anything executes.
  */
-function notWiderError(requestedMode: string, effectiveMode: SandboxMode): Error {
-  return new Error(`sandbox escalation to "${requestedMode}" is not strictly wider than this call's current "${effectiveMode}" mode`)
+function notWiderError(requestedMode: string, effectiveMode: SandboxMode): SandboxEscalationError {
+  return new SandboxEscalationError(
+    `sandbox escalation to "${requestedMode}" is not strictly wider than this call's current "${effectiveMode}" mode`,
+    'SANDBOX_ESCALATION_INVALID_ARGUMENT',
+  )
 }
 
 /**
