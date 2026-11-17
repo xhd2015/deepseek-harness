@@ -23,6 +23,8 @@ async function harness(root: string, open = true) {
     await ctx.plugin(StorageJson, { root })
     await ctx.plugin(StorageDomain, { backend: 'json' })
     await ctx.plugin(SessionStore)
+    // The registry injects the projection registry, so it must exist first.
+    installSessionReadTestServices(ctx)
     await ctx.plugin(AgentRegistry)
     const header: SessionHeader = { version: SESSION_FORMAT_VERSION, id: sessionId, createdAt: 1, isSeeded: false, cwd: '/workspace' }
     const inspect = vi.fn(async () => ({ meta: header, events: [] }))
@@ -57,6 +59,7 @@ describe('durable Session composer drafts', () => {
       ctx.provide('workspaceRegistry', {} as never)
       ctx.provide('fs', {} as never)
       ctx.provide('remoteAccess', { allows: () => true } as never)
+      ctx.provide('typertGateway', { getPendingRemoteEvents: () => [] } as never)
       const owner = await ctx.plugin(SessionController, {})
       await expect(ctx.sessionController.setDraft({ sessionId, text: 'mounted draft' }))
         .resolves.toEqual({ text: 'mounted draft' })
