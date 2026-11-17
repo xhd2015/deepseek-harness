@@ -114,14 +114,14 @@ function isBindAddressAuthority(hostUrl: URL, bindHost: string | undefined): boo
  * Decide whether one request satisfies the deployment's source policy.
  * @param request - Node HTTP or Fetch request facts (headers).
  * @param trustedHosts - non-loopback authorities this deployment serves: exact `host:port`, or port-less `host` matching any port.
- * @param bindHost - the listener's own bind IP literal, accepted on any port independently of `trustedHosts`.
+ * @param bindHost - the listener's own bind IP literals, each accepted on any port independently of `trustedHosts`.
  * @param protocol - listener protocol for default Host ports; HTTP when no Web carrier is mounted.
- * @returns true when the Host is ours (loopback, the bind address, or trusted) and any attached browser markers are same-origin.
+ * @returns true when the Host is ours (loopback, a bind address, or trusted) and any attached browser markers are same-origin.
  */
 export function isTrustedApiRequest(
   request: ConnectionTrustRequest,
   trustedHosts: readonly string[],
-  bindHost?: string,
+  bindHost: string | readonly string[] | undefined,
   protocol: 'http:' | 'https:' = 'http:',
 ): boolean {
   // Host fence (DNS-rebinding defense), applied to every request: the browser
@@ -135,9 +135,10 @@ export function isTrustedApiRequest(
   if (host === undefined) return false
   const hostUrl = parseAuthority(host, protocol)
   if (hostUrl === undefined) return false
+  const bindHosts = bindHost === undefined ? [] : typeof bindHost === 'string' ? [bindHost] : bindHost
   if (!isLoopbackHostname(hostUrl.hostname)
     && !isTrustedAuthority(hostUrl, trustedHosts, protocol)
-    && !isBindAddressAuthority(hostUrl, bindHost)) return false
+    && !bindHosts.some(entry => isBindAddressAuthority(hostUrl, entry))) return false
   // Cross-site fence: modern browsers label the initiator relationship on
   // every fetch; an explicit cross-site marker is refused regardless of Origin.
   if (header(request.headers, 'sec-fetch-site') === 'cross-site') return false

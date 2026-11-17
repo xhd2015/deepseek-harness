@@ -60,7 +60,7 @@ export const apply = ctx => globalThis.__webStartupApply(ctx)
     `  name: ${pathToFileURL(join(dir, 'reader.mjs')).href}`,
     `  inject: [${WEB_STARTUP_SERVICE}]`,
     '  config:',
-    "    host: !!js ctx.webStartup.host ?? '127.0.0.1'",
+    "    hosts: !!js ctx.webStartup.hosts ?? ['127.0.0.1']",
     '    openBrowser: !!js ctx.webStartup.openBrowser',
     '    port: !!js ctx.webStartup.port ?? 3080',
     '    publicUrl: !!js ctx.webStartup.publicUrl',
@@ -106,14 +106,14 @@ describe('web command-line provider', () => {
     ])
     expect(values).toEqual({
       mode: 'serve',
-      host: '127.0.0.1',
+      hosts: ['127.0.0.1'],
       openBrowser: false,
       port: 8080,
       trustedHosts: ['lab.internal', 'lab-2.internal', '10.0.0.9'],
       tls: { certFile: 'fullchain.pem', keyFile: 'private-key.pem' },
     })
     expect(observed.readerConfig).toEqual({
-      host: '127.0.0.1',
+      hosts: ['127.0.0.1'],
       openBrowser: false,
       port: 8080,
       trustedHosts: ['lab.internal', 'lab-2.internal', '10.0.0.9'],
@@ -136,7 +136,7 @@ describe('web command-line provider', () => {
     const { values, observed } = await bootProvider([])
     expect(values).toEqual({ mode: 'serve', openBrowser: true, trustedHosts: [] })
     expect(observed.readerConfig).toEqual({
-      host: '127.0.0.1',
+      hosts: ['127.0.0.1'],
       openBrowser: true,
       port: 3080,
       trustedHosts: [],
@@ -257,7 +257,7 @@ describe('web command-line provider', () => {
       trustedHosts: ['lab.internal'],
     })
     expect(observed.readerConfig).toEqual({
-      host: '127.0.0.1',
+      hosts: ['127.0.0.1'],
       openBrowser: true,
       port: 3080,
       publicUrl: 'https://web.example/ui',
