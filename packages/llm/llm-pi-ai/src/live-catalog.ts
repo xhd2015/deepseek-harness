@@ -362,8 +362,11 @@ export function createLiveCatalogController(
       for (const [id, profile] of next) merged.set(id, profile)
       routes = merged
       onChange()
-    } catch {
-      // Keep last-known-good; an empty first probe leaves no routes for this shell.
+    } catch (error) {
+      // Keep this shell's last-known-good routes. A first probe that fails leaves
+      // the shell serving nothing until a later probe succeeds, so the cause is
+      // logged rather than swallowed.
+      if (!disposed) console.warn(`llm-pi-ai: live listing for ${shell.id} failed: ${error instanceof Error ? error.message : String(error)}`)
     } finally {
       clearTimeout(timer)
       if (!disposed && background) {

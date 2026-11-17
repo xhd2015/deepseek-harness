@@ -768,11 +768,22 @@ describe('per-model reasoning efforts', () => {
     expect(declare({ high: '' })).toThrow(/must not be an empty string/)
   })
 
+  /**
+   * A stored document's reasoning map, including a level the TS type cannot
+   * name; resolution reports it, so the fixture builds it through a record.
+   * @returns the widened map with one unknown level.
+   */
+  function unknownLevelEfforts(): NonNullable<LlmPiAi.PiAiModelProfile['reasoningEfforts']> {
+    const efforts: Record<string, string> = { low: 'low' }
+    efforts.ultra = 'ultra'
+    return efforts as NonNullable<LlmPiAi.PiAiModelProfile['reasoningEfforts']>
+  }
+
   it('refuses the one model naming an unknown level and keeps its siblings served', () => {
     // A document value, not a typed one: the settings schema admits any key so
     // resolution can report the misspelling, which the TS type cannot name.
     const providers = declared([
-      { id: 'acme-typo', reasoningEfforts: { low: 'low', ultra: 'ultra' } as unknown as NonNullable<LlmPiAi.PiAiModelProfile['reasoningEfforts']> },
+      { id: 'acme-typo', reasoningEfforts: unknownLevelEfforts() },
       { id: 'acme-ok', reasoningEfforts: { low: 'low' } },
     ])
 

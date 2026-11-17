@@ -9,6 +9,7 @@
     "src/access.ts",
     "src/index.ts",
     "src/remote-error-codes.ts",
+    "src/shared-mux-worker.ts",
     "src/stream-protocol.ts",
     "src/stream-server.ts",
     "src/types.ts"

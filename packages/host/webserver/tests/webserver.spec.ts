@@ -619,7 +619,8 @@ describe('real Loader composition', () => {
     if (!await canBind('::1')) return
     const ctx = new Context()
     const server = new HttpServer(ctx, HttpServer.Config({ hosts: ['127.0.0.1', '::1'], port: 0 }))
-    await ((server as unknown as { [key: symbol]: (() => Promise<void>) | undefined })[Symbol.for('cordis.init')]?.())
+    const init = Reflect.get(server, Symbol.for('cordis.init'))
+    if (typeof init === 'function') await (init as () => Promise<void>).call(server)
     try {
       expect(server.hosts).toEqual(['127.0.0.1', '::1'])
       const port = server.port

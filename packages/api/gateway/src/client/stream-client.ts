@@ -292,7 +292,7 @@ export class RemoteStreamMuxClient {
   }
 
   private async connect(): Promise<ConnectionWebSocket> {
-    const socket = (sharedWorkerSocket() as ConnectionWebSocket | undefined)
+    const socket = sharedWorkerSocket()
       ?? this.openSocket(REMOTE_STREAM_MUX_PATH)
     const closed = new Promise<void>((resolve) => { socket.addEventListener('close', () => { resolve() }, { once: true }) })
     this.socketClosures.add(closed)
@@ -447,37 +447,86 @@ export class RemoteStreamMuxClient {
   }
 }
 
-/** Bridge the page-local mux API onto the origin-wide Gateway SharedWorker. */
-function sharedWorkerSocket(): WebSocket | undefined {
+/**
+ * Bridge the page-local mux API onto the origin-wide Gateway SharedWorker.
+ * @returns the shared carrier, or undefined where the browser exposes no SharedWorker.
+ */
+function sharedWorkerSocket(): ConnectionWebSocket | undefined {
   if (typeof SharedWorker === 'undefined' || typeof location === 'undefined') return undefined
   return new SharedMuxSocket(new SharedWorker(
-    new URL('/api/remote.shared-mux-worker.js', location.origin),
+    new URL('api/remote.shared-mux-worker.js', document.baseURI),
     { type: 'module', name: 'dsh-gateway-mux' },
-  )) as unknown as WebSocket
+  ))
+}
+
+/** The carrier events {@link SharedMuxSocket} raises, named as the Connection carrier does. */
+interface MuxSocketEventMap {
+  readonly open: object
+  readonly error: object
+  readonly close: object
+  readonly message: { readonly data: unknown }
 }
 
 /** Minimal WebSocket-compatible endpoint backed by one SharedWorker MessagePort. */
-class SharedMuxSocket extends EventTarget {
+class SharedMuxSocket implements ConnectionWebSocket {
   readyState: number = WebSocket.CONNECTING
   private readonly port: MessagePort
+  /** Listener table, so the carrier's typed event map replaces the DOM's string one. */
+  private readonly listeners = new Map<keyof MuxSocketEventMap, Set<(event: never) => void>>()
 
   constructor(worker: SharedWorker) {
-    super()
     this.port = worker.port
     this.port.addEventListener('message', ({ data }: MessageEvent<unknown>) => {
       if (isWorkerLost(data)) {
         this.readyState = WebSocket.CLOSED
-        this.dispatchEvent(new CloseEvent('close'))
+        this.emit('close', {})
         return
       }
-      this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(data) }))
+      this.emit('message', { data: JSON.stringify(data) })
     })
     this.port.start()
     queueMicrotask(() => {
       if (this.readyState !== WebSocket.CONNECTING) return
       this.readyState = WebSocket.OPEN
-      this.dispatchEvent(new Event('open'))
+      this.emit('open', {})
     })
+  }
+
+  /**
+   * Listen for one carrier event.
+   * @param event - carrier event name.
+   * @param listener - callback for that event.
+   * @param options - whether the callback is removed after its first delivery.
+   */
+  addEventListener<Event extends keyof MuxSocketEventMap>(
+    event: Event,
+    listener: (event: MuxSocketEventMap[Event]) => void,
+    options?: { readonly once?: boolean },
+  ): void {
+    const entry = listener as (event: never) => void
+    const table = this.listeners.get(event) ?? new Set<(event: never) => void>()
+    if (options?.once === true) {
+      const once = (payload: never): void => {
+        table.delete(once)
+        ;(listener as (event: never) => void)(payload)
+      }
+      table.add(once)
+    } else {
+      table.add(entry)
+    }
+    this.listeners.set(event, table)
+  }
+
+  /**
+   * Stop listening for one carrier event.
+   * @param event - carrier event name.
+   * @param listener - callback being withdrawn.
+   */
+  removeEventListener<Event extends keyof MuxSocketEventMap>(
+    event: Event,
+    listener: (event: MuxSocketEventMap[Event]) => void,
+  ): void {
+    this.listeners.get(event)?.delete(listener as (event: never) => void)
   }
 
   send(data: string): void { this.port.postMessage(JSON.parse(data)) }
@@ -487,7 +536,16 @@ class SharedMuxSocket extends EventTarget {
     this.readyState = WebSocket.CLOSED
     this.port.postMessage({ type: 'disconnect' })
     this.port.close()
-    this.dispatchEvent(new CloseEvent('close'))
+    this.emit('close', {})
+  }
+
+  /**
+   * Deliver one event to its listeners in registration order.
+   * @param event - carrier event name.
+   * @param payload - event value for that name.
+   */
+  private emit<Event extends keyof MuxSocketEventMap>(event: Event, payload: MuxSocketEventMap[Event]): void {
+    for (const listener of [...this.listeners.get(event) ?? []]) listener(payload as never)
   }
 }
 

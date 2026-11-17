@@ -7,6 +7,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import { REMOTE_SHARED_MUX_WORKER_PATH } from './shared-mux-worker.ts'
 import { createRequire } from 'node:module'
 import { Context, Service, symbols } from '@deepseek-ai/cordis'
 import type {
@@ -155,8 +156,6 @@ const EMPTY_ASYNC_ITERABLE: AsyncIterable<never> = {
 }
 const UPLINK_DONE: IteratorReturnResult<undefined> = { value: undefined, done: true }
 const SRC_JSON_CODEC: TypertCodec = { mode: 'src-json' }
-/** Authenticated same-origin module Worker serving the browser-wide Remote mux. */
-export const REMOTE_SHARED_MUX_WORKER_PATH = '/api/remote.shared-mux-worker.js'
 /** Built worker artifact resolved through the Gateway package's published export. */
 const REMOTE_SHARED_MUX_WORKER_ARTIFACT = createRequire(import.meta.url)
   .resolve('@deepseek-ai/dsh-api-gateway/shared-mux-worker')
