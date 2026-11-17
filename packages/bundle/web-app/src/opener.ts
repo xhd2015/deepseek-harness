@@ -184,7 +184,6 @@ export async function openBrowser(url: string, signal?: AbortSignal, browser?: s
   if (launch !== undefined) {
     await new Promise(resolve => setTimeout(resolve, 400))
   }
-  child.unref()
 }
 
 /** Test hook for native browser handoff; production never mutates it. */
