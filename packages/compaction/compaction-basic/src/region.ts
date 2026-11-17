@@ -138,6 +138,7 @@ export function retainTokensForSummarizer(
  * @param session - session supplying the system-head check.
  * @param measurement - current conversation-meter totals and nodes.
  * @param contextWindow - positive routed model capacity.
+ * @returns the tokens the summarizer request may occupy while leaving the rest compactable.
  */
 export function retainTokensForSummarizerOnSurface(
   session: Session,

@@ -16,7 +16,7 @@ The GUI picker reads `listModels`. A custom route without a patch entry cannot b
 
 Give a **custom** pi-ai route an explicit live catalog, modeled on the account route, without changing installed-catalog routes or writing listings into the patch.
 
-llm-proxy work is independent and lives in [`external/llm-proxy/docs/live-catalog.md`](../../../../external/llm-proxy/docs/live-catalog.md). That config keeps a nested `modelListing` object (`mode: "dynamic"`); its `models` array is the startup seed and, after the first successful fetch, the override list keyed by `(protocol, provider, providerModelName)`, including `excluded`. This DSH proposal consumes a listing endpoint; it does not require llm-proxy changes to be correct, but it benefits from that inspect API’s extension fields (`protocol`, `context_window`, `input_modalities`, `reasoning`). The pi-ai field `catalog: endpoint` is a different discriminant in a different file; it is not llm-proxy’s `modelListing`.
+llm-proxy work is independent and lives in `external/llm-proxy/docs/live-catalog.md` (a sibling checkout, outside this repository). That config keeps a nested `modelListing` object (`mode: "dynamic"`); its `models` array is the startup seed and, after the first successful fetch, the override list keyed by `(protocol, provider, providerModelName)`, including `excluded`. This DSH proposal consumes a listing endpoint; it does not require llm-proxy changes to be correct, but it benefits from that inspect API’s extension fields (`protocol`, `context_window`, `input_modalities`, `reasoning`). The pi-ai field `catalog: endpoint` is a different discriminant in a different file; it is not llm-proxy’s `modelListing`.
 
 ### Config
 

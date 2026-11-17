@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-18-deep-link-collapses-sidebar.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-18-deep-link-collapses-sidebar.md
-2026-09-18-deep-link-collapses-sidebar.md: 15e53af5e893793688edca04f09bd3d5ca06efe3
-2026-09-18-deep-link-collapses-sidebar.zh.md: 4d223a43f49f0a01dd452226682d167cadd81944
+/agent-note-collapse-the-sidebar-on-a-session-deep-link:
+  en: f8209fdd012a7845
+  zh: 13348586fee591ca
+/agent-note-collapse-the-sidebar-on-a-session-deep-link/problem:
+  en: e8ef38e0169f51cb
+  zh: cdce084f05ece63c
+/agent-note-collapse-the-sidebar-on-a-session-deep-link/decision:
+  en: 847150853e001bdc
+  zh: d916bc892f8957e1
+/agent-note-collapse-the-sidebar-on-a-session-deep-link/alternatives-considered:
+  en: 609e61cbc40ab7e7
+  zh: 9b7bcc90e0e45428
+/agent-note-collapse-the-sidebar-on-a-session-deep-link/consequences:
+  en: e6f271eafa171fab
+  zh: 6731964bed3b5f56

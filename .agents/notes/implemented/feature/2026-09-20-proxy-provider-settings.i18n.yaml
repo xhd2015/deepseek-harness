@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-20-proxy-provider-settings.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-20-proxy-provider-settings.md
-2026-09-20-proxy-provider-settings.md: c6348679d793a114155ac0a95305923eb2f4fb90
-2026-09-20-proxy-provider-settings.zh.md: 4c8eb046d29f9fd941dc14f3647c8024ce6ead1f
+/agent-note-proxy-provider-settings:
+  en: 63576f0649dd790d
+  zh: 6ec97d8df8825824
+/agent-note-proxy-provider-settings/problem:
+  en: 4073695cf0cc8aba
+  zh: 4cc0700335b07361
+/agent-note-proxy-provider-settings/decision:
+  en: 434417cc77dd98e8
+  zh: fb04cd2558b758b0
+/agent-note-proxy-provider-settings/alternatives-considered:
+  en: 168bd7c735ee4288
+  zh: 2798cdf4f70eee2a
+/agent-note-proxy-provider-settings/consequences:
+  en: f863175860c252e2
+  zh: a4cdf32c0061d6a6

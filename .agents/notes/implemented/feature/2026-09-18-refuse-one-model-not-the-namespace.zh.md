@@ -20,7 +20,7 @@ Status: implemented
 
 `ultra` 等级可达的写法是 `max: ultra`：可选键是 pi-ai 自身的等级集合，而值才是分派时发送的内容。
 
-本决策细化了 [pi-ai 目录变化后的可修复设置](../bug-fix/2026-09-07-pi-ai-settings-catalog-recovery.zh.md)：注册期容忍目录诊断、注册后对已变更提供方严格校验的规则不变，被拒模型从"只存在于设置中"变为"在列表中可见且不可选"。
+本决策细化了 [pi-ai 目录变化后的可修复设置](../../archived/bug-fix/2026-09-07-pi-ai-settings-catalog-recovery.md)：注册期容忍目录诊断、注册后对已变更提供方严格校验的规则不变，被拒模型从"只存在于设置中"变为"在列表中可见且不可选"。
 
 ## Alternatives considered
 

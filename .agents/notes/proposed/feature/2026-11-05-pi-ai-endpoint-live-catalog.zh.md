@@ -16,7 +16,7 @@ GUI 选择器读的是 `listModels`。自定义路由在 patch 里没有条目�
 
 给**自定义** pi-ai 路由一个显式的 live catalog，机制对齐账号路由，不改安装目录路由，也不把 listing 写进 patch。
 
-llm-proxy 的工作独立，文档在 [`external/llm-proxy/docs/live-catalog.md`](../../../../external/llm-proxy/docs/live-catalog.md)。那边仍是嵌套的 `modelListing` 对象（`mode: "dynamic"`）；其 `models` 数组既是启动基准，也是第一次成功 fetch 之后按 `(protocol, provider, providerModelName)` 匹配的 override 列表（含 `excluded`）。本提案消费的是 listing 端点；正确性不依赖 llm-proxy 的改动，但能用上该 inspect API 的扩展字段（`protocol`、`context_window`、`input_modalities`、`reasoning`）。pi-ai 的 `catalog: endpoint` 是另一份文件里的另一套判别，不是 llm-proxy 的 `modelListing`。
+llm-proxy 的工作独立，文档在 `external/llm-proxy/docs/live-catalog.md` (a sibling checkout, outside this repository)。那边仍是嵌套的 `modelListing` 对象（`mode: "dynamic"`）；其 `models` 数组既是启动基准，也是第一次成功 fetch 之后按 `(protocol, provider, providerModelName)` 匹配的 override 列表（含 `excluded`）。本提案消费的是 listing 端点；正确性不依赖 llm-proxy 的改动，但能用上该 inspect API 的扩展字段（`protocol`、`context_window`、`input_modalities`、`reasoning`）。pi-ai 的 `catalog: endpoint` 是另一份文件里的另一套判别，不是 llm-proxy 的 `modelListing`。
 
 ### Config
 

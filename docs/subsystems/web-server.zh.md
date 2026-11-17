@@ -76,7 +76,13 @@ interface Config {
    * IPv4 any, IPv6 any, and the IPv4-mapped forms of IPv4 any — is rejected at
    * load: it would expose the port on every interface at once.
    */
-  host: string
+  host?: string
+  /**
+   * Listen addresses: the same contract as {@link host}, one entry per address,
+   * all sharing {@link port}. Use this instead of `host` to serve several local
+   * addresses at once; giving both is a configuration error.
+   */
+  hosts?: string[]
   /** Listen port; zero requests an OS-assigned port. */
   port: number
   /**

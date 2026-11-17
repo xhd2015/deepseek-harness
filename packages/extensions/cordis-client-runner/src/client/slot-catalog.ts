@@ -4828,7 +4828,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       'client-ui-workspace SessionRenameDialog id \'workspace.session-rename\'',
       'client-ui-workspace SessionArchiveConfirmDialog id \'workspace.session-archive\'',
       'client-ui-workspace RowActionToast id \'workspace.row-toast\'',
-      'client-ui-workspace UnknownSessionHint id \'workspace-unknown-session\'',
+      'experimental-client-ui-forge ActionToast id \'forge-panel.toast\'',
       'cua PermissionToast id \'cua-permission-outcome\'',
       'session-log-export SessionMarkdownCopyToast id \'session-log-download.copy-toast\'',
       'session-log-export SessionLogDownloadDialog id \'session-log-download\'',

@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-18-sidebar-reveal-open-session-project.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-18-sidebar-reveal-open-session-project.md
-2026-09-18-sidebar-reveal-open-session-project.md: c783d5806b6568aade39b26ee240d120509e2805
-2026-09-18-sidebar-reveal-open-session-project.zh.md: e264ef93e75f24ccb49b63fb4781b183b77720e0
+/agent-note-reveal-the-open-session-s-project-in-the-sidebar:
+  en: 2bd95f319ddabfa0
+  zh: 021c9281e6f23da0
+/agent-note-reveal-the-open-session-s-project-in-the-sidebar/problem:
+  en: 69a26193d90dddc5
+  zh: d91e401bdc7b636a
+/agent-note-reveal-the-open-session-s-project-in-the-sidebar/decision:
+  en: 21fa6df930f55c29
+  zh: b3846640febd2f27
+/agent-note-reveal-the-open-session-s-project-in-the-sidebar/alternatives-considered:
+  en: ed2db86efb2d688d
+  zh: 5cfa09c6513d6291
+/agent-note-reveal-the-open-session-s-project-in-the-sidebar/consequences:
+  en: c07528e55c8292eb
+  zh: 2d1c9855fbe69f49

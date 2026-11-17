@@ -547,6 +547,13 @@ export interface ConnectionConfig {
    * an entry here. A non-canonical or non-bare authority fails plugin load.
    */
   trustedHosts?: string[]
+  /**
+   * Subset of {@link trustedHosts} whose page may read and write Host settings.
+   * The page receives the list as the `__DSH_SETTINGS_TRUST__` boot global.
+   * Every entry must also appear in {@link trustedHosts}: a settings grant is
+   * strictly narrower than the fence, so anything else is a misconfiguration.
+   */
+  trustedHostsForSettings?: string[]
   /** Maximum buffered JSON body for every `/api` request. Default: 300 MiB. */
   maxRequestBodyBytes?: number
 }
@@ -2046,10 +2053,15 @@ export interface Config {
 - `source`: [`packages/host/authentication-token/src/index.ts:16`](../packages/host/authentication-token/src/index.ts)
 
 ```ts config-catalog
-/** Default browser and API cookie lifetime. */
+/** Default browser and API cookie lifetime, and the credential bypass. */
 export interface Config {
   /** Absolute cookie lifetime in days; default 30. */
   cookieMaxAgeDays: number
+  /**
+   * Skip process-token and cookie checks. Host and Origin trust still apply,
+   * so enable it only behind an outer proxy that authenticates the caller.
+   */
+  disableAuth?: boolean
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-host-authentication-token -->
@@ -2175,7 +2187,13 @@ export interface Config {
    * IPv4 any, IPv6 any, and the IPv4-mapped forms of IPv4 any — is rejected at
    * load: it would expose the port on every interface at once.
    */
-  host: string
+  host?: string
+  /**
+   * Listen addresses: the same contract as {@link host}, one entry per address,
+   * all sharing {@link port}. Use this instead of `host` to serve several local
+   * addresses at once; giving both is a configuration error.
+   */
+  hosts?: string[]
   /** Listen port; zero requests an OS-assigned port. */
   port: number
   /**
@@ -2327,6 +2345,22 @@ export interface PiAiProviderProfile {
   api?: string
   /** Endpoint for this route's models; defaults to the installed catalog's endpoint. */
   baseURL?: string
+  /**
+   * When `"dynamic"`, this route is a listing shell: models come from
+   * `GET {origin}/v1/models` instead of `models`. Installed-catalog routes
+   * must not set it. Combining it with a `models` list is refused.
+   */
+  modelListingMode?: 'dynamic'
+  /**
+   * When true with {@link modelListingMode} `"dynamic"`, listing rows become
+   * `{route}-{owned_by}` providers. Omission is false: the shell id is the
+   * one served provider.
+   */
+  groupByProviders?: boolean
+  /** First-load bound for a dynamic listing; default 30s. */
+  modelsTimeoutMs?: number
+  /** Age after which a dynamic listing refreshes in the background; default 1h. */
+  modelsMaxAgeMs?: number
   /**
    * This route's model catalog. Omission serves the installed catalog for the
    * route unchanged; an explicit list replaces it, each entry defaulting its
@@ -5340,7 +5374,7 @@ export interface WebRuntimeConfig {
 ## `@deepseek-ai/dsh-web-app`
 
 - `inject`: `webServer`
-- `source`: [`packages/bundle/web-app/src/index.ts:55`](../packages/bundle/web-app/src/index.ts)
+- `source`: [`packages/bundle/web-app/src/index.ts:56`](../packages/bundle/web-app/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: composed deployment settings plus per-invocation command-line values. */

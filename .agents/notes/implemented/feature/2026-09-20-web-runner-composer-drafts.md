@@ -32,7 +32,7 @@ The `dsh-web` integration is a browser handoff in agent-pro, not a PTY provider 
 
 ## Consequences
 
-Drafts survive Host and browser reloads without creating model-visible messages. The [Host-backed preference decision](../bug-fix/2026-08-06-host-backed-web-preferences.md) still governs user configuration; session-associated draft records are not settings. The [composer isolation proposal](../../proposed/architecture/2026-09-14-composer-model-and-draft-editor.md) remains independent: durable text does not preserve structured references, attachments, caret state, Undo history, or multiple editable roots.
+Drafts survive Host and browser reloads without creating model-visible messages. The [Host-backed preference decision](../../archived/bug-fix/2026-08-06-host-backed-web-preferences.md) still governs user configuration; session-associated draft records are not settings. The [composer isolation proposal](../../proposed/architecture/2026-09-14-composer-model-and-draft-editor.md) remains independent: durable text does not preserve structured references, attachments, caret state, Undo history, or multiple editable roots.
 
 Unsaved browser recovery text, including an empty clear, can replace a newer Host value because local unsaved work takes priority; an acknowledged mirror instead follows the Host on its next mount. Different tabs can overwrite each other's saved text; there is no merge or live conflict UI. Closing a browser does not guarantee completion of in-flight network writes, so the local mirror remains necessary. A launcher requires a running DSH Web instance and does not start a replacement server.
 

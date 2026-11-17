@@ -32,7 +32,7 @@ Session Controller 负责可冷读取的纯文本 `session/getDraft` 与 `sessio
 
 ## Consequences
 
-草稿可跨 Host 与浏览器刷新保留，且不创建模型可见消息。[Host-backed preference 决策](../bug-fix/2026-08-06-host-backed-web-preferences.zh.md) 继续约束用户配置；与 Session 关联的草稿记录不是 settings。[输入框隔离提案](../../proposed/architecture/2026-09-14-composer-model-and-draft-editor.zh.md) 仍独立存在：持久文本不保留结构化引用、附件、光标状态、撤销历史或多个可编辑 root。
+草稿可跨 Host 与浏览器刷新保留，且不创建模型可见消息。[Host-backed preference 决策](../../archived/bug-fix/2026-08-06-host-backed-web-preferences.md) 继续约束用户配置；与 Session 关联的草稿记录不是 settings。[输入框隔离提案](../../proposed/architecture/2026-09-14-composer-model-and-draft-editor.zh.md) 仍独立存在：持久文本不保留结构化引用、附件、光标状态、撤销历史或多个可编辑 root。
 
 未保存的浏览器恢复文本（包括清空后的空文本）可以替换较新的 Host 值，因为本地未保存工作优先；已确认的镜像则在下次挂载时跟随 Host。不同标签页可以覆盖彼此保存的文本；没有合并或实时冲突 UI。关闭浏览器不保证运行中的网络写入完成，因此仍需本地镜像。启动器要求已有运行中的 DSH Web 实例，不启动替代服务器。
 

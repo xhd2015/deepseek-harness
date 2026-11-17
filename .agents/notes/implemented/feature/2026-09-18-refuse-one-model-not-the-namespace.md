@@ -20,7 +20,7 @@ A selection already standing on a refused model blocks the composer through the 
 
 The reachable spelling of an `ultra` level is `max: ultra`: the selectable keys are pi-ai's own level set, and the value is what dispatch sends.
 
-This refines the [repairable pi-ai settings decision](../bug-fix/2026-09-07-pi-ai-settings-catalog-recovery.md): tolerating catalog diagnostics at registration while writes strictly check changed providers is unchanged, and a refused model moves from existing in settings alone to being listed and unselectable.
+This refines the [repairable pi-ai settings decision](../../archived/bug-fix/2026-09-07-pi-ai-settings-catalog-recovery.md): tolerating catalog diagnostics at registration while writes strictly check changed providers is unchanged, and a refused model moves from existing in settings alone to being listed and unselectable.
 
 ## Alternatives considered
 
