@@ -33,6 +33,9 @@ import {
   type RemoteResult,
 } from '@deepseek-ai/dsh-typert-protocol'
 import RemoteAccessService from '@deepseek-ai/dsh-api-remote-access'
+import Storage from '@deepseek-ai/dsh-storage'
+import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
+import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 import SessionController from '../src/index.ts'
 import type {
   ModelCatalog,
@@ -297,6 +300,7 @@ async function installControllers(
   }
   installSessionReadTestServices(ctx)
   if (ctx.get('remoteAccess') === undefined) new RemoteAccessService(ctx)
+  installSessionDraftStorage(ctx)
   const cwd = vi.spyOn(process, 'cwd').mockReturnValue(defaults.cwd)
   class TestController extends SessionController {
     initialize(): Promise<void> {
@@ -325,6 +329,21 @@ async function installControllers(
   }
   installed.set(ctx, controller)
   return controller
+}
+
+/**
+ * Mount an in-memory domain facility for the composer-draft domain, which the
+ * controller opens during initialization. A harness that already mounted one
+ * keeps it.
+ * @param ctx - harness context receiving the facility.
+ */
+function installSessionDraftStorage(ctx: Context): void {
+  if (ctx.get('storageDomain') !== undefined) return
+  const storage = ctx.get('storage') ?? new Storage(ctx)
+  storage.backend.register('memory', new MemoryStorageBackend(new MemoryMediaPool()))
+  const domain = new DomainFacility(ctx, { backend: 'memory', routes: {} })
+  storage.mount('domain', domain)
+  ctx.provide('storageDomain', domain)
 }
 
 /** Build or return the production Session Controller for a direct unit harness. */

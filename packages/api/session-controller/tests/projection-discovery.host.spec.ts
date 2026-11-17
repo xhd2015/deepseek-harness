@@ -59,6 +59,11 @@ async function harness(withPersistence = true) {
       expect(list).not.toHaveBeenCalled()
     })
   }
+  // The controller opens its draft domain during initialization, so the cache
+  // storage has to exist first; `stored()` then only writes the file.
+  await ctx.plugin(Storage)
+  await ctx.plugin(StorageJson, { root: join(root, 'cache') })
+  await ctx.plugin(StorageDomain, { backend: 'json' })
   const controller = await createSessionTestController(ctx, {
     defaultModelSelection: () => ({ provider: 'test', model: 'test' }),
     cwd: root,
@@ -137,9 +142,6 @@ async function seedCache(
   const bytes = JSON.stringify({ version: projectionCacheDomainSpec.version, record })
   await mkdir(dirname(path), { recursive: true })
   await writeFile(path, bytes)
-  await fixture.ctx.plugin(Storage)
-  await fixture.ctx.plugin(StorageJson, { root: cacheRoot })
-  await fixture.ctx.plugin(StorageDomain, { backend: 'json' })
   await fixture.ctx.plugin(SessionProjectionCache, { writeEveryEvents: 100, writeIntervalMs: 60_000 })
   const write = vi.spyOn(fixture.ctx.sessionProjectionCache, 'write').mockRejectedValue(new Error('unexpected cache write'))
   const hydrate = vi.spyOn(fixture.ctx.sessionProjectionCache, 'hydratePrepared').mockImplementation(() => {

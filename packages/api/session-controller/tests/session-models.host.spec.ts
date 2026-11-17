@@ -490,7 +490,7 @@ describe('Web session model selection', () => {
       { provider: 'partial', id: 'served', name: 'Served Model' },
       { provider: 'partial', id: 'refused', name: 'refused', unavailable: refusal },
     ]))
-    createSessionTestRemote(ctx, {
+    await createSessionTestRemote(ctx, {
       defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
       cwd: '/tmp',
     })
