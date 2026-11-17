@@ -18,6 +18,7 @@
 - [`dsh sdk`](#dsh-sdk)
 - [`dsh sdk-minimal`](#dsh-sdk-minimal)
 - [`dsh web`](#dsh-web)
+- [`dsh web open`](#dsh-web-open)
 
 <a id="dsh"></a>
 ## `dsh`
@@ -184,36 +185,66 @@ Example:
 调用方式: `dsh web --help`, `dsh --profile web --help`
 
 ```text
-Usage: dsh --profile web [options]
+Usage: dsh --profile web [options] [command]
 
 Serve the DeepSeek Harness browser UI.
 
 Options:
-  --host <host>                  bind address: one concrete IPv4 or IPv6 literal
-                                 of a local interface; wildcard addresses are
-                                 rejected
-  --no-open                      do not open the Web UI in the default browser
-  --port <port>                  listen port; pass 0 to let the OS pick a free
-                                 one
-  --public-url <url>             advertise this HTTP(S) root in the printed,
-                                 opened, runtime-context, and DSH_WEB_URL forms;
-                                 grants no trust
-  --trusted-host <authority...>  extra authority the /api browser-trust fence
-                                 accepts (host or host:port; repeatable)
-  --tls-cert <file>              PEM server certificate chain; requires
-                                 --tls-key
-  --tls-key <file>               unencrypted PEM private key; requires
-                                 --tls-cert
-  -h, --help                     show this help
+  --host <host>                               bind address: one concrete IPv4 or IPv6 literal of a local interface; repeat for several addresses sharing --port; wildcard addresses are rejected
+  --no-open                                   do not open the Web UI in a browser
+  --port <port>                               listen port; pass 0 to let the OS pick a free one
+  --public-url <url>                          advertise this HTTP(S) root in the printed, opened, runtime-context, and DSH_WEB_URL forms; grants no trust
+  --trusted-host <authority...>               extra authority the /api browser-trust fence accepts (host or host:port; repeatable)
+  --trusted-host-for-settings <authority...>  authority whose page may also read and write Host settings, including credentials (host or host:port; repeatable; each must also be a --trusted-host)
+  --tls-cert <file>                           PEM server certificate chain; requires --tls-key
+  --tls-key <file>                            unencrypted PEM private key; requires --tls-cert
+  --browser <name>                            browser to open (brave, chrome, firefox, edge, safari)
+  --no-auth                                   skip process-token and cookie checks; Host/Origin trust still applies (use behind an authenticating outer proxy)
+  -h, --help                                  show this help
+
+Commands:
+  open [options] [dir]                        Create a session for a directory and open it in the running Web UI.
 
 Examples:
   dsh --profile web                          serve on the composed host and port
   dsh --profile web --no-open                serve without opening a browser
+  dsh --profile web --browser brave          serve and open Brave
   dsh --profile web --port 8080              serve on another port
   dsh --profile web --host 10.0.0.7          bind one local interface address
+  dsh --profile web --host 127.0.0.1 --host ::1
+                                             serve loopback over IPv4 and IPv6 on one port
+  dsh --profile web --trusted-host app.example --trusted-host-for-settings app.example
+                                             also let that authority edit Host settings
+  dsh --profile web --no-auth --trusted-host app.example
+                                             serve behind a proxy that already authenticates
   dsh --profile web --public-url https://app.example/ui/ --trusted-host app.example
                                              advertise a prefix-stripping HTTPS proxy entry and admit its authority
   dsh --profile web --tls-cert ./server-chain.pem --tls-key ./server-key.pem
                                              serve HTTPS with an existing certificate and key
+  dsh --profile web open                     new session for cwd in the running GUI
+  dsh --profile web open ~/proj --browser brave
 
+```
+
+<a id="dsh-web-open"></a>
+## `dsh web open`
+
+调用方式: `dsh web open --help`, `dsh --profile web open --help`
+
+```text
+Usage: dsh --profile web open [options] [dir]
+
+Create a session for a directory and open it in the running Web UI.
+
+Arguments:
+  dir                   workspace directory (default: current working directory)
+
+Options:
+  --no-open             create the session without opening a browser
+  -p, --prompt <text>   initial prompt to submit
+  --prompt-file <file>  read the initial prompt from a UTF-8 file (relative to
+                        invoking cwd)
+  --no-submit           save the initial prompt as an editable draft
+  --browser <name>      browser to open (brave, chrome, firefox, edge, safari)
+  -h, --help            show this help
 ```

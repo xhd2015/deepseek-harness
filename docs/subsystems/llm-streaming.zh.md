@@ -578,6 +578,7 @@ interface LlmModelInfo {
    * omits it, and no model request or Session event carries it.
    */
   badge?: LlmModelBadge
+  /**
    * Why this entry cannot serve a request, when the adapter lists a model its
    * own configuration names but it refuses to serve. Present means listed for
    * repair, not selectable: a selector shows the text and offers no way to
@@ -958,6 +959,13 @@ declare abstract class LlmAdapter {
    */
   imageRequestTarget(_provider: string, _model: string, image: ImageAttachmentRef): ImageRequestTarget;
   /**
+   * Re-probe any live model listing this adapter owns. The default is a no-op:
+   * static catalogs have nothing to refetch. Dynamic adapters override this so
+   * a selector can force a gateway round-trip instead of waiting for max-age.
+   * @returns after every owned listing has settled (success or last-known-good).
+   */
+  refreshListing(): Promise<void>;
+  /**
    * List models this adapter can currently advertise for one owned provider,
    * including a configured model it refuses to serve: that entry carries
    * {@link LlmModelInfo.unavailable} so a selector can show why rather than
@@ -1046,6 +1054,14 @@ Source: [`packages/llm/deepseek-llm-api-extensions/src/index.ts`](../../packages
 The abstract `llm` service: an adapter registry plus a streaming model-call API, interceptable via the `llm/stream` waterfall.
 
 ```ts cordis-catalog
+/**
+ * Re-probe live listings on every registered adapter, then notify topology
+ * observers. Adapters without a live catalog no-op. One adapter serving many
+ * routes is refreshed once.
+ * @returns after every adapter's refresh has settled.
+ */
+async refreshListings(): Promise<void>
+
 /**
  * Register an adapter for the given provider routes. Throws `LlmError` with code
  * `DUPLICATE_ADAPTER` if any provider already has an adapter (all-or-nothing).

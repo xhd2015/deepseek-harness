@@ -23,6 +23,7 @@ function streamText(output: CollectedOutput): string {
  * @param escalationModes - the escalation targets this composition advertises;
  *   non-empty adds the same-turn escalation hint after a denial marker
  *   (default `[]`: no hint).
+ * @param requestedMode - the mode this call asked for, when it escalated.
  * @returns the model-facing text: output body (or `(no output)`), then any timeout/stopped/signal/exit markers, each on its own line.
  */
 export function renderResult(

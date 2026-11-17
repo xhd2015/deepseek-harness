@@ -2155,6 +2155,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'The abstract `llm` service: an adapter registry plus a streaming model-call API, interceptable via the `llm/stream` waterfall.',
     methods: [
       {
+        signature: 'async refreshListings(): Promise<void>',
+        description: 'Re-probe live listings on every registered adapter, then notify topology observers. Adapters without a live catalog no-op. One adapter serving many routes is refreshed once.',
+        parameters: [],
+        returns: 'after every adapter\'s refresh has settled.',
+      },
+      {
         signature: 'registerAdapter(providers: string[], adapter: LlmAdapter): AdapterRegistrationHandle',
         description: 'Register an adapter for the given provider routes. Throws `LlmError` with code `DUPLICATE_ADAPTER` if any provider already has an adapter (all-or-nothing). Disposed with the fiber.',
         parameters: [{ name: 'providers', description: 'every provider route this adapter should serve.' }, { name: 'adapter', description: 'the adapter that streams calls for those providers.' }],
@@ -7571,7 +7577,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'LlmAdapter',
-    declaration: 'export abstract class LlmAdapter {\n    providerInfo(provider: string): LlmProviderInfo;\n    providerRetryPolicy(_provider: string): ResolvedRetryPolicy | undefined;\n    imageRequestPricing(_provider: string, _model: string): LlmImageRequestPricing | undefined;\n    imageRequestTarget(_provider: string, _model: string, image: ImageAttachmentRef): ImageRequestTarget;\n    listModels(_provider: string): Promise<readonly LlmModelInfo[]>;\n    resolveModel(provider: string, model: string, _signal?: AbortSignal): Promise<LlmResolvedModelInfo>;\n    async prepareCall(provider: string, model: string, signal?: AbortSignal): Promise<PreparedAdapterCall>;\n    abstract stream(options: GenerateOptions): AsyncIterable<StreamChunk>;\n}',
+    declaration: 'export abstract class LlmAdapter {\n    providerInfo(provider: string): LlmProviderInfo;\n    providerRetryPolicy(_provider: string): ResolvedRetryPolicy | undefined;\n    imageRequestPricing(_provider: string, _model: string): LlmImageRequestPricing | undefined;\n    imageRequestTarget(_provider: string, _model: string, image: ImageAttachmentRef): ImageRequestTarget;\n    refreshListing(): Promise<void>;\n    listModels(_provider: string): Promise<readonly LlmModelInfo[]>;\n    resolveModel(provider: string, model: string, _signal?: AbortSignal): Promise<LlmResolvedModelInfo>;\n    async prepareCall(provider: string, model: string, signal?: AbortSignal): Promise<PreparedAdapterCall>;\n    abstract stream(options: GenerateOptions): AsyncIterable<StreamChunk>;\n}',
   },
   {
     name: 'LlmAttemptId',
@@ -7659,7 +7665,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'LlmRuntime',
-    declaration: 'export class LlmRuntime extends TypertRemoteService {\n    constructor(ctx: Context);\n    registerAdapter(providers: string[], adapter: LlmAdapter): AdapterRegistrationHandle;\n    @Remote\n    listProviders(): LlmProviderInfo[];\n    registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): DirectoryRegistrationHandle;\n    @Remote\n    listConfigurableProviders(): LlmConfigurableProvider[];\n    registerModelDiscovery(settingsNs: string, discover: (request: LlmModelDiscoveryRequest, signal?: AbortSignal) => Promise<readonly LlmDiscoveredModel[]>): () => void;\n    async discoverModels(settingsNs: string, request: LlmModelDiscoveryRequest, signal?: AbortSignal): Promise<LlmDiscoveredModel[]>;\n    @Remote(\'discoverModels\')\n    async remoteDiscoverModels(settingsNs: string, request: LlmModelDiscoveryRequest, signal: AbortSignal): Promise<LlmDiscoveredModel[]>;\n    providerRetryPolicy(provider: string): ResolvedRetryPolicy;\n    imageRequestPricing(provider: string, model: string): LlmImageRequestPricing | undefined;\n    imageRequestTarget(provider: string, model: string, image: ImageAttachmentRef): ImageRequestTarget;\n    fileRequestText(ref: FileAttachmentRef): string;\n    async listModels(provider: string): Promise<LlmModelInfo[]>;\n    async resolveModelInfo(provider: string, model: string, signal?: AbortSignal): Promise<LlmResolvedModelInfo>;\n    async resolveCallConfig(config: LlmCallConfig, signal?: AbortSignal): Promise<LlmCallConfig>;\n    async prepareCall(conf /* …truncated — full shape in source */',
+    declaration: 'export class LlmRuntime extends TypertRemoteService {\n    constructor(ctx: Context);\n    async refreshListings(): Promise<void>;\n    registerAdapter(providers: string[], adapter: LlmAdapter): AdapterRegistrationHandle;\n    @Remote\n    listProviders(): LlmProviderInfo[];\n    registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): DirectoryRegistrationHandle;\n    @Remote\n    listConfigurableProviders(): LlmConfigurableProvider[];\n    registerModelDiscovery(settingsNs: string, discover: (request: LlmModelDiscoveryRequest, signal?: AbortSignal) => Promise<readonly LlmDiscoveredModel[]>): () => void;\n    async discoverModels(settingsNs: string, request: LlmModelDiscoveryRequest, signal?: AbortSignal): Promise<LlmDiscoveredModel[]>;\n    @Remote(\'discoverModels\')\n    async remoteDiscoverModels(settingsNs: string, request: LlmModelDiscoveryRequest, signal: AbortSignal): Promise<LlmDiscoveredModel[]>;\n    providerRetryPolicy(provider: string): ResolvedRetryPolicy;\n    imageRequestPricing(provider: string, model: string): LlmImageRequestPricing | undefined;\n    imageRequestTarget(provider: string, model: string, image: ImageAttachmentRef): ImageRequestTarget;\n    fileRequestText(ref: FileAttachmentRef): string;\n    async listModels(provider: string): Promise<LlmModelInfo[]>;\n    async resolveModelInfo(provider: string, model: string, signal?: AbortSignal): Promise<LlmResolvedModelInfo>;\n    async resolveCallConfig(config: LlmCallConfig, signal?: AbortSignal): Promis /* …truncated — full shape in source */',
   },
   {
     name: 'LocalAtInput',
