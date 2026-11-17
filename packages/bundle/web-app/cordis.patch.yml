@@ -262,8 +262,13 @@
         # The listener's bind IP is accepted separately from this list.
         trustedHosts: !!js ctx.webStartup.trustedHosts
 
+    # `--no-auth` drops the credential layer only; the trust fence above still
+    # decides which authorities may reach this listener.
     - id: authentication-token
       name: '@deepseek-ai/dsh-host-authentication-token'
+      inject: [webStartup]
+      config:
+        disableAuth: !!js ctx.webStartup.disableAuth === true
 
     # Raw Blob and ReadableStream uploads run independently of Connection's
     # RPC and generation service.
