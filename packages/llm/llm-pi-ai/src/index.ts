@@ -115,7 +115,6 @@ declare module '@deepseek-ai/cordis' {
 }
 
 const NS = 'llm-pi-ai'
-const NS = 'llm-proxy-providers'
 
 /**
  * The registry captures these per route; a change here must re-register.

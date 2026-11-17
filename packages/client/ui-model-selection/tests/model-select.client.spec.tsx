@@ -473,7 +473,9 @@ describe('ModelSelect reasoning effort', () => {
       directory={directory}
       load={vi.fn()}
       select={select}
+      resolveText={resolveText}
       t={t}
+      renderSlot={renderLabel}
     />)
 
     fireEvent.click(screen.getByRole('button', { name: /选择模型/ }))

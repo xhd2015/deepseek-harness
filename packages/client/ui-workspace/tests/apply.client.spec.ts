@@ -26,7 +26,6 @@ import { PinSessionRowButton } from '../src/client/session-actions/PinSession.ts
 import { SessionRenameDialog } from '../src/client/session-actions/RenameSession.tsx'
 import { RowActionToast } from '../src/client/session-actions/RowActionToast.tsx'
 import type { ArchiveToastInjected, ToastDisplayInjected } from '../src/client/contract/toast.ts'
-import { SessionIdMenuItem } from '../src/client/session-actions/SessionId.tsx'
 import { UnknownSessionHint } from '../src/client/UnknownSessionHint.tsx'
 import { WorkspacePicker } from '../src/client/WorkspacePicker.tsx'
 import { FLAT_SESSION_ORDER_KEY } from '../src/client/stores.ts'
@@ -134,13 +133,13 @@ async function bench(access: 'fake' | 'static' = 'fake', listed?: { ids: readonl
   let sessionSnapshot: SessionListState = listed === undefined
     ? sessionState([])
     : {
-        ids: listed.ids.map(sid),
-        byId: listed.current === undefined
-          ? {}
-          : { [sid(listed.current)]: { id: sid(listed.current), retainedBy: { mainView: 1 } } as never },
-        phase: 'ready',
-        projectionsBySession: {},
-      }
+      ids: listed.ids.map(sid),
+      byId: listed.current === undefined
+        ? {}
+        : { [sid(listed.current)]: { id: sid(listed.current), retainedBy: { mainView: 1 } } as never },
+      phase: 'ready',
+      projectionsBySession: {},
+    }
   const subscribe = () => () => {}
   const workspacesSubscribe = vi.fn(subscribe)
   const initializeDefault = vi.fn(async (): Promise<WorkspaceView | undefined> => undefined)
@@ -217,7 +216,7 @@ function declare(slots: SlotRegistry, ...names: HoleName[]): () => void {
 async function deepLink(search: string, listed?: { ids: readonly string[]; current?: string }) {
   vi.stubGlobal('location', { search })
   try {
-    const b = await bench(listed)
+    const b = await bench('fake', listed)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     return b
   } finally {
@@ -1112,6 +1111,8 @@ it('captures Workspace menu requests, rechecks mutable access, and withdraws reg
   await pending.ready
   await fiber.dispose()
   expect(pending.source.getSnapshot()).toEqual([])
+})
+
 describe('ui-workspace session deep link', () => {
   it('collapses the sidebar before the first render when the URL names a Session', async () => {
     const b = await deepLink('?session=linked')

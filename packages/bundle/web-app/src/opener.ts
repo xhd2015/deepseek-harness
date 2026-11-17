@@ -123,10 +123,14 @@ function spawnOpenPackage(url: string): ChildProcess {
 
 /**
  * Hand one URL to a named browser in a new window, or the OS default handler.
+ * Cancellation stops the launcher this call started; a named AppleScript open
+ * runs to completion because it holds no child that can be interrupted.
  * @param url - authenticated application URL.
+ * @param signal - caller cancellation, forwarded to the launcher's lifetime.
  * @param browser - `--browser` id, or omitted for the OS default.
  */
-export async function openBrowser(url: string, browser?: string): Promise<void> {
+export async function openBrowser(url: string, signal?: AbortSignal, browser?: string): Promise<void> {
+  signal?.throwIfAborted()
   const launch = browser === undefined ? undefined : newWindowLaunch(browser, url)
   const applescript = launch?.command === 'osascript'
   const child = launch === undefined
@@ -144,17 +148,38 @@ export async function openBrowser(url: string, browser?: string): Promise<void> 
     })
     return
   }
+  let launcherStderr = ''
+  child.stderr?.setEncoding('utf8')
+  child.stderr?.on('data', (chunk: string) => { launcherStderr += chunk })
   await new Promise<void>((resolve, reject) => {
+    const abort = (): void => { child.kill() }
     function onError(error: Error): void {
-      child.off('spawn', onSpawn)
+      child.off('close', onClose)
+      signal?.removeEventListener('abort', abort)
       reject(error)
     }
-    function onSpawn(): void {
+    function onClose(code: number | null): void {
       child.off('error', onError)
+      signal?.removeEventListener('abort', abort)
+      if (signal?.aborted) {
+        reject(signal.reason instanceof Error ? signal.reason : new Error('Browser handoff cancelled', { cause: signal.reason }))
+        return
+      }
+      if (code !== null && code !== 0) {
+        const firstLine = launcherStderr.trim().split(/\r?\n/u)[0]
+        const reason = firstLine === undefined || firstLine === ''
+          ? `browser launcher exited with code ${String(code)}`
+          : firstLine.replace(/^(?:[A-Za-z]*Error):\s*/u, '')
+        reject(new Error(reason))
+        return
+      }
+      if (launcherStderr !== '') process.stderr.write(launcherStderr)
       resolve()
     }
     child.once('error', onError)
-    child.once('spawn', onSpawn)
+    child.once('close', onClose)
+    signal?.addEventListener('abort', abort, { once: true })
+    if (signal?.aborted) abort()
   })
   if (launch !== undefined) {
     await new Promise(resolve => setTimeout(resolve, 400))
@@ -164,5 +189,5 @@ export async function openBrowser(url: string, browser?: string): Promise<void> 
 
 /** Test hook for native browser handoff; production never mutates it. */
 export const openerInternals: {
-  openBrowser: (url: string, browser?: string) => Promise<void>
+  openBrowser: (url: string, signal?: AbortSignal, browser?: string) => Promise<void>
 } = { openBrowser }

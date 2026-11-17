@@ -99,6 +99,13 @@ export interface ConnectionConfig {
    * an entry here. A non-canonical or non-bare authority fails plugin load.
    */
   trustedHosts?: string[]
+  /**
+   * Subset of {@link trustedHosts} whose page may read and write Host settings.
+   * The page receives the list as the `__DSH_SETTINGS_TRUST__` boot global.
+   * Every entry must also appear in {@link trustedHosts}: a settings grant is
+   * strictly narrower than the fence, so anything else is a misconfiguration.
+   */
+  trustedHostsForSettings?: string[]
   /** Maximum buffered JSON body for every `/api` request. Default: 300 MiB. */
   maxRequestBodyBytes?: number
 }
@@ -106,6 +113,7 @@ export interface ConnectionConfig {
 export const Config: z<ConnectionConfig> = z.object({
   recovery: ConnectionRecoveryConfigSchema.default({}),
   trustedHosts: z.array(String).default([]),
+  trustedHostsForSettings: z.array(String).default([]),
   maxRequestBodyBytes: z.natural().min(1).default(DEFAULT_MAX_REQUEST_BODY_BYTES),
 })
 
@@ -120,10 +128,17 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
   const recovery = resolveConnectionConfig(config?.recovery)
   // The Loader resolves schema defaults; hand-built test contexts may pass none.
   const trustedHosts = config?.trustedHosts ?? []
+  const trustedHostsForSettings = config?.trustedHostsForSettings ?? []
   const maxRequestBodyBytes = config?.maxRequestBodyBytes ?? DEFAULT_MAX_REQUEST_BODY_BYTES
   // Config boundary: a malformed entry fails the load loudly here rather than
   // silently authorizing its hostname prefix at request time.
   for (const entry of trustedHosts) assertTrustedAuthority(entry)
+  for (const entry of trustedHostsForSettings) {
+    assertTrustedAuthority(entry)
+    if (!trustedHosts.includes(entry)) {
+      throw new Error(`client-connection: trustedHostsForSettings entry ${JSON.stringify(entry)} is not also a trustedHosts authority`)
+    }
+  }
   assertImageBodyCapacity(ctx, maxRequestBodyBytes)
   new ConnectionAuthentication(ctx)
   ctx.inject(['connection.authentication'], (connectionCtx) => {
@@ -132,6 +147,9 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
       assertImageBodyCapacity(webCtx, maxRequestBodyBytes)
       webCtx.on('webserver/index-inject', (table) => {
         table.push({ kind: 'global', name: '__DSH_CONNECTION_RECOVERY__', value: recovery })
+        // The browser classifies its own page authority, so the deployment's
+        // settings-trusted names travel to the page; the fence list stays Host-side.
+        table.push({ kind: 'global', name: '__DSH_SETTINGS_TRUST__', value: { trustedHosts: trustedHostsForSettings } })
       })
       const fetchHandler = connection.createSharedFetchHandler(API_PATH)
       const route: WebRoute = {

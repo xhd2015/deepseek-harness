@@ -47,7 +47,7 @@ describe('LayoutController', () => {
 
   it('forwards a collapse request without flipping an open sidebar closed', () => {
     const panels = fakePanels()
-    const service = new LayoutController(panels, () => true)
+    const service = new LayoutController(panels, () => true, createSnapshotStore({ activePanelId: null }))
 
     service.collapseSidebar()
 

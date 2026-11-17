@@ -1006,7 +1006,7 @@ describe('Typert Remote streams', () => {
   it('carries a unary Remote result through the reserved mux operation', async () => {
     const { ctx } = await setup(true)
     const socket = new WebSocket(`ws://127.0.0.1:${String(ctx.webServer.port)}/api/remote.mux`, {
-      headers: { cookie: browserCookie(ctx) },
+      headers: { cookie: await browserCookie(ctx) },
     })
     const frames: Record<string, unknown>[] = []
     socket.on('message', (data) => { frames.push(JSON.parse(rawText(data)) as Record<string, unknown>) })
@@ -1674,7 +1674,7 @@ describe('Typert Remote streams', () => {
     const unauthenticated = await fetch(`${origin}${REMOTE_SHARED_MUX_WORKER_PATH}`)
     expect(unauthenticated.status).toBe(401)
 
-    const cookie = browserCookie(ctx)
+    const cookie = await browserCookie(ctx)
     const rejectedMethod = await fetch(`${origin}${REMOTE_SHARED_MUX_WORKER_PATH}`, {
       method: 'POST', headers: { cookie },
     })

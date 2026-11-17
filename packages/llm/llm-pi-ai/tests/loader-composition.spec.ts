@@ -107,6 +107,8 @@ describe('llm-pi-ai real dormant composition', () => {
     const result = await assemble(ctx, { model: 'deepseek-flash', messages: [], sessionId: brandString<SessionId>('loader-session') })
     expect(result.finish).toEqual({ kind: 'stop' })
     expect(server.headers[0]?.['x-request-session']).toBe('loader-session')
+  })
+
   it('authenticates an exported proxy Responses route with a placeholder credential', async () => {
     vi.stubEnv('PI_COMPOSITION_KEY', '')
     const server = await mockServer([{ events: [

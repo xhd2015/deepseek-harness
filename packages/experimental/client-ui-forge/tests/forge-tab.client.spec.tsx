@@ -47,7 +47,7 @@ function tabInfo(visible: boolean, openResource: SidebarRightTabActions['openRes
 
 function tab(state: ForgePanelState | null, options: { disconnected?: boolean; visible?: boolean; home?: string } = {}) {
   const panel = createSnapshotStore<PanelSnapshot>({ state, disconnected: options.disconnected ?? false })
-  const host = createSnapshotStore<RemoteHostFacts>({ home: options.home, isLoopback: true })
+  const host = createSnapshotStore<RemoteHostFacts>({ home: options.home, isLoopback: true, settingsTrusted: true })
   const visibility = createSnapshotStore<boolean>(options.visible ?? true)
   const useVisibility = bindSnapshotSelector(visibility)
   const reconnect = vi.fn<() => void>()

@@ -27,7 +27,14 @@ function header(headers: ConnectionTrustRequest['headers'], name: string): strin
  * @param authority - `host` or `host:port` text.
  * @param scheme - special scheme to parse under; its default port is the one stripped.
  */
-function parseAuthority(authority: string, scheme: 'http:' | 'https:' = 'http:'): URL | undefined {
+/**
+ * Parse one authority (`host` or `host:port`) as an HTTP(S) URL, so callers
+ * match authorities through the same normalization the fence uses.
+ * @param authority - authority text without a scheme.
+ * @param scheme - scheme supplying the default port for a bare host.
+ * @returns the parsed URL, or undefined for a malformed authority.
+ */
+export function parseAuthority(authority: string, scheme: 'http:' | 'https:' = 'http:'): URL | undefined {
   try {
     // http: and https: are WHATWG "special schemes": parsing yields a non-empty hostname or throws.
     return new URL(`${scheme}//${authority}`)
@@ -74,7 +81,14 @@ function canonicalAuthority(entry: string, entryUrl: URL): string {
  * hostname on any port. Both sides compare through WHATWG normalization,
  * so case and a redundant scheme-default port never decide trust.
  */
-function isTrustedAuthority(hostUrl: URL, trustedHosts: readonly string[], protocol: 'http:' | 'https:'): boolean {
+/**
+ * Whether an authority appears in a deployment-declared authority list.
+ * @param hostUrl - parsed request or page authority.
+ * @param trustedHosts - exact `host:port` entries and port-less `host` entries.
+ * @param protocol - scheme supplying the default port for a port-less request authority.
+ * @returns true when some entry matches; a port-less entry matches any port.
+ */
+export function isTrustedAuthority(hostUrl: URL, trustedHosts: readonly string[], protocol: 'http:' | 'https:' = 'http:'): boolean {
   return trustedHosts.some((entry) => {
     const entryUrl = parseAuthority(entry, protocol)
     if (entryUrl === undefined) return false
@@ -121,7 +135,7 @@ function isBindAddressAuthority(hostUrl: URL, bindHost: string | undefined): boo
 export function isTrustedApiRequest(
   request: ConnectionTrustRequest,
   trustedHosts: readonly string[],
-  bindHost: string | readonly string[] | undefined,
+  bindHost?: string | readonly string[],
   protocol: 'http:' | 'https:' = 'http:',
 ): boolean {
   // Host fence (DNS-rebinding defense), applied to every request: the browser

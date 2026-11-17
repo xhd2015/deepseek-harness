@@ -135,7 +135,7 @@ function rejectUnadvertisedArgs(
   }
 }
 
-function validatePwshArgs(args: PwshToolArgs, advertised: AdvertisedArgs): void {
+function validatePwshArgs(args: PwshToolArgs, effectiveMode: SandboxMode | undefined, advertised: AdvertisedArgs): 'ignored' | undefined {
   if (args.command.trim().length === 0) {
     throw new ToolArgsError(['invalid command: expected a non-empty string'])
   }
@@ -148,7 +148,11 @@ function validatePwshArgs(args: PwshToolArgs, advertised: AdvertisedArgs): void 
   rejectUnadvertisedArgs(args, advertised)
   // The escalation pairing (sandbox_permissions ⇔ justification, non-empty) is
   // the shared rule both enforcing families validate identically.
-  return validateEscalationArgs(args.sandbox_permissions, args.justification, effectiveMode)
+  if (args.sandbox_permissions !== undefined && args.sandbox_permissions === effectiveMode) return
+  const justification = args.sandbox_permissions === undefined && args.justification?.trim() === ''
+    ? undefined
+    : args.justification
+  return validateEscalationArgs(args.sandbox_permissions, justification, effectiveMode)
 }
 /* jscpd:ignore-end */
 
