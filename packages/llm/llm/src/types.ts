@@ -389,6 +389,7 @@ export interface LlmModelInfo {
    * omits it, and no model request or Session event carries it.
    */
   badge?: LlmModelBadge
+  /**
    * Why this entry cannot serve a request, when the adapter lists a model its
    * own configuration names but it refuses to serve. Present means listed for
    * repair, not selectable: a selector shows the text and offers no way to

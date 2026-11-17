@@ -46,6 +46,11 @@ export interface WebStartupValues {
    * See [public deployments](../README.md#public-deployments).
    */
   publicUrl?: string
+  /**
+   * `--no-auth`: skip process-token and cookie checks. Host/Origin trust still
+   * applies, so it fits a deployment behind an authenticating outer proxy.
+   */
+  disableAuth?: boolean
   /** Explicit `--trusted-host` authorities, in argument order. */
   trustedHosts: string[]
   /** Server certificate chain and unencrypted private key supplied together. */
@@ -56,6 +61,7 @@ export interface WebStartupValues {
 interface ServeOptions {
   host?: string
   open: boolean
+  noAuth?: boolean
   port?: string
   publicUrl?: string
   trustedHost?: string[]
@@ -105,6 +111,7 @@ function webCommand(): Command {
     .option('--tls-cert <file>', 'PEM server certificate chain; requires --tls-key')
     .option('--tls-key <file>', 'unencrypted PEM private key; requires --tls-cert')
     .option('--browser <name>', `browser to open (${WEB_BROWSER_IDS.join(', ')})`)
+    .option('--no-auth', 'skip process-token and cookie checks; Host/Origin trust still applies (use behind an authenticating outer proxy)')
     .addHelpText('after', `
 Examples:
   dsh --profile web                          serve on the composed host and port
@@ -112,6 +119,8 @@ Examples:
   dsh --profile web --browser brave          serve and open Brave
   dsh --profile web --port 8080              serve on another port
   dsh --profile web --host 10.0.0.7          bind one local interface address
+  dsh --profile web --no-auth --trusted-host app.example
+                                             serve behind a proxy that already authenticates
   dsh --profile web --public-url https://app.example/ui/ --trusted-host app.example
                                              advertise a prefix-stripping HTTPS proxy entry and admit its authority
   dsh --profile web --tls-cert ./server-chain.pem --tls-key ./server-key.pem
@@ -168,6 +177,7 @@ function publishServe(ctx: Context, program: Command): void {
     ...options.port !== undefined && { port: Number(options.port) },
     ...options.publicUrl !== undefined && { publicUrl: options.publicUrl },
     ...tls !== undefined && { tls },
+    ...options.noAuth === true && { disableAuth: true },
     trustedHosts: options.trustedHost ?? [],
   } satisfies WebStartupValues)
 }
