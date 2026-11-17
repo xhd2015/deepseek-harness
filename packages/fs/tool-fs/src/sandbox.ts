@@ -94,8 +94,13 @@ export class FsSandboxController {
     const standingPolicy = this.policy?.resolve({ ...exec.agent ? { session: exec.agent.session } : {} })
     // An ask this call's standing mode cannot widen is ignored: the mutation
     // runs under the standing policy and no approval is requested.
+    // A blank reason is an unused field, not a malformed one: the request then
+    // pairs no escalation, so the standing policy decides it.
+    const justification = args.sandbox_permissions === undefined && args.justification?.trim() === ''
+      ? undefined
+      : args.justification
     const escalationIgnored = validateEscalationArgs(
-      args.sandbox_permissions, args.justification, standingPolicy?.mode,
+      args.sandbox_permissions, justification, standingPolicy?.mode,
     ) === 'ignored'
     if (escalationIgnored || args.sandbox_permissions === undefined || args.justification === undefined) {
       return standingPolicy
