@@ -50,6 +50,7 @@ import type {
   SessionPromptValue,
   SessionRenameRequest,
   SessionRenameValue,
+  SessionSelectDefaultModelRequest,
   SessionSelectModelRequest,
   SessionSelectModelValue,
   SessionUpdateQueueRequest,
@@ -166,6 +167,25 @@ export class SessionCommandController {
       }
     }
     return { sessionId, ...(created.agentPreset === undefined ? {} : { agentPreset: created.agentPreset }) }
+  }
+
+  /**
+   * Validate one deployment-default model and persist it. Does not change any Session.
+   * @param request - provider, model, and optional reasoning effort.
+   * @returns the normalized selection after the default is durable.
+   */
+  async selectDefaultModel(request: SessionSelectDefaultModelRequest): Promise<SessionSelectModelValue> {
+    await this.requireModel(request)
+    const selected: AgentModelSelection = {
+      provider: request.provider,
+      model: request.model,
+      ...(request.reasoningEffort === undefined
+        ? {}
+        : { reasoningEffort: brandString<ReasoningEffortId>(request.reasoningEffort) }),
+    }
+    await this.ctx.llm.resolveCallConfig(selected)
+    await this.ctx.agentDefaultModel.saveSelection(selected)
+    return { selected: { ...selected } }
   }
 
   /**

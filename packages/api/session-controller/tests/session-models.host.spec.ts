@@ -957,6 +957,30 @@ it('initializes the account model without reasoning metadata and rejects an empt
   })
 })
 
+it('persists the deployment default without addressing a Session', async () => {
+  const { ctx } = await harness()
+  const saved: { provider: string; model: string; reasoningEffort?: string }[] = []
+  const remote = await createSessionTestRemote(ctx, {
+    defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+    cwd: '/tmp',
+    saveDefaultModelSelection: (selection) => { saved.push(selection) },
+  })
+  const before = ctx.agentDefaultModel.currentSelection()
+  expect(expectValue(await remote.selectDefaultModel({
+    provider: 'deepseek-official', model: 'deepseek-reasoner', reasoningEffort: 'max',
+  })).selected).toEqual({
+    provider: 'deepseek-official', model: 'deepseek-reasoner', reasoningEffort: 'max',
+  })
+  expect(saved).toEqual([{ provider: 'deepseek-official', model: 'deepseek-reasoner', reasoningEffort: 'max' }])
+  // The deployment default moved; the Session's own recorded selection did not.
+  expect(ctx.agentDefaultModel.currentSelection()).toEqual(before)
+  expect(await remote.selectDefaultModel({ provider: 'missing', model: 'model' })).toMatchObject({
+    ok: false, error: { code: 'session/model-unavailable', details: { provider: 'missing', model: 'model' } },
+  })
+  expect(saved).toHaveLength(1)
+  await ctx.fiber.dispose()
+})
+
 it.each([new Error('catalog disconnected'), 'catalog disconnected'])('reports catalog rejection as an unavailable selection: %s', async (failure) => {
   const { ctx } = await harness()
   const { modelAvailable } = await import('../src/catalog.ts')
