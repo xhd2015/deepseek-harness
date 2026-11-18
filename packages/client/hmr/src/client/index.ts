@@ -21,11 +21,22 @@ interface PageTransportGlobal {
 }
 
 /**
- * Page-relative script URL of the Gateway SharedWorker relay; the browser
- * resolves it against the document base, so this module never needs the
- * `location` global itself. Mirrors the Gateway's served mux worker path.
+ * API prefix this page addresses: transport override, then the Host-injected
+ * boot global, then `/api`. The relay must join the same Worker, so its script
+ * path follows the prefix too.
+ * @returns the absolute API prefix.
  */
-const REMOTE_SHARED_MUX_WORKER_PATH = '/api/remote.shared-mux-worker.js'
+function apiPrefix(): string {
+  const globals = globalThis as {
+    __DSH_API_PREFIX__?: unknown
+    __DSH_TRANSPORT__?: { apiPrefix?: unknown }
+  }
+  const fromTransport = globals.__DSH_TRANSPORT__?.apiPrefix
+  if (typeof fromTransport === 'string' && fromTransport !== '') return fromTransport
+  const fromGlobal = globals.__DSH_API_PREFIX__
+  if (typeof fromGlobal === 'string' && fromGlobal !== '') return fromGlobal
+  return '/api'
+}
 
 /** Whether a Gateway SharedWorker relay frame carries one raw HMR SSE payload. */
 function isHmrEvent(value: unknown): value is { readonly type: 'hmr-event'; readonly data: string } {
@@ -95,7 +106,7 @@ export function apply(ctx: Context): void {
       return () => { controller.abort() }
     }
     const worker = new SharedWorker(
-      REMOTE_SHARED_MUX_WORKER_PATH,
+      `${apiPrefix()}/remote.shared-mux-worker.js`,
       { type: 'module', name: 'dsh-gateway-mux' },
     )
     const { port } = worker

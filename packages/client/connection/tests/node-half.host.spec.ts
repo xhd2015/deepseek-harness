@@ -373,6 +373,8 @@ describe('connection node half', () => {
           },
         },
         { kind: 'global', name: '__DSH_SETTINGS_TRUST__', value: { trustedHosts: [] } },
+        // The page addresses the default prefix unless a deployment nests it.
+        { kind: 'global', name: '__DSH_API_PREFIX__', value: '/api' },
       ])
       await dispose()
       const after: IndexInjection[] = []

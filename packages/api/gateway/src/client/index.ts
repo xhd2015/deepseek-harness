@@ -7,6 +7,7 @@
 import { Service } from '@deepseek-ai/cordis'
 import { RemoteError, isRemoteUplinkItem, remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
 export type { TypertGatewayFaultDetails } from '../remote-error-codes.ts'
+import { readBrowserApiPrefix } from '@deepseek-ai/dsh-client-connection/client'
 import type { Context } from '@deepseek-ai/cordis'
 import type {
   ConnectionHandle,
@@ -252,7 +253,7 @@ class ClientRemoteService extends Service implements ClientRemote {
   ): AsyncIterable<unknown> {
     const connection = this.ownerCtx.get('connection') as ConnectionHandle | undefined
     if (connection === undefined) throw new Error(noConnection)
-    const local = connection.rpc.open?.('/api', endpoint, payload, signal, uplink)
+    const local = connection.rpc.open?.(readBrowserApiPrefix(), endpoint, payload, signal, uplink)
     return local === undefined
       ? this.streams.open(endpoint, payload, signal, uplink)
       : normalizeConnectionStream(local)
@@ -281,7 +282,7 @@ class ClientRemoteService extends Service implements ClientRemote {
     // calls; every other carrier — the in-process Host and a non-page Client —
     // keeps Connection's HTTP call, which needs no socket of its own.
     if (connection.rpc.open !== undefined || binaryResult || !muxWorkerAvailable()) {
-      return connection.rpc.call('/api', endpoint, payload, signal)
+      return connection.rpc.call(readBrowserApiPrefix(), endpoint, payload, signal)
     }
     return parseMuxUnaryResult(await this.streams.call(endpoint, payload, signal))
   }

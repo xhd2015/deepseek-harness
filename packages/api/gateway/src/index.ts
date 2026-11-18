@@ -7,7 +7,6 @@
 
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import { REMOTE_SHARED_MUX_WORKER_PATH } from './shared-mux-worker.ts'
 import { createRequire } from 'node:module'
 import { Context, Service, symbols } from '@deepseek-ai/cordis'
 import type {
@@ -56,7 +55,6 @@ import {
   REMOTE_EVENT_STREAM_ENDPOINT,
   REMOTE_EVENT_STREAM_READY,
   REMOTE_EVENT_RESULT_ENDPOINT,
-  REMOTE_STREAM_MUX_PATH,
   REMOTE_UNARY_STREAM_ENDPOINT,
   isRemoteEventAgentId,
   parseRemoteEventResult,
@@ -253,7 +251,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
     })
     ctx.inject(['connection'], (connectionCtx) => {
       connectionCtx.connection.rpc.intercept(
-        '/api',
+        connectionCtx.connection.apiPath,
         endpoint => this.claimsEndpoint(endpoint),
         (endpoint, payload, signal, peer) => this.dispatchRpc(endpoint, payload, signal, peer),
       )
@@ -275,14 +273,14 @@ export class TypertGatewayService extends Service implements TypertGateway {
             await mux.close()
           }
           const route: WebUpgradeRoute = {
-            path: REMOTE_STREAM_MUX_PATH,
+            path: `${webCtx.connection.apiPath}/remote.mux`,
             auth: 'required',
             handler: (req, socket, head, peer) => {
               mux.handleUpgrade(req, socket, head, peer as PeerScope)
             },
           }
           yield webCtx.webServer.registerUpgrade(route)
-        }, `api-gateway: ${REMOTE_STREAM_MUX_PATH} WebSocket`)
+        }, `api-gateway: ${webCtx.connection.apiPath}/remote.mux WebSocket`)
       }
       // Existing pages reconnect before the new Host prints its URL. No stream
       // may enter until the launcher has activated and audited its controllers.
@@ -298,7 +296,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
       }, 'api-gateway: application readiness')
       webCtx.effect(() => webCtx.webServer.register({
         kind: 'exact',
-        path: REMOTE_SHARED_MUX_WORKER_PATH,
+        path: `${webCtx.connection.apiPath}/remote.shared-mux-worker.js`,
         // `required` routes the request through Connection's trust fence and
         // credential verification, the same admission every /api request takes;
         // the handler only answers the artifact once a Peer exists.
@@ -317,7 +315,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
           if (req.method === 'GET') res.end(artifact)
           else res.end()
         },
-      }), `api-gateway: ${REMOTE_SHARED_MUX_WORKER_PATH}`)
+      }), `api-gateway: ${webCtx.connection.apiPath}/remote.shared-mux-worker.js`)
     })
   }
 

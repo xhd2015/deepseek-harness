@@ -249,6 +249,8 @@
         trustedHosts: !!js ctx.webStartup.trustedHosts
         # `--trusted-host-for-settings` pages may also edit Host settings.
         trustedHostsForSettings: !!js ctx.webStartup.trustedHostsForSettings ?? []
+        # `--api-prefix` nests the channel so an outer host can keep `/api`.
+        apiPrefix: !!js ctx.webStartup.apiPrefix
 
     # `--no-auth` drops the credential layer only; the trust fence above still
     # decides which authorities may reach this listener.

@@ -5,7 +5,7 @@ import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-attachment'
 // Activates the webServer Context merge used below.
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
-import { API_PATH } from './api-path.ts'
+import { API_PATH, assertApiPrefix } from './api-path.ts'
 import { bridge, DEFAULT_MAX_REQUEST_BODY_BYTES } from './http-bridge.ts'
 import { assertTrustedAuthority } from './api-request-trust.ts'
 import { HostConnectionService } from './rpc-host.ts'
@@ -49,7 +49,7 @@ export {
 export { HostConnectionService } from './rpc-host.ts'
 export { ConnectionAuthentication } from './authentication.ts'
 
-export { API_PATH } from './api-path.ts'
+export { API_PATH, assertApiPrefix, joinApiPath, readBrowserApiPrefix } from './api-path.ts'
 
 /** Stable Cordis plugin name. */
 export const name = 'client-connection'
@@ -108,6 +108,12 @@ export interface ConnectionConfig {
   trustedHostsForSettings?: string[]
   /** Maximum buffered JSON body for every `/api` request. Default: 300 MiB. */
   maxRequestBodyBytes?: number
+  /**
+   * Absolute HTTP prefix of the shared API channel. Default: `/api`.
+   * A nested prefix such as `/api/dsh` mounts the same channel under that path,
+   * for an embedding host that already owns `/api`.
+   */
+  apiPrefix?: string
 }
 
 export const Config: z<ConnectionConfig> = z.object({
@@ -115,6 +121,7 @@ export const Config: z<ConnectionConfig> = z.object({
   trustedHosts: z.array(String).default([]),
   trustedHostsForSettings: z.array(String).default([]),
   maxRequestBodyBytes: z.natural().min(1).default(DEFAULT_MAX_REQUEST_BODY_BYTES),
+  apiPrefix: z.string().default(API_PATH),
 })
 
 /**
@@ -130,6 +137,9 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
   const trustedHosts = config?.trustedHosts ?? []
   const trustedHostsForSettings = config?.trustedHostsForSettings ?? []
   const maxRequestBodyBytes = config?.maxRequestBodyBytes ?? DEFAULT_MAX_REQUEST_BODY_BYTES
+  // A malformed prefix fails the load here rather than producing a route the
+  // transport cannot address.
+  const apiPath = assertApiPrefix(config?.apiPrefix ?? API_PATH)
   // Config boundary: a malformed entry fails the load loudly here rather than
   // silently authorizing its hostname prefix at request time.
   for (const entry of trustedHosts) assertTrustedAuthority(entry)
@@ -150,18 +160,19 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
         // The browser classifies its own page authority, so the deployment's
         // settings-trusted names travel to the page; the fence list stays Host-side.
         table.push({ kind: 'global', name: '__DSH_SETTINGS_TRUST__', value: { trustedHosts: trustedHostsForSettings } })
+        table.push({ kind: 'global', name: '__DSH_API_PREFIX__', value: apiPath })
       })
-      const fetchHandler = connection.createSharedFetchHandler(API_PATH)
+      const fetchHandler = connection.createSharedFetchHandler(apiPath)
       const route: WebRoute = {
         kind: 'prefix',
-        path: API_PATH,
+        path: apiPath,
         auth: 'required',
         handler: async (req, res, peer) => {
           if (peer === undefined || res.destroyed) return
           await webCtx.waterfall('connection/request', req, res, () => bridge(req, res, fetchHandler, peer, maxRequestBodyBytes))
         },
       }
-      webCtx.effect(() => webCtx.webServer.register(route), 'client-connection: /api route')
+      webCtx.effect(() => webCtx.webServer.register(route), `client-connection: ${apiPath} route`)
     })
   })
   ctx.inject(['attachments'], (attachmentCtx) => {
