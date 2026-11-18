@@ -53,7 +53,7 @@ const SESSION_READS = [
   'commands/list', 'fileReferences/list', 'fileUploads/upload', 'goals/get', 'goals/edit',
   'goals/clear', 'goals/complete', 'goals/create', 'goals/pause', 'goals/resume', 'job/list', 'job/follow',
   'session/attachment', 'session/control',
-  'session/events', 'session/follow', 'session/getDraft', 'session/list', 'session/observeEvent',
+  'session/events', 'session/follow', 'session/getDraft', 'session/inject', 'session/list', 'session/observeEvent',
   'session/observeProjections',
   'session/observeState', 'session/page', 'session/projections', 'session/state', 'session/wait',
   'sessionReferenceResolver/candidates', 'userQuestions/answer', 'userQuestions/attachWait',

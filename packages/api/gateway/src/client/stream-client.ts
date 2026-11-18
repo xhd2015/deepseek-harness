@@ -452,10 +452,11 @@ export class RemoteStreamMuxClient {
  */
 /**
  * Browser API prefix: transport override, then the Host-injected boot global,
- * then `/api`.
+ * then `/api`. Package-internal: the mux client and the unary dispatcher must
+ * address the same channel, and a cross-plugin value import is forbidden here.
  * @returns the absolute prefix this page addresses.
  */
-function apiPrefix(): string {
+export function apiPrefix(): string {
   const globals = globalThis as {
     __DSH_API_PREFIX__?: unknown
     __DSH_TRANSPORT__?: { apiPrefix?: unknown; streamBaseUrl?: string }
