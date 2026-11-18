@@ -35,7 +35,7 @@ kind: "package-reference"
 
 剪贴板是浏览器范围的唯一目标，因此本插件实例一次只运行一项复制。在支持 `ClipboardItem` 与 `navigator.clipboard.write` 的宿主上，控制器会在点击时请求延迟的 `ClipboardItem` 写入，同时加载文档相对的 `api/session.markdown?sessionId=<id>` 路由；其他宿主在准备完成后回退到共享剪贴板助手。复制进行中到达的请求会加入该操作，并保留第一次点击的 Session。所有 Session Header 菜单在复制操作结束前禁用各自的复制行；无关操作保持可用。成功、准备失败或剪贴板失败通过根 overlay 浮层反馈。释放会中止读取，并阻止后续文本进入由 Promise 提供的 Blob；操作系统已经接受的剪贴板写入无法回滚。
 
-挂载 `ui-message-feedback` 时，同一菜单还提供“反馈”，打开已有的 Session 反馈弹窗。打开或关闭该弹窗不会导出 Session 或提交反馈。反馈入口随反馈插件的可用状态显示；两个导出操作保持独立可用。[`ui-open-in-app`](../../client/ui-open-in-app/README.zh.md) 在下载之后、反馈之前的独立分隔组中贡献应用子菜单。
+挂载 `ui-message-feedback` 时，同一菜单还提供“反馈”，打开已有的 Session 反馈弹窗。打开或关闭该弹窗不会导出 Session 或提交反馈。反馈入口随反馈插件的可用状态显示；两个导出操作保持独立可用。[`ui-open-in-app`](../../client/ui-open-in-app/README.zh.md) 在下载之后、反馈之前的独立分隔组中贡献应用子菜单。当 Host 提供 `session/setThinkingCapAutoContinue` 时，同一菜单还提供该会话的思考触顶自动续写开关，标签显示当前状态；写入被拒绝时，该行仍显示会话实际持有的策略。
 
 ### 何时选择
 
