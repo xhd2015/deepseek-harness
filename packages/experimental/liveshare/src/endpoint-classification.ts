@@ -70,6 +70,7 @@ export const VIEWER_ENDPOINT_CLASSES = {
   'session/setDraft': 'reader-session-input', // the reader replaces the draft of a Session it may prompt
   'session/prompt': 'reader-session-input', // the reader prompts the confined source (either tier) or its own child under its ceiling
   'session/cancel': 'reader-session-input', // the reader stops its own child; a concrete source cancel is performed by the share host
+  'session/inject': 'reader-session-input', // injected messages reach the model exactly like a prompt, so they need the same grant
 
   // ── reader-fork ─────────────────────────────────────────────────────────────
   'session/fork': 'reader-fork', // the owner allowsFork switch decides the source and the reader’s own forks
