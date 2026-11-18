@@ -44,6 +44,8 @@ import type {
   SessionCreateValue,
   SessionForkRequest,
   SessionForkValue,
+  SessionInjectRequest,
+  SessionInjectValue,
   SessionPromptRequest,
   SessionPromptValue,
   SessionRenameRequest,
@@ -92,6 +94,14 @@ export class SessionCommandController {
     messages: Set<MessageId>
     requests: Set<SessionRequestId>
   }>()
+
+  /**
+   * Committed injection receipts by request id. An injected batch cannot be
+   * recognized from the log alone (an assistant event carries no request id),
+   * so the retry contract is scoped to this process: the caller that mints the
+   * id is the one retrying it.
+   */
+  private readonly injectReceipts = new Map<SessionRequestId, SessionInjectValue>()
 
   private continuation!: ProjectionHandle<ContinuationState>
 
@@ -311,6 +321,53 @@ export class SessionCommandController {
       }
     }
     return { sessionId: childId }
+  }
+
+  /**
+   * Commit one injected batch and let the Agent act on it.
+   *
+   * The batch is written by `Agent.injectBatch` in a single append, so it is
+   * one contiguous seq run and either lands whole or not at all. Injection is
+   * accepted while the Agent is idle and while it runs: the driver opens a turn
+   * in the first case and takes one more step in the second.
+   * @param request - Session identity, idempotency key, and the ordered batch.
+   * @returns committed seqs in batch order and whether the Agent acts unprompted.
+   */
+  async inject(request: SessionInjectRequest): Promise<SessionInjectValue> {
+    const prior = this.injectReceipts.get(request.requestId)
+    if (prior !== undefined) return prior
+    if (request.messages.length === 0) {
+      throw new RemoteError('gateway/bad-request', 'an injected batch needs at least one message', {})
+    }
+    for (const message of request.messages) {
+      if (message.text.trim() === '') {
+        throw new RemoteError('gateway/bad-request', `injected ${message.kind} message has no text`, {})
+      }
+    }
+    const agent = await this.resolveAgent(request.sessionId)
+    // Batch injection is an optional driver capability; say so instead of
+    // throwing a TypeError when a foreign driver is attached.
+    if (agent.injectBatch === undefined) {
+      throw new RemoteError(
+        'session/inject-unavailable',
+        `session "${request.sessionId}" is driven by an Agent without batch injection`,
+        { sessionId: request.sessionId },
+      )
+    }
+    let committed
+    try {
+      committed = agent.injectBatch(request.messages)
+    } catch (error: unknown) {
+      if (remoteErrorOf(error) !== undefined) throw error
+      throw new RemoteError(
+        'session/inject-failed',
+        `injected batch was not committed: ${String(error)}`,
+        { sessionId: request.sessionId },
+      )
+    }
+    const value: SessionInjectValue = { seqs: [...committed.seqs], started: committed.started }
+    this.injectReceipts.set(request.requestId, value)
+    return value
   }
 
   /**

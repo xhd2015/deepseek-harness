@@ -269,7 +269,51 @@ declare module './types.ts' {
    * @param message - identified injected context and the source that supplied it.
    */
     inject(message: UserMessage): void
+
+    /**
+     * Inject one batch of transcript events and make the driver act on them.
+     *
+     * The whole batch lands in a single `Session.append` call: one contiguous
+     * seq run, one durability commit, all-or-nothing. Nothing goes through the
+     * inbox, so `user` messages keep their authored position inside the batch
+     * instead of arriving at a step boundary.
+     *
+     * After the commit the driver is told there is work to do even though the
+     * inbox is untouched: an idle agent opens a turn, a running agent takes one
+     * more step. That is what makes "inject, then run" one call rather than an
+     * inject followed by a queued prompt.
+     * @param messages - ordered batch; each entry is a `user`, `thinking`
+     * (reasoning) or `assistant` (text) transcript event.
+     * @returns the committed seqs in batch order, and whether a run was started.
+     * Optional: a test double or a foreign driver may not implement batch
+     * injection at all, and callers must degrade explicitly rather than assume
+     * it exists. The shipped loop driver always provides it.
+     * @throws when the batch is empty, a text is blank, or an assistant event
+     * has no provider/model route.
+     */
+    injectBatch?(messages: readonly InjectedMessage[]): InjectedBatchResult
   }
+}
+
+/** One transcript event requested through {@link AgentRuntime.injectBatch}. */
+export type InjectedMessageKind = 'user' | 'thinking' | 'assistant'
+
+/**
+ * One entry of an injected batch. `thinking` becomes an assistant message
+ * carrying a reasoning block, `assistant` an assistant message carrying text,
+ * and `user` an ordinary user message.
+ */
+export interface InjectedMessage {
+  readonly kind: InjectedMessageKind
+  readonly text: string
+}
+
+/** What an injected batch committed, and whether it woke the driver. */
+export interface InjectedBatchResult {
+  /** Committed event seqs, in batch order. */
+  readonly seqs: readonly SessionSeq[]
+  /** Whether the driver will act on the batch without another call. */
+  readonly started: boolean
 }
 
 declare module '@deepseek-ai/cordis' {

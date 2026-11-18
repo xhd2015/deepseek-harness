@@ -11,6 +11,8 @@ import type {
   AgentOptions,
   AgentStatus,
   CancelOptions,
+  InjectedBatchResult,
+  InjectedMessage,
   ModelSelection,
   ModelSelectionProjectionState,
   InboxTarget,
@@ -24,13 +26,14 @@ import {
   LlmError,
   createAssistantMessage,
   createDeveloperMessage,
+  createUserMessage,
   errorChain,
   markAgentLoopRequest,
 } from '@deepseek-ai/dsh-llm'
 import { assertNever, deepFreeze } from '@deepseek-ai/dsh-util-values'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import { createScope } from '@deepseek-ai/dsh-scope'
-import type { EpochHeader, RequestContext, Session, SessionId, SessionSeq, TurnEndReason, UserMessage } from '@deepseek-ai/dsh-session'
+import type { EpochHeader, RequestContext, Session, SessionEventInput, SessionId, SessionSeq, TurnEndReason, UserMessage } from '@deepseek-ai/dsh-session'
 import { canonicalHeader, headerEquals, ToolCallRecovery } from '@deepseek-ai/dsh-session'
 import { renderContextSections } from '@deepseek-ai/dsh-system-prompt'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
@@ -113,6 +116,24 @@ export class ReactLoopAgent implements Agent {
   readonly inbox: ReactLoopInbox
   private phase: Phase
   private activityDone: Promise<void> = Promise.resolve()
+  /**
+   * A committed batch the driver still owes one step. Set by `injectBatch`, so
+   * injected work is durable before anyone is asked to act on it; cleared when
+   * a turn gives up without spending a step, and read at both places where a
+   * turn would otherwise stop on an empty inbox.
+   */
+  private injectedPending = false
+
+  /** Whether a committed batch still owes a step.
+   *
+   * Read through a method, not the field: within `turn()` the compiler sees
+   * only the `false` assignment below and narrows the field to that literal,
+   * hiding the `true` that `injectBatch` writes while the loop awaits a step.
+   * @returns true while a committed batch has not yet bought its step.
+   */
+  private hasInjectedPending(): boolean {
+    return this.injectedPending
+  }
 
   /** The agent-scoped registration boundary; the lifecycle owner unwinds it after the driver exits. */
   readonly scope: Scope
@@ -184,6 +205,71 @@ export class ReactLoopAgent implements Agent {
 
   inject(input: UserMessage): void {
     this.send(input, 'next-step', false)
+  }
+
+  /**
+   * Commit one batch as a single append, then make the driver act on it.
+   *
+   * Every entry becomes its own event but the batch shares one
+   * `Session.append` call, so the log grows by a contiguous seq run that is
+   * persisted once — a partial batch cannot reach disk. Nothing is routed
+   * through the inbox, which is what lets a `user` entry keep its authored
+   * position between two assistant entries instead of landing at the next step
+   * boundary.
+   *
+   * The commit is the durability point; `injectedPending` is the intent to
+   * spend a step on it. An idle driver wakes immediately, a running driver is
+   * left alone because it re-reads the log at its own next step.
+   * @param messages - ordered batch of user, thinking and assistant entries.
+   * @returns the committed seqs and whether the driver will act unprompted.
+   */
+  injectBatch(messages: readonly InjectedMessage[]): InjectedBatchResult {
+    if (messages.length === 0) throw new Error('agent "' + this.id + '": injected batch is empty')
+    const selection = this.model.current() ?? this.options
+    const turn = this.currentTurn()
+    const step = this.currentStep()
+    const inputs: SessionEventInput[] = messages.map((message) => {
+      const text = message.text.trim()
+      if (text === '') throw new Error('agent "' + this.id + '": injected ' + message.kind + ' has no text')
+      switch (message.kind) {
+        case 'user':
+          return ['user/message', createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }), { surfaceOp: 'append' }]
+        case 'thinking':
+        case 'assistant':
+          return ['assistant/message', {
+            turn,
+            step,
+            message: createAssistantMessage({
+              content: [{ type: message.kind === 'thinking' ? 'reasoning' : 'text', text }],
+              source: { provider: selection.provider ?? '', model: selection.model ?? '' },
+            }),
+            stream: [{
+              type: message.kind === 'thinking' ? 'reasoning-chunks' : 'text-chunks',
+              time0: Date.now(),
+              index: 0,
+              dt: [],
+              texts: [text],
+            }],
+          }, { surfaceOp: 'append' }]
+      }
+    })
+    const committed = this.session.append(inputs)
+    this.injectedPending = true
+    // A running driver reads the log at its next step already; only an idle one
+    // needs waking, and waking it here is what turns "inject" into "inject and run".
+    if (this.phase.kind === 'idle') this.wakeDriver()
+    else if (this.phase.kind === 'maintenance') this.phase.wakeRequested = true
+    return { seqs: committed.map(event => event.seq), started: true }
+  }
+
+  /** Turn the next step is attributed to: the open one, or the next to open. */
+  private currentTurn(): number {
+    return this.phase.kind === 'running' ? this.phase.turn : this.phase.lastTurn + 1
+  }
+
+  /** Step the next model call is attributed to, matching the turn above. */
+  private currentStep(): number {
+    return this.phase.kind === 'running' ? this.phase.step + 1 : 1
   }
 
   cancel(cause: AgentCancelCause, options: CancelOptions = {}): void {
@@ -346,15 +432,19 @@ export class ReactLoopAgent implements Agent {
           return false
         }
         try {
-          if (turnEnds && decision.messages.length === 0) break
+          // A committed injected batch buys one step without inbox input: its
+          // messages are already on the surface, so an empty claim is expected.
+          if (turnEnds && decision.messages.length === 0 && !this.hasInjectedPending()) break
           // A removed waking message or an enter decision rewritten to empty
           // still owns the initial turn boundary, but it spends no model call.
-          if (phase.step === 0 && decision.messages.length === 0) {
+          if (phase.step === 0 && decision.messages.length === 0 && !this.hasInjectedPending()) {
             turnEnds = { kind: 'completed' }
             return false
           }
           signal.throwIfAborted()
           this.session.append('step/start', { turn, step })
+          // This step is the one the injected batch paid for.
+          this.injectedPending = false
           phase.step = step
           const toolRecovery = new ToolCallRecovery()
           const stopRecovery = this.ctx.on('session/event', (session, event) => {
@@ -388,11 +478,13 @@ export class ReactLoopAgent implements Agent {
           decision.toolSet.dispose()
         }
         signal.throwIfAborted()
-        if (turnEnds && this.inbox.nextStep.length === 0) {
+        // Injected work also keeps the turn alive: stopping here would leave the
+        // batch unread until some later prompt woke the agent again.
+        if (turnEnds && this.inbox.nextStep.length === 0 && !this.hasInjectedPending()) {
           await this.dispatch.serial('agent/turn-stopping', { turn, signal })
           signal.throwIfAborted()
         }
-        if (turnEnds && this.inbox.nextStep.length === 0) break
+        if (turnEnds && this.inbox.nextStep.length === 0 && !this.hasInjectedPending()) break
         target = 'next-step'
       }
     } catch (error: unknown) {

@@ -204,6 +204,8 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'session/steer-unavailable': { readonly itemId: MessageId }
     'session/title-invalid': { readonly sessionId: SessionId }
     'session/fork-unavailable': { readonly sessionId: SessionId }
+    'session/inject-unavailable': { readonly sessionId: SessionId }
+    'session/inject-failed': { readonly sessionId: SessionId }
     'session/migration-required': { readonly sessionId: SessionId }
     'subagent/not-found': {
       readonly parentSessionId: SessionId
@@ -347,6 +349,31 @@ export interface SessionPromptRequest {
 /** Receipt after one prompt enters the target Agent inbox. */
 export interface SessionPromptValue {
   readonly accepted: true
+}
+
+/** One entry of an injected batch, in transcript order. */
+export interface SessionInjectMessage {
+  /** `user` writes a user message; `thinking` and `assistant` write assistant messages. */
+  readonly kind: 'user' | 'thinking' | 'assistant'
+  /** Non-blank transcript text. */
+  readonly text: string
+}
+
+/** Inject one ordered batch as a single committed append, then let the Agent act on it. */
+export interface SessionInjectRequest {
+  /** Client-minted idempotency key: a retry with the same id must not append twice. */
+  readonly requestId: SessionRequestId
+  readonly sessionId: SessionId
+  /** Ordered batch; an empty batch is rejected. */
+  readonly messages: readonly SessionInjectMessage[]
+}
+
+/** Receipt after one injected batch commits. */
+export interface SessionInjectValue {
+  /** Committed event seqs, in batch order. */
+  readonly seqs: readonly number[]
+  /** Whether the Agent will act on the batch without another call. */
+  readonly started: boolean
 }
 
 /** Durable image read request. */
