@@ -258,10 +258,21 @@ class ClientRemoteService extends Service implements ClientRemote {
       : normalizeConnectionStream(local)
   }
 
+  /**
+   * Dispatch one unary Remote call. `binaryResult` selects Connection HTTP
+   * FormData so a `Uint8Array` result can round-trip; the mux is JSON-only.
+   * @param endpoint - Typert Remote unary endpoint.
+   * @param payload - endpoint request encoded on the wire.
+   * @param signal - cancellation for this invocation.
+   * @param binaryResult - whether the result codec encodes binary attachments.
+   * @param noConnection - message used when no Connection is composed.
+   * @returns the carrier's unary result.
+   */
   private async callRemote(
     endpoint: string,
     payload: unknown,
     signal: AbortSignal,
+    binaryResult = false,
     noConnection = `client api: ${endpoint} has no active Connection`,
   ): Promise<ConnectionRpcResult<unknown>> {
     const connection = this.ownerCtx.get('connection') as ConnectionHandle | undefined
@@ -269,7 +280,7 @@ class ClientRemoteService extends Service implements ClientRemote {
     // Only a page that shares the origin-wide mux worker rides it for unary
     // calls; every other carrier — the in-process Host and a non-page Client —
     // keeps Connection's HTTP call, which needs no socket of its own.
-    if (connection.rpc.open !== undefined || !muxWorkerAvailable()) {
+    if (connection.rpc.open !== undefined || binaryResult || !muxWorkerAvailable()) {
       return connection.rpc.call('/api', endpoint, payload, signal)
     }
     return parseMuxUnaryResult(await this.streams.call(endpoint, payload, signal))
@@ -486,7 +497,12 @@ class ClientRemoteService extends Service implements ClientRemote {
       throw new Error(`client api: ${endpoint} has no active Connection`)
     }
     try {
-      const result = await this.callRemote(endpoint, { args: prepared.args }, prepared.signal)
+      const result = await this.callRemote(
+        endpoint,
+        { args: prepared.args },
+        prepared.signal,
+        usesHttpBinaryResult(descriptor.result),
+      )
       if (!mountActive(token)) return withdrawn(endpoint)
       prepared.signal.throwIfAborted()
       if (!result.ok) return { ok: false, error: rebuiltFailure(result.error) }
@@ -855,6 +871,15 @@ function requireStrictCodec(codec: TypertCodec, endpoint: string, field: string)
   if (codec.mode !== 'strict') {
     throw new Error(`client api: generated Remote ${endpoint} field ${JSON.stringify(field)} has no strict codec`)
   }
+}
+
+/**
+ * Whether a unary result codec carries binary attachments.
+ * @param codec - the descriptor's result codec.
+ * @returns true when the codec defines `encode`, which FormData can carry.
+ */
+function usesHttpBinaryResult(codec: TypertCodec): boolean {
+  return 'encode' in codec && codec.encode !== undefined
 }
 
 function parseMuxUnaryResult(value: unknown): ConnectionRpcResult<unknown> {
