@@ -21,6 +21,8 @@ export interface DraftPersistenceDeps {
 export class DraftPersistence {
   private pending: string | undefined
   private readonly loaded: Promise<void>
+  /** Settles after the initial Host draft read (adopt or keep-local) finishes. */
+  readonly whenLoaded: Promise<void>
   private loading = true
   private writing: Promise<void> | undefined
   private disposed = false
@@ -39,6 +41,7 @@ export class DraftPersistence {
       this.flush()
     })
     this.loaded = this.load()
+    this.whenLoaded = this.loaded
   }
 
   private async load(): Promise<void> {
