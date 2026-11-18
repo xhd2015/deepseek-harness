@@ -136,6 +136,8 @@ export interface ISessions {
   fork(opts: {
     sessionId: SessionId
     atSeq?: number
+    /** Child working directory; omission copies the source cwd. */
+    cwd?: string
     increaseTitle?: boolean
     onCreated?: (childId: SessionId) => void
     /** False refuses source migration; omission preserves the Host default. */
