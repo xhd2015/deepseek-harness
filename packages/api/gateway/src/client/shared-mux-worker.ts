@@ -17,7 +17,16 @@ interface SharedWorkerConnectEvent extends Event {
   readonly ports: readonly MessagePort[]
 }
 
+/**
+ * How long one physical handshake may stay unsettled before this Worker
+ * abandons it. A stalled carrier would otherwise hold `socket` at CONNECTING
+ * forever: every later logical open queues behind it, and because the browser
+ * keys a SharedWorker by name, no page reload can replace the stuck instance.
+ */
+const HANDSHAKE_TIMEOUT_MS = 10_000
+
 let socket: WebSocket | undefined
+let handshakeTimer: ReturnType<typeof setTimeout> | undefined
 let hmrSource: EventSource | undefined
 let pending: RemoteStreamClientMessage[] = []
 const ports = new Set<MessagePort>()
@@ -40,10 +49,21 @@ function failStreams(): void {
   pending = []
 }
 
+/**
+ * Abandon the armed handshake timer, if any.
+ * @returns nothing; the timer no longer fires.
+ */
+function clearHandshake(): void {
+  if (handshakeTimer === undefined) return
+  clearTimeout(handshakeTimer)
+  handshakeTimer = undefined
+}
+
 /** Dispose a broken physical carrier once, then notify every affected logical stream. */
 function failSocket(candidate: WebSocket, message: string): void {
   void message
   if (socket !== candidate) return
+  clearHandshake()
   socket = undefined
   failStreams()
 }
@@ -69,8 +89,20 @@ function ensureSocket(): void {
   if (socket !== undefined && (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN)) return
   const candidate = new WebSocket(socketUrl())
   socket = candidate
+  // A handshake that never settles must give the slot back: an armed timer
+  // abandons this candidate so the next logical open starts a fresh one.
+  clearHandshake()
+  handshakeTimer = setTimeout(() => {
+    handshakeTimer = undefined
+    if (socket !== candidate) return
+    failSocket(candidate, 'api gateway: Remote stream WebSocket handshake timed out')
+    if (candidate.readyState === WebSocket.CONNECTING || candidate.readyState === WebSocket.CLOSING) {
+      candidate.close(4003, 'handshake timed out')
+    }
+  }, HANDSHAKE_TIMEOUT_MS)
   candidate.addEventListener('open', () => {
     if (socket !== candidate) return
+    clearHandshake()
     const queued = pending
     pending = []
     for (const message of queued) candidate.send(JSON.stringify(message))
