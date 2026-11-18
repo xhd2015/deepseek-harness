@@ -70,6 +70,27 @@ export function apply(ctx: ClientContext): void {
         run: () => controller.download(sessionId) },
     ],
   }), 'session-log-download: Header exports')
+  ctx.inject(['sessions'], (scope) => { scope.effect(() => scope.contextMenus.register({
+    id: 'session-log-download.auto-continue', target: 'sessionHeader', order: 500,
+    observe: ({ sessionId }) => {
+      const session = ctx.sessions.binding(sessionId)?.session
+      return session === undefined ? [ctx.locale] : [session.projections.faceOf('thinkingCapAutoContinue'), ctx.locale]
+    },
+    resolve: ({ sessionId }) => {
+      const session = ctx.sessions.binding(sessionId)?.session
+      // A host that does not serve the policy keeps the row out rather than offering a dead toggle.
+      if (session === undefined || typeof session.setThinkingCapAutoContinue !== 'function') return []
+      const enabled = session.projections.faceOf('thinkingCapAutoContinue').getSnapshot() === true
+      return [{
+        id: 'auto-continue',
+        label: t(enabled ? 'menu.autoContinueOn' : 'menu.autoContinueOff'),
+        separatorBefore: true,
+        // A refused write leaves the projection unchanged, so a re-resolve still reads the old policy.
+        run: () => { void session.setThinkingCapAutoContinue(!enabled) },
+      }]
+    },
+  }), 'session-log-download: Header auto-continue') })
+
   ctx.effect(() => ctx.contextMenus.register({
     id: 'session-log-download.feedback', target: 'sessionHeader', order: 600,
     observe: () => [feedbackAvailable, ctx.locale],
