@@ -143,12 +143,38 @@ export class SessionCommandController {
       }
     }
     const cwd = workspace?.path ?? request.cwd ?? this.defaultCwd
+    // Validate the requested initial route and effort before anything is created,
+    // so a bad pair fails without leaving a Session behind.
+    let modelSelection: AgentModelSelection | undefined
+    if (request.modelSelection !== undefined) {
+      const requested = request.modelSelection
+      try {
+        await this.requireModel(requested)
+        const candidate: AgentModelSelection = {
+          provider: requested.provider,
+          model: requested.model,
+          ...(requested.reasoningEffort === undefined
+            ? {}
+            : { reasoningEffort: brandString<ReasoningEffortId>(requested.reasoningEffort) }),
+        }
+        await this.ctx.llm.resolveCallConfig(candidate)
+        modelSelection = candidate
+      } catch (error: unknown) {
+        if (remoteErrorOf(error) !== undefined) throw error
+        throw new RemoteError(
+          'session/model-unavailable',
+          error instanceof Error ? error.message : String(error),
+          { provider: requested.provider, model: requested.model },
+        )
+      }
+    }
     let created: ApiSessionCreated
     try {
       created = await this.agents.createSession({
         ...(request.sessionId === undefined ? {} : { sessionId: request.sessionId }),
         cwd,
         ...(request.agentPreset === undefined ? {} : { agentPreset: request.agentPreset }),
+        ...(modelSelection === undefined ? {} : { modelSelection }),
         reusable: sessionId => !this.ctx.workspaceRegistry.archivedSessionIds.includes(sessionId)
           && (workspace === undefined || workspace.sessionIds.includes(sessionId)),
       })
@@ -167,7 +193,11 @@ export class SessionCommandController {
         )
       }
     }
-    return { sessionId, ...(created.agentPreset === undefined ? {} : { agentPreset: created.agentPreset }) }
+    return {
+      sessionId,
+      ...(created.agentPreset === undefined ? {} : { agentPreset: created.agentPreset }),
+      ...(created.modelSelection === undefined ? {} : { modelSelection: created.modelSelection }),
+    }
   }
 
   /**

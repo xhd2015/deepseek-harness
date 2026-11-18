@@ -614,6 +614,79 @@ describe('Web session model selection', () => {
     expect(currentSelection(ctx, first.sessionId)).toEqual(selection)
   })
 
+  it('records a Session-only initial selection through create and leaves the default alone', async () => {
+    const { ctx, agent: template } = await harness()
+    onTestFinished(() => ctx.fiber.dispose())
+    const saved: unknown[] = []
+    ctx.provide('workspaceRegistry', { get: () => undefined, list: () => [], archivedSessionIds: [] } as never)
+    const stored = { provider: 'deepseek-official', model: 'deepseek-chat' }
+    const remote = await createSessionTestRemote(ctx, {
+      defaultModelSelection: () => stored,
+      saveDefaultModelSelection: (selection) => { saved.push(selection) },
+      cwd: '/tmp',
+    })
+    ctx.agents.setFactory({
+      async createAgent(ownerCtx, options) {
+        const session = ctx.sessions.create(options.sessionId, {
+          ...options.meta === undefined ? {} : { meta: options.meta },
+        })
+        const agentOptions = options.agentOptions ?? {}
+        const projection = await ownerCtx.sessionProjections.register(modelSelectionProjectionDefinition)
+        const model = new AgentModel(() => projection.stateOf(session), session, agentOptions)
+        const agent: Agent = { ...template, id: session.id, session, ctx: ownerCtx, options: agentOptions, model }
+        await options.setup?.(ownerCtx, agent)
+        await ctx.agents.register(agent)
+        return { agent, dispose: () => Promise.resolve() }
+      },
+      resume: () => Promise.reject(new Error('unexpected resume')),
+    })
+
+    const selected = { provider: 'deepseek-official', model: 'deepseek-reasoner', reasoningEffort: 'max' }
+    const created = expectValue(await remote.create({ cwd: '/tmp', modelSelection: selected }))
+    expect(created.modelSelection).toEqual(selected)
+    const agent = ctx.agents.get(created.sessionId)!
+    expect(agent.model.current()).toEqual(selected)
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'model/selection'))
+      .toMatchObject([{ data: selected }])
+    // The deployment default never follows a creation-time choice.
+    expect(saved).toEqual([])
+    expect(ctx.agentDefaultModel.currentSelection()).toEqual(stored)
+
+    // A reuse that asks for the same choice adds no event.
+    const sessionCwd = agent.session.header.cwd!
+    expectValue(await remote.create({ cwd: sessionCwd, sessionId: created.sessionId, modelSelection: selected }))
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'model/selection')).toHaveLength(1)
+
+    // A different choice on the same blank Session is refused.
+    expect(await remote.create({
+      cwd: sessionCwd,
+      sessionId: created.sessionId,
+      modelSelection: { provider: 'deepseek-official', model: 'deepseek-chat' },
+    })).toMatchObject({ ok: false, error: { code: 'session/model-conflict' } })
+  })
+
+  it('rejects an unavailable initial selection before creating a Session', async () => {
+    const { ctx, agent: template } = await harness()
+    onTestFinished(() => ctx.fiber.dispose())
+    const remote = await createSessionTestRemote(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      cwd: '/tmp',
+    })
+    const createAgent = vi.fn()
+    ctx.agents.setFactory({ createAgent, resume: () => Promise.reject(new Error('unexpected resume')) })
+
+    for (const modelSelection of [
+      { provider: 'missing', model: 'reasoner' },
+      { provider: 'deepseek-official', model: 'missing' },
+    ]) {
+      expect(await remote.create({ cwd: '/tmp', modelSelection }))
+        .toMatchObject({ ok: false, error: { code: 'session/model-unavailable' } })
+    }
+    // Validation precedes creation, so no Agent was ever asked for.
+    expect(createAgent).not.toHaveBeenCalled()
+    void template
+  })
+
   it('keeps a session on its logged selection when the Agent default differs', async () => {
     const { ctx, sessionId } = await harness({
       provider: 'deepseek-official',
