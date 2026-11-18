@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.2-rc.3/compaction-headroom-clamp/guide.md
+/:
+  en: 322819404ca04a4e
+  zh: ef2497962ed41ed0
+/compaction-basic-caps-headroomtokens-at-the-slack-thresholdratio-leaves:
+  en: 7517f24643479fec
+  zh: 2b8376c5a9cff26a
+/compaction-basic-caps-headroomtokens-at-the-slack-thresholdratio-leaves/change:
+  en: d05ed7a903ca0e7c
+  zh: c0521b0060f652c6
+/compaction-basic-caps-headroomtokens-at-the-slack-thresholdratio-leaves/migration:
+  en: ba8c5240ea4a5b3f
+  zh: 6cc4fd098ec51aac

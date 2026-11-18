@@ -69,17 +69,17 @@
   en: 880f15be2fc5852a
   zh: 880f15be2fc5852a
 /session-persistence-event-catalog/events/compaction/compaction-end-log-only:
-  en: ece48ed752df3e98
-  zh: 3143dd8ca601b918
+  en: d17f0fcb7cb773f0
+  zh: 6cfa6c59ac5b1e94
 /session-persistence-event-catalog/events/compaction/compaction-prune-log-only:
-  en: 4c30767cbce7c15a
-  zh: 3a4acbcb0e0eb85f
+  en: 8aed2094a0a9dada
+  zh: b29f50f474826d17
 /session-persistence-event-catalog/events/compaction/compaction-start-log-only:
-  en: 5050e06fc9816475
-  zh: 06ac4a38fb30c287
+  en: c0450b77fd44d9b0
+  zh: 7afca02a3899ada3
 /session-persistence-event-catalog/events/compaction/compaction-summary-log-only:
-  en: ed9405189dc8c5e6
-  zh: f078e8d2cae4d0ca
+  en: 3db2d67615d5d76e
+  zh: 7aabbf8c14c57e1c
 /session-persistence-event-catalog/events/deliverables:
   en: 501dcee7db8f8117
   zh: 501dcee7db8f8117
@@ -1533,8 +1533,8 @@
   en: 87b03e1c73d2a326
   zh: d7b9f06863cad891
 /session-persistence-event-catalog/resolved-persistence-types/compactionid-error-sourcecommandid-turn:
-  en: 96152fe81878819f
-  zh: 4500b4175f1a75f1
+  en: 85bfb6c146931570
+  zh: 10c8e64b3711b6ca
 /session-persistence-event-catalog/resolved-persistence-types/compactionid-llmstreamcall-maxtokens-model:
   en: e09878c92be35a9e
   zh: cfae949bc46d026a
@@ -1575,8 +1575,8 @@
   en: cc0470d67a4b8745
   zh: b7d54c9b9a89feef
 /session-persistence-event-catalog/resolved-persistence-types/end-start:
-  en: 4b7a8793663d3fef
-  zh: 249459c825d330c3
+  en: 5d0340e218ca4ed5
+  zh: cda6f7c1c30c7122
 /session-persistence-event-catalog/resolved-persistence-types/endseq-op-startseq:
   en: fa5d66e5943e1b3e
   zh: 3e0fcdfdb7b3857f
@@ -2031,8 +2031,8 @@
   en: 8063597183ef767f
   zh: b064698c54089f07
 /session-persistence-event-catalog/resolved-persistence-types/shadowedrange-shadowedseqs-shadowedtokencount:
-  en: 7a2ab7b62244f43b
-  zh: 1084e3f8876feebc
+  en: 31f82f961b1968d7
+  zh: e780eb8669e3e1c1
 /session-persistence-event-catalog/resolved-persistence-types/step-stream-turn:
   en: 437c3f90b4142f49
   zh: 45f523f619485941
@@ -2094,11 +2094,11 @@
   en: 4fe43b168566ae84
   zh: 1a041890f87409f3
 /session-persistence-event-catalog/resolved-persistence-types/type-compaction-prune:
-  en: 65d2a09449403f70
-  zh: 7aa4063a4f997092
+  en: bcd037d91fe0b128
+  zh: c20afac9463534da
 /session-persistence-event-catalog/resolved-persistence-types/type-compaction-start:
-  en: 184ea1eef46cb0cc
-  zh: ad2a7b77040a0448
+  en: 34045d81ee3354f6
+  zh: 008d0e48ebdfaa25
 /session-persistence-event-catalog/resolved-persistence-types/type-compaction-summary:
   en: ba73fb10b7e2ffc9
   zh: 8d5c97e63e5f16da

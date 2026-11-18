@@ -481,8 +481,11 @@ describe('compact configuration and defaults', () => {
       model: 'shared-id',
     })
 
+    // The 600-token headroom exceeds the 500-token slack under the 0.5 ratio,
+    // so the ratio ceiling — not the headroom — decides where pressure starts.
     expect(resolveCompactSpec(small, 1_000, 0)).toMatchObject({
-      thresholdTokens: 400,
+      thresholdTokens: 500,
+      headroomTokens: 500,
       retainTokens: 120,
     })
     expect(resolveCompactSpec(otherProvider, 2_000, 0)).toMatchObject({
@@ -533,16 +536,68 @@ describe('compact configuration and defaults', () => {
     })
   })
 
-  it.each([500, 501])('rejects headroom %i that exhausts the remaining capacity', (headroomTokens) => {
+  it.each([
+    // A default headroom larger than the ratio slack is capped, so a routed
+    // output reservation cannot push the trigger below `thresholdRatio`.
+    [500_000, 384_000, 65_536, 92_800, 18_560],
+    [500_000, 393_216, 65_536, 85_427, 17_085],
+    // 262_144 leaves only 52_429 tokens of slack, below the 65_536 default.
+    [262_144, 0, 65_536, 209_715, 41_943],
+    // Ample slack keeps the configured headroom in force.
+    [500_000, 0, 65_536, 400_000, 80_000],
+    [1_048_576, 256_000, 65_536, 727_040, 126_812],
+    [1_000_000, 256_000, 65_536, 678_464, 119_040],
+  ])('caps the configured headroom at the slack of window %i and output cap %i', (window, output, headroomTokens, threshold, retained) => {
     const policy = resolveTargetPolicy(resolveConfig({ headroomTokens }), { provider: MODEL, model: MODEL })
-    expect(() => resolveCompactSpec(policy, 1_000, 500))
-      .toThrow(/headroom tokens.*leaving no pressure budget/)
+    const spec = resolveCompactSpec(policy, window, output)
+    const messageBudgetTokens = window - output
+
+    expect(spec).toMatchObject({
+      contextWindow: window,
+      reservedCompletionTokens: output,
+      headroomTokens: Math.min(
+        headroomTokens,
+        messageBudgetTokens - Math.floor(messageBudgetTokens * policy.thresholdRatio),
+      ),
+      thresholdTokens: threshold,
+      retainTokens: retained,
+    })
+    expect(spec.thresholdTokens).toBeLessThanOrEqual(Math.floor(window * policy.thresholdRatio))
   })
 
-  it('rejects ratio retention that reaches the headroom-limited threshold', () => {
-    const policy = resolveTargetPolicy(resolveConfig({ headroomTokens: 420 }), { provider: MODEL, model: MODEL })
+  it('keeps a headroom that stays under the slack of the threshold ratio', () => {
+    const policy = resolveTargetPolicy(resolveConfig({ headroomTokens: 100 }), { provider: MODEL, model: MODEL })
+    expect(resolveCompactSpec(policy, 1_000, 0)).toMatchObject({
+      headroomTokens: 100,
+      thresholdTokens: 800,
+      retainTokens: 160,
+    })
+  })
+
+  it('leaves no slack above the ratio ceiling when the threshold ratio is 1', () => {
+    const policy = resolveTargetPolicy(resolveConfig({ thresholdRatio: 1 }), { provider: MODEL, model: MODEL })
+    expect(resolveCompactSpec(policy, 1_000, 0)).toMatchObject({
+      headroomTokens: 0,
+      thresholdTokens: 1_000,
+      retainTokens: 160,
+    })
+  })
+
+  it('resolves a headroom that exceeds the whole message budget by capping it', () => {
+    const policy = resolveTargetPolicy(resolveConfig({ headroomTokens: 500 }), { provider: MODEL, model: MODEL })
+    expect(resolveCompactSpec(policy, 1_000, 500)).toMatchObject({
+      headroomTokens: 100,
+      thresholdTokens: 400,
+    })
+  })
+
+  it('rejects ratio retention that reaches the threshold', () => {
+    const policy = resolveTargetPolicy(
+      resolveConfig({ headroomTokens: 0, maxTokens: 8192, retainTokens: 500 }),
+      { provider: MODEL, model: MODEL },
+    )
     expect(() => resolveCompactSpec(policy, 1_000, 500))
-      .toThrow(/retainTokens \(80\) must be less than threshold tokens 80/)
+      .toThrow(/retainTokens \(500\) must be less than threshold tokens 500/)
   })
 
   it('rejects a reserve that leaves no message budget or is not a count', () => {
@@ -1073,7 +1128,26 @@ describe('pressure measurement and retention', () => {
     expect(result?.shadowedSeqs.length).toBeGreaterThan(0)
     expect(result?.shadowedSeqs).not.toContain(last)
   })
-})
+
+  it('records the pressure budget that admitted an automatic compaction', async () => {
+    const compact = service({ auto: false, thresholdRatio: 0.5, retainTokens: 180 })
+    const session = conversation(4)
+
+    await compactIfNeeded(compact, session)
+
+    const started = session.snapshotEvents()
+      .filter(event => event.type === 'compaction/start')
+    expect(started).toHaveLength(1)
+    expect(started[0]?.data).toMatchObject({
+      budget: {
+        contextWindow: 1_000,
+        reservedCompletionTokens: 0,
+        headroomTokens: 0,
+        thresholdTokens: 500,
+        retainTokens: 180,
+      },
+    })
+  })})
 
 describe('optional model-free tool-result pruning', () => {
   const pruneConfig = { thresholdChars: 100, headChars: 20, tailChars: 10 }
@@ -1985,7 +2059,9 @@ describe('model-switch pressure', () => {
     expect(ctx.tokenMeter.measure(session).totalTokens).toBeLessThan(300)
   })
 
-  it.each([false, true])('requires a valid small-window policy even for short history (override: %s)', async (override) => {
+  // A headroom larger than the ratio slack is capped rather than rejected, so
+  // this small window resolves a legal budget with or without a model override.
+  it.each([false, true])('caps a large default headroom on a small window (override: %s)', async (override) => {
     const { ctx, adapter } = harness({
       headroomTokens: 65_536, maxTokens: 65_536,
       modelPolicies: override ? [{ provider: '64k', model: '64k', headroomTokens: 4_096, maxTokens: 4_096 }] : [],
@@ -1994,9 +2070,7 @@ describe('model-switch pressure', () => {
     const session = conversation(1, 'short')
     const previous = session.requestHeader()
     const selected = { provider: '64k', model: '64k', maxTokens: 4_096 }
-    const switching = request(ctx, session, selected)
-    if (override) await expect(switching).resolves.toEqual(selected)
-    else await expect(switching).rejects.toMatchObject({ code: 'MODEL_SWITCH_COMPACTION_FAILED' })
+    await expect(request(ctx, session, selected)).resolves.toEqual(selected)
     expect(session.requestHeader()).toEqual(previous)
     expect(adapter.lastOptions).toBeUndefined()
   })
@@ -2291,6 +2365,25 @@ describe('automatic listener and loader composition', () => {
     expect(warnings).toEqual([
       expect.stringContaining('retainTokens (500) must be less than threshold tokens 500'),
     ])
+  })
+
+  it('warns once per routed target when the ratio caps the configured headroom', async () => {
+    const ctx = createContext(1_000)
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: string) => void warnings.push(message)) as typeof ctx.logger.warn
+    const compact = new TestCompactionEngine(ctx, { headroomTokens: 500 })
+    const session = conversation(4, 'bulk '.repeat(400).trim())
+
+    await preStep(ctx, agent(session, MODEL))
+    await preStep(ctx, agent(session, MODEL))
+
+    expect(warnings).toEqual([
+      expect.stringContaining('headroomTokens 500 exceeds the 200-token slack'),
+    ])
+    expect(warnings[0]).toContain('thresholdRatio 0.8 leaves in a 1000-token window')
+    expect(warnings[0]).toContain('pressure starts at 800 tokens')
+    // The clipped result still compacts: the warning reports tightening, not a failure.
+    expect(compact.calls.length).toBeGreaterThan(0)
   })
 
   it.each([1_000, 1_500])('warns once and continues when the output reserve is %i for a 1,000-token window', async (maxTokens) => {

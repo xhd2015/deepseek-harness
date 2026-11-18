@@ -554,6 +554,12 @@ export interface ConnectionConfig {
   trustedHostsForSettings?: string[]
   /** Maximum buffered JSON body for every `/api` request. Default: 300 MiB. */
   maxRequestBodyBytes?: number
+  /**
+   * Absolute HTTP prefix of the shared API channel. Default: `/api`.
+   * A nested prefix such as `/api/dsh` mounts the same channel under that path,
+   * for an embedding host that already owns `/api`.
+   */
+  apiPrefix?: string
 }
 
 /** Timing for generation readiness and automatic reconnection. */
@@ -912,9 +918,9 @@ export interface BasicCompactionConfig extends CompactionPolicyConfig {
 
 /** Policy fields shared by the default policy and exact model overrides. */
 export interface CompactionPolicyConfig {
-  /** Window fraction for pressure; capped at context window minus reserved output and `headroomTokens`. Defaults to `0.8`. */
+  /** Window fraction where pressure starts; headroom may only lower it further. Defaults to `0.8`. */
   thresholdRatio?: number
-  /** Additional pressure headroom beyond the routed output reservation. Non-negative integer; defaults to `65536`. */
+  /** Pressure slack below the `thresholdRatio` ceiling, capped at what that ratio leaves. Non-negative integer; defaults to `65536`. */
   headroomTokens?: number
   /** Recent context retained as a fraction of context window minus reserved output tokens. Defaults to `0.16`. */
   retainRatio?: number

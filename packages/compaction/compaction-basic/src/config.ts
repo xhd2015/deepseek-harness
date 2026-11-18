@@ -141,9 +141,11 @@ export function resolveTargetPolicy(
 /**
  * Scale one routed policy into concrete token budgets for its model capacity.
  *
- * Pressure is capped by both the window fraction and the capacity remaining
- * after the routed output reservation plus compaction headroom. Retention scales
- * the message budget before headroom is deducted.
+ * Pressure is capped by the window fraction, the message-budget fraction, and
+ * the capacity remaining after the routed output reservation plus headroom.
+ * Headroom only tightens those fractions: it is capped at the slack the ratio
+ * leaves, so `thresholdRatio` always bounds where pressure starts. Retention
+ * scales the message budget before headroom is deducted.
  *
  * @param policy - merged policy for the exact routed target.
  * @param contextWindow - positive adapter-owned capacity for that target.
@@ -178,16 +180,14 @@ export function resolveCompactSpec(
       + "the adapter model's contextWindow above the effective request maxTokens",
     )
   }
-  const pressureBudgetTokens = messageBudgetTokens - policy.headroomTokens
-  if (pressureBudgetTokens <= 0) {
-    throw new TargetPressureConfigError(
-      targetKey,
-      `compaction-basic: ${targetKey} reserves ${reservedCompletionTokens} completion tokens `
-      + `and ${policy.headroomTokens} headroom tokens of its ${contextWindow}-token context `
-      + 'window, leaving no pressure budget; reduce the effective request maxTokens or '
-      + 'compaction headroomTokens, or configure a larger adapter model contextWindow',
-    )
-  }
+  // Derived by subtraction from the integer ceiling so the slack below the
+  // ratio is exact; `1 - thresholdRatio` loses a token to binary rounding.
+  const ratioSlackTokens = messageBudgetTokens - Math.floor(messageBudgetTokens * policy.thresholdRatio)
+  // Headroom may only tighten inside the slack the ratio leaves; a larger value
+  // cannot move the trigger below `thresholdRatio` because that would leave the
+  // retained tail and the next step no room after compaction.
+  const headroomTokens = Math.min(policy.headroomTokens, ratioSlackTokens)
+  const pressureBudgetTokens = messageBudgetTokens - headroomTokens
   const thresholdTokens = Math.floor(Math.min(
     contextWindow * policy.thresholdRatio,
     pressureBudgetTokens,
@@ -205,6 +205,8 @@ export function resolveCompactSpec(
   return deepFreeze({
     target: { ...policy.target },
     contextWindow,
+    reservedCompletionTokens,
+    headroomTokens,
     thresholdRatio: policy.thresholdRatio,
     thresholdTokens,
     retainTokens,
