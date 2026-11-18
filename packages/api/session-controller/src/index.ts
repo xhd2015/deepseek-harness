@@ -51,6 +51,8 @@ import type {
   SessionFollowRequest,
   SessionForkRequest,
   SessionForkValue,
+  SessionInjectRequest,
+  SessionInjectValue,
   SessionListRequest,
   SessionListValue,
   SessionOpenWorkspacePathRequest,
@@ -519,6 +521,19 @@ export class SessionController extends TypertRemoteService {
       ...(principal === undefined ? {} : { principal }),
     }
     return this.commands.prompt(request, source)
+  }
+
+  /**
+   * Commit one injected transcript batch (user, thinking, assistant) and let the
+   * Agent run on it. Accepted whether the Agent is idle or already running.
+   * @param request - Session identity, idempotency key, and the ordered batch.
+   * @param signal - caller cancellation before the batch is committed.
+   * @returns committed seqs in batch order and whether the Agent acts unprompted.
+   */
+  @Remote('inject')
+  inject(request: SessionInjectRequest, signal: AbortSignal): Promise<SessionInjectValue> {
+    signal.throwIfAborted()
+    return this.commands.inject(request)
   }
 
   /**
