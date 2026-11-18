@@ -536,21 +536,23 @@ export class SessionManager {
    * @returns the fork result (the child session id).
    */
   async fork(
-    opts: { sessionId: SessionId; atSeq?: SessionSeq; allowMigration?: boolean },
+    opts: { sessionId: SessionId; atSeq?: SessionSeq; cwd?: string; allowMigration?: boolean },
   ): Promise<RemoteResult<{ sessionId: SessionId }>> {
     const source = this.summaries.find(s => s.sessionId === opts.sessionId)
     const result = await this.remote.session.fork({
       sessionId: opts.sessionId,
       ...opts.atSeq === undefined ? {} : { atSeq: opts.atSeq },
+      ...opts.cwd === undefined ? {} : { cwd: opts.cwd },
       ...opts.allowMigration === undefined ? {} : { allowMigration: opts.allowMigration },
     })
     const childId = result.ok
       ? result.value.sessionId
       : workspaceAttachSessionId(result.error)
     if (childId !== undefined) {
+      const childCwd = opts.cwd ?? source?.cwd
       this.recordMutation({ kind: 'placeholder', summary: { agentAvailable: true,
         sessionId: childId, updatedAt: Date.now(), running: false, blank: true,
-        ...(source?.cwd !== undefined ? { cwd: source.cwd } : {}),
+        ...(childCwd === undefined ? {} : { cwd: childCwd }),
       } })
     }
     return result

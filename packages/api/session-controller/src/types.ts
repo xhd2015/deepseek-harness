@@ -331,6 +331,8 @@ export interface SessionForkRequest {
   readonly atSeq?: number
   /** False asks the Host to check for required migration before forking. Defaults to true. */
   readonly allowMigration?: boolean
+  /** Child working directory; omission copies the source header cwd. */
+  readonly cwd?: string
 }
 
 /** Identity of a newly forked Session. */

@@ -23,6 +23,7 @@ import { SessionLogOffset, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import { SessionQueryError, type SessionObservation } from '@deepseek-ai/dsh-session-query'
 import { SessionTitleInvalidError } from '@deepseek-ai/dsh-session-title'
+import { isAbsoluteWorkspacePath } from '@deepseek-ai/dsh-util-workspace-path'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 import { RemoteError, remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
 import type { Workspace } from '@deepseek-ai/dsh-workspace'
@@ -293,9 +294,12 @@ export class SessionCommandController {
     }
     const seed = buildForkSeed(source.events, boundary)
     const endSeq = SessionLogOffset(Math.min(boundary + 1, source.persistedEventCount ?? boundary + 1))
+    const cwd = this.forkChildCwd(request.cwd, source.header.cwd)
     let workspace: Workspace | undefined
     try {
-      workspace = await this.forkWorkspace(source.header)
+      workspace = request.cwd === undefined
+        ? await this.forkWorkspace(source.header)
+        : this.forkWorkspaceAt(cwd)
     } catch (error) {
       throw new RemoteError(
         'gateway/internal',
@@ -313,7 +317,7 @@ export class SessionCommandController {
         parentSource: { sessionId: request.sessionId, endSeq },
         inheritedEventCount: SessionLogOffset(boundary + 1),
         meta: {
-          ...(source.header.cwd === undefined ? {} : { cwd: source.header.cwd }),
+          ...(cwd === undefined ? {} : { cwd }),
           isSeeded: true,
           ...(composition.agentPreset === undefined
             ? {}
@@ -643,6 +647,32 @@ export class SessionCommandController {
       throw apiSessionSubagentOwnershipError(error.sessionId)
     }
     throw new RemoteError('gateway/internal', `failed to create session: ${String(error)}`, {})
+  }
+
+  /**
+   * Resolve the child working directory. An explicit cwd must be a non-empty
+   * fully qualified path; omission copies the source header cwd.
+   * @param requested - optional child cwd from the fork request.
+   * @param sourceCwd - source Session header cwd.
+   * @returns the cwd written on the child header, when any.
+   */
+  private forkChildCwd(requested: string | undefined, sourceCwd: string | undefined): string | undefined {
+    if (requested === undefined) return sourceCwd
+    const cwd = requested.trim()
+    if (cwd === '' || !isAbsoluteWorkspacePath(cwd)) {
+      throw new RemoteError('gateway/bad-request', 'fork cwd must be a fully qualified directory', {})
+    }
+    return cwd
+  }
+
+  /**
+   * Attach the registered Workspace whose path is the requested child cwd.
+   * @param cwd - child working directory, when the request named one.
+   * @returns the matching Workspace, or undefined when none is registered there.
+   */
+  private forkWorkspaceAt(cwd: string | undefined): Workspace | undefined {
+    if (cwd === undefined) return undefined
+    return this.ctx.workspaceRegistry.list().find(workspace => workspace.path === cwd)
   }
 
   private async forkWorkspace(source: SessionHeader): Promise<Workspace | undefined> {

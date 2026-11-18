@@ -369,6 +369,40 @@ describe('sessions.fork', () => {
     await ctx.fiber.dispose()
   })
 
+  it('writes an explicit cwd and attaches that Workspace instead of the source', async () => {
+    const attachSource = vi.fn<(sessionId: SessionId) => Promise<void>>().mockResolvedValue(undefined)
+    const attachChild = vi.fn<(sessionId: SessionId) => Promise<void>>().mockResolvedValue(undefined)
+    const sourceSessions: SessionId[] = []
+    const sourceWorkspace = {
+      id: 'ws-source', path: '/proj', sessionIds: sourceSessions, attachSession: attachSource,
+    } as unknown as Workspace
+    const otherWorkspace = {
+      id: 'ws-other', path: '/other', sessionIds: [] as SessionId[], attachSession: attachChild,
+    } as unknown as Workspace
+    const ctx = await composed([sourceWorkspace, otherWorkspace])
+    const source = await liveAgent(ctx, 'session-source-cwd', 1)
+    sourceSessions.push(source.id)
+    const response = await (await remote(ctx)).fork(request({ sessionId: source.id, cwd: '/other' }))
+    expect(response.ok ? null : response.error).toBeNull()
+    if (!response.ok) return
+    expect(ctx.sessions.get(response.value.sessionId)?.header.cwd).toBe('/other')
+    expect(attachChild).toHaveBeenCalledWith(response.value.sessionId)
+    expect(attachSource).not.toHaveBeenCalled()
+    await ctx.fiber.dispose()
+  })
+
+  it('rejects a relative or blank fork cwd', async () => {
+    const ctx = await composed()
+    const source = await liveAgent(ctx, 'session-bad-cwd', 1)
+    for (const cwd of ['', '  ', 'relative/path']) {
+      const response = await (await remote(ctx)).fork(request({ sessionId: source.id, cwd }))
+      expect(response.ok).toBe(false)
+      if (response.ok) continue
+      expect(response.error.code).toBe('gateway/bad-request')
+    }
+    await ctx.fiber.dispose()
+  })
+
   it('attaches a subagent fork to its nearest workspace-owning ancestor', async () => {
     const accounted: SessionId[] = []
     const attachSession = vi.fn<(sessionId: SessionId) => Promise<void>>()
