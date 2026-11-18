@@ -199,6 +199,7 @@ export class InputHub implements SessionInputResolver {
    * @param hasLocalChanges - whether browser recovery includes text not yet acknowledged by the Host.
    * @param acknowledge - mark the matching browser-local value as saved.
    * @returns the local mirror disposer; Host synchronization lasts until scope disposal.
+   * @param onLoaded - runs after the initial Host draft read settles, when requested.
    */
   bindDraftMirror(
     id: SessionId, write: (text: string) => void, hasLocalChanges: boolean, acknowledge: (text: string) => void,

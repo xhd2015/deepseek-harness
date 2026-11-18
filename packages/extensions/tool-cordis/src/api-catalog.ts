@@ -697,9 +697,9 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         throws: ['{@link ManualCompactionError} for expected busy, agent-cancellation, changed-span, summarization/shrink, commit-stage, or persistence failures; an aborted request preserves its exact abort reason. Failed attempts remain visible in the log.'],
       },
       {
-        signature: 'abstract compactRegion( start: SessionSeq, end: SessionSeq, agent: CompactionAgentContext, signal?: AbortSignal, ): Promise<CompactionResult>',
+        signature: 'abstract compactRegion( start: SessionSeq, end: SessionSeq, agent: CompactionAgentContext, signal?: AbortSignal, budget?: CompactionBudget, ): Promise<CompactionResult>',
         description: 'Forcibly compact a range of surface nodes into a single summary node. `start` and `end` name an inclusive span by surface position, not numeric seq order; replacements can make visible seqs non-monotonic. Both edges must be balanced so assistant tool calls remain paired with their results. A model- backed implementation forwards cancellation and rejects active, missing, reversed, or unbalanced ranges. The target session is `agent.session`. Its replacement user message must use compactCheckpointSource with the transaction\'s `CompactionId`. Use toolPairingBalancedBefore and toolPairingBalancedAfter for the edge checks.',
-        parameters: [{ name: 'start', description: 'first surface seq, inclusive.' }, { name: 'end', description: 'last surface seq, inclusive.' }, { name: 'agent', description: 'context whose session is mutated and whose routing options guide summarization.' }, { name: 'signal', description: 'optional cancellation; model-backed implementations must forward it.' }],
+        parameters: [{ name: 'start', description: 'first surface seq, inclusive.' }, { name: 'end', description: 'last surface seq, inclusive.' }, { name: 'agent', description: 'context whose session is mutated and whose routing options guide summarization.' }, { name: 'signal', description: 'optional cancellation; model-backed implementations must forward it.' }, { name: 'budget', description: 'pressure budget that admitted an automatic trigger, recorded on `compaction/start` so the reason survives with the log.' }],
         returns: 'the appended event seqs, summary, replaced range, and token accounting.',
         throws: ['when compaction is active or the range is missing, reversed, or unbalanced.'],
       },
@@ -749,6 +749,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'Host `ctx.connection` members consumed by transport-independent adapters.',
     methods: [
       {
+        signature: 'readonly apiPath: string',
+        description: 'Absolute HTTP prefix of the shared API channel (`/api` or a nested prefix).',
+        parameters: [],
+      },
+      {
         signature: 'readonly rpc: HostConnectionRpc',
         description: 'Generic RPC channel registry.',
         parameters: [],
@@ -769,7 +774,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [],
       },
       {
-        signature: 'createSharedFetchHandler(channel: \'/api\'): ConnectionFetchHandler',
+        signature: 'createSharedFetchHandler(channel: string): ConnectionFetchHandler',
         description: 'Compose exact Fetch routes and the shared-channel RPC interceptor.',
         parameters: [{ name: 'channel', description: 'shared channel mounted by Connection.' }],
         returns: 'Fetch handler for trusted, authenticated requests.',
@@ -3006,6 +3011,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the normalized selection installed for the Session, without waiting for default persistence.',
       },
       {
+        signature: '@Remote(\'selectDefaultModel\') selectDefaultModel(request: SessionSelectDefaultModelRequest): Promise<SessionSelectModelValue>',
+        description: 'Persist the deployment default model without addressing a Session.',
+        parameters: [{ name: 'request', description: 'provider, model, and optional reasoning effort.' }],
+        returns: 'the normalized selection after the default is durable.',
+      },
+      {
         signature: '@Remote async initializeDefaultModel(): Promise<void>',
         description: 'Select the first available account model after login when no provider API key is configured.',
         parameters: [],
@@ -3060,6 +3071,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Admit one prompt after explicitly resuming its Session.',
         parameters: [{ name: 'request', description: 'Session identity, prompt content, source metadata, and delivery mode.' }, { name: 'signal', description: 'caller cancellation before prompt admission begins.' }],
         returns: 'acknowledgement that the Agent accepted the prompt.',
+      },
+      {
+        signature: '@Remote(\'inject\') inject(request: SessionInjectRequest, signal: AbortSignal): Promise<SessionInjectValue>',
+        description: 'Commit one injected transcript batch (user, thinking, assistant) and let the Agent run on it. Accepted whether the Agent is idle or already running.',
+        parameters: [{ name: 'request', description: 'Session identity, idempotency key, and the ordered batch.' }, { name: 'signal', description: 'caller cancellation before the batch is committed.' }],
+        returns: 'committed seqs in batch order and whether the Agent acts unprompted.',
       },
       {
         signature: '@Remote(\'attachment\') attachment(request: SessionAttachmentRequest): Promise<SessionAttachmentValue>',
@@ -6416,6 +6433,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface CompactionAgentContext {\n    session: Session;\n    options: {\n        provider?: string;\n        model?: string;\n    };\n}',
   },
   {
+    name: 'CompactionBudget',
+    declaration: 'export interface CompactionBudget {\n    contextWindow: number;\n    reservedCompletionTokens: number;\n    headroomTokens: number;\n    thresholdTokens: number;\n    retainTokens: number;\n}',
+  },
+  {
     name: 'CompactionId',
     declaration: 'export type CompactionId = Branded<\'CompactionId\'>;',
   },
@@ -7337,7 +7358,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'HostConnectionRpc',
-    declaration: 'export interface HostConnectionRpc {\n    handle(channel: string, handler: ConnectionRpcHandler): () => Promise<void>;\n    intercept(channel: \'/api\', matches: ConnectionRpcEndpointMatcher, handler: ConnectionRpcHandler): () => Promise<void>;\n}',
+    declaration: 'export interface HostConnectionRpc {\n    handle(channel: string, handler: ConnectionRpcHandler): () => Promise<void>;\n    intercept(channel: string, matches: ConnectionRpcEndpointMatcher, handler: ConnectionRpcHandler): () => Promise<void>;\n}',
   },
   {
     name: 'ImageAttachmentLimits',
@@ -9169,7 +9190,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionForkRequest',
-    declaration: 'export interface SessionForkRequest {\n    readonly sessionId: SessionId;\n    readonly atSeq?: number;\n    readonly allowMigration?: boolean;\n}',
+    declaration: 'export interface SessionForkRequest {\n    readonly sessionId: SessionId;\n    readonly atSeq?: number;\n    readonly allowMigration?: boolean;\n    readonly cwd?: string;\n}',
   },
   {
     name: 'SessionForkSource',
@@ -9210,6 +9231,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionId',
     declaration: 'export type SessionId = Branded<\'SessionId\'>;',
+  },
+  {
+    name: 'SessionInjectMessage',
+    declaration: 'export interface SessionInjectMessage {\n    readonly kind: \'user\' | \'thinking\' | \'assistant\';\n    readonly text: string;\n}',
+  },
+  {
+    name: 'SessionInjectRequest',
+    declaration: 'export interface SessionInjectRequest {\n    readonly requestId: SessionRequestId;\n    readonly sessionId: SessionId;\n    readonly messages: readonly SessionInjectMessage[];\n}',
+  },
+  {
+    name: 'SessionInjectValue',
+    declaration: 'export interface SessionInjectValue {\n    readonly seqs: readonly number[];\n    readonly started: boolean;\n}',
   },
   {
     name: 'SessionInspection',
@@ -9482,6 +9515,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionSeedEventState',
     declaration: 'export type SessionSeedEventState = \'detached\' | \'shared-frozen\';',
+  },
+  {
+    name: 'SessionSelectDefaultModelRequest',
+    declaration: 'export type SessionSelectDefaultModelRequest = ModelSelection;',
   },
   {
     name: 'SessionSelectModelRequest',

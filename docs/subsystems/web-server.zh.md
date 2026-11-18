@@ -147,7 +147,7 @@ Host `ctx.connection` members consumed by transport-independent adapters.
  * @param channel - shared channel mounted by Connection.
  * @returns Fetch handler for trusted, authenticated requests.
  */
-createSharedFetchHandler(channel: '/api'): ConnectionFetchHandler
+createSharedFetchHandler(channel: string): ConnectionFetchHandler
 
 /**
  * Apply Host/Origin checks and admit the first live Peer returned by a registered credential verifier.

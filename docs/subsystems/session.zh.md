@@ -936,6 +936,13 @@ resolveAgent(sessionId: SessionId): Promise<ApiSessionAgentResult>
 @Remote('selectModel') selectModel(request: SessionSelectModelRequest): Promise<SessionSelectModelValue>
 
 /**
+ * Persist the deployment default model without addressing a Session.
+ * @param request - provider, model, and optional reasoning effort.
+ * @returns the normalized selection after the default is durable.
+ */
+@Remote('selectDefaultModel') selectDefaultModel(request: SessionSelectDefaultModelRequest): Promise<SessionSelectModelValue>
+
+/**
  * Select the first available account model after login when no provider API key is configured.
  * @returns after saving the first available model or retaining the existing default.
  */
@@ -1000,6 +1007,15 @@ workspaceDesktop(): { name: string; available: boolean; fileManager: 'finder' | 
  * @returns acknowledgement that the Agent accepted the prompt.
  */
 @Remote('prompt') async prompt(request: SessionPromptRequest, signal: AbortSignal): Promise<SessionPromptValue>
+
+/**
+ * Commit one injected transcript batch (user, thinking, assistant) and let the
+ * Agent run on it. Accepted whether the Agent is idle or already running.
+ * @param request - Session identity, idempotency key, and the ordered batch.
+ * @param signal - caller cancellation before the batch is committed.
+ * @returns committed seqs in batch order and whether the Agent acts unprompted.
+ */
+@Remote('inject') inject(request: SessionInjectRequest, signal: AbortSignal): Promise<SessionInjectValue>
 
 /**
  * Read one image from the attachment store after gateway authorization.

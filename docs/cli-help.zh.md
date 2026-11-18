@@ -196,6 +196,7 @@ Options:
   --public-url <url>                          advertise this HTTP(S) root in the printed, opened, runtime-context, and DSH_WEB_URL forms; grants no trust
   --trusted-host <authority...>               extra authority the /api browser-trust fence accepts (host or host:port; repeatable)
   --trusted-host-for-settings <authority...>  authority whose page may also read and write Host settings, including credentials (host or host:port; repeatable; each must also be a --trusted-host)
+  --api-prefix <path>                         absolute HTTP prefix of the shared API channel (default /api; use /api/dsh when an outer host already owns /api)
   --tls-cert <file>                           PEM server certificate chain; requires --tls-key
   --tls-key <file>                            unencrypted PEM private key; requires --tls-cert
   --browser <name>                            browser to open (brave, chrome, firefox, edge, safari)
