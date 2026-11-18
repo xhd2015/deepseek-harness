@@ -15,8 +15,13 @@
   en: 1fdf707322fb6996
   zh: 0204f7e9d4aa3cce
 /session-controller/use-this-package:
+<<<<<<< HEAD
   en: 958951f6e7fdc5de
   zh: 73d73a5d51b45eba
+=======
+  en: 70b13517d2b41395
+  zh: d92b98d7df6451bc
+>>>>>>> f9c13f2bd8 (feat(api): report which sessions are running a turn)
 /session-controller/client-references:
   en: 8c9fb80b590c47ff
   zh: db2902daf76e46f8
