@@ -908,6 +908,16 @@ resolveAgent(sessionId: SessionId): Promise<ApiSessionAgentResult>
 @Remote('search') async search(request: SessionSearchRequest, signal: AbortSignal): Promise<SessionSearchValue>
 
 /**
+ * Report whether each named or loaded Session is running a turn, without
+ * listing, resuming, or projecting. The answer names only Sessions whose
+ * Agent this caller admits, so an omitted id is unknown here rather than
+ * idle, and a reader with its own liveness source keeps that source.
+ * @param request - Session ids to report, or every loaded Agent when omitted.
+ * @returns the running flag of each admitted Session that currently has an Agent.
+ */
+@Remote('status') status(request: SessionStatusRequest): SessionStatusValue
+
+/**
  * Create one ordinary Session for a new conversation, reusing the named blank Session while it is reusable.
  * @param request - optional blank Session to reuse, location, and Agent preset.
  * @returns the created or reused Session identity and its preset when configured.

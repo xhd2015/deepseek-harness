@@ -105,6 +105,7 @@ export const VIEWER_ENDPOINT_CLASSES = {
   'session/initializeDefaultModel': 'owner-only', // owner initializes a Session default model
   'session/openWorkspacePath': 'owner-only', // owner opens a Workspace path
   'session/search': 'owner-only', // owner searches across Sessions
+  'session/status': 'reader-global-read', // reader asks which visible Sessions run a turn
   'session/selectDefaultModel': 'owner-only', // owner saves the deployment default model
   'session/selectModel': 'owner-only', // owner selects a Session model
   'session/updateQueue': 'owner-only', // owner edits queued input
