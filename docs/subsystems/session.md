@@ -942,6 +942,13 @@ resolveAgent(sessionId: SessionId): Promise<ApiSessionAgentResult>
 @Remote('selectModel') selectModel(request: SessionSelectModelRequest): Promise<SessionSelectModelValue>
 
 /**
+ * Record this Session's thinking-cap auto-continue policy.
+ * @param request - Session identity and requested policy.
+ * @returns the stored policy and the durable seq the Client applies.
+ */
+@Remote('setThinkingCapAutoContinue') setThinkingCapAutoContinue( request: SessionSetThinkingCapAutoContinueRequest, ): Promise<SessionSetThinkingCapAutoContinueValue>
+
+/**
  * Persist the deployment default model without addressing a Session.
  * @param request - provider, model, and optional reasoning effort.
  * @returns the normalized selection after the default is durable.

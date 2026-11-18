@@ -123,6 +123,12 @@ export function contextProducer(source: unknown): ContextProducerView {
  * @param content - Core content blocks.
  * @returns Trajectory blocks in source order.
  */
+/**
+ * Classify finalized Assistant content for trajectory rendering.
+ * @param content - Core content blocks.
+ * @param replayBlocks - replay blocks stored at the same indexes, when the source has them.
+ * @returns Chat blocks in source order.
+ */
 export function toAssistantBlocks(
   content: readonly ContentBlock[],
   replayBlocks?: readonly unknown[],
@@ -134,6 +140,12 @@ export function toAssistantBlocks(
  * Classify one finalized Assistant block for Trajectory rendering.
  * @param block - Core content block.
  * @returns Trajectory block.
+ */
+/**
+ * Classify one finalized Assistant block for trajectory rendering.
+ * @param block - Core content block.
+ * @param replayBlock - replay block stored at the same index, when the source has one.
+ * @returns Chat block.
  */
 export function toAssistantBlock(block: ContentBlock, replayBlock?: unknown): AssistantBlock {
   switch (block.type) {

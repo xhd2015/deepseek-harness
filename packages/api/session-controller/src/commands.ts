@@ -54,6 +54,8 @@ import type {
   SessionSelectDefaultModelRequest,
   SessionSelectModelRequest,
   SessionSelectModelValue,
+  SessionSetThinkingCapAutoContinueRequest,
+  SessionSetThinkingCapAutoContinueValue,
   SessionUpdateQueueRequest,
   SessionUpdateQueueValue,
   SessionRequestId,
@@ -198,6 +200,30 @@ export class SessionCommandController {
       ...(created.agentPreset === undefined ? {} : { agentPreset: created.agentPreset }),
       ...(created.modelSelection === undefined ? {} : { modelSelection: created.modelSelection }),
     }
+  }
+
+  /**
+   * Record the Session-local thinking-cap auto-continue policy after resuming the Session.
+   * @param request - Session identity and requested policy.
+   * @returns the policy stored on the Session log and the seq the Client applies.
+   */
+  async setThinkingCapAutoContinue(
+    request: SessionSetThinkingCapAutoContinueRequest,
+  ): Promise<SessionSetThinkingCapAutoContinueValue> {
+    const agent = await this.resolveAgent(request.sessionId)
+    const current = this.ctx.sessionProjections
+      .snapshot(agent.session, ['thinkingCapAutoContinue'])
+      .values.thinkingCapAutoContinue
+    if (current === request.enabled) {
+      const cursor = Number(agent.session.seq)
+      return { enabled: request.enabled, seq: cursor === 0 ? 0 : cursor - 1 }
+    }
+    const event = agent.session.append(
+      'session/thinking-cap-auto-continue',
+      { enabled: request.enabled },
+      { ignorable: true },
+    )
+    return { enabled: request.enabled, seq: event.seq }
   }
 
   /**
