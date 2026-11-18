@@ -144,6 +144,7 @@ export function skillInvocationName(source: unknown): string | null {
 /**
  * Classify finalized Assistant content for Chat rendering.
  * @param content - Core content blocks.
+ * @param replayBlocks - replay blocks stored at the same indexes, when the source has them.
  * @returns Chat blocks in source order.
  */
 export function toAssistantBlocks(

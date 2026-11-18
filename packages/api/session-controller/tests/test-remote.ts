@@ -63,6 +63,8 @@ import type {
   SessionRenameValue,
   SessionSearchRequest,
   SessionSearchValue,
+  SessionSetThinkingCapAutoContinueRequest,
+  SessionSetThinkingCapAutoContinueValue,
   SessionStatusRequest,
   SessionStatusValue,
   SessionSelectDefaultModelRequest,
@@ -83,6 +85,9 @@ export interface TestSessionRemote {
   list(request: SessionListRequest, signal?: AbortSignal): Promise<RemoteResult<SessionListValue>>
   search(request: SessionSearchRequest, signal?: AbortSignal): Promise<RemoteResult<SessionSearchValue>>
   status(request: SessionStatusRequest): Promise<RemoteResult<SessionStatusValue>>
+  setThinkingCapAutoContinue(
+    request: SessionSetThinkingCapAutoContinueRequest,
+  ): Promise<RemoteResult<SessionSetThinkingCapAutoContinueValue>>
   create(request: SessionCreateRequest): Promise<RemoteResult<SessionCreateValue>>
   selectModel(request: SessionSelectModelRequest): Promise<RemoteResult<SessionSelectModelValue>>
   selectDefaultModel(request: SessionSelectDefaultModelRequest): Promise<RemoteResult<SessionSelectModelValue>>
@@ -407,6 +412,7 @@ export async function createSessionTestRemote(
       signal,
     ),
     status: request => remoteResult(() => direct.status(request)),
+    setThinkingCapAutoContinue: request => remoteResult(() => direct.setThinkingCapAutoContinue(request)),
     create: request => remoteResult(() => direct.create(request)),
     selectModel: request => remoteResult(() => direct.selectModel(request)),
     selectDefaultModel: request => remoteResult(() => direct.selectDefaultModel(request)),

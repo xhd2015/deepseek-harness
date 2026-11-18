@@ -60,6 +60,7 @@
 | `event:schedule/change` | event | `a0a2e5c42e1c929445ecd1cd70f49be6b66441894ec72c08e8ae332821d4a3cb` | [`{ type: "schedule/change" }`](#persistence-type-sha256-a0a2e5c42e1c929445ecd1cd70f49be6b66441894ec72c08e8ae332821d4a3cb) |
 | `event:session-log-deepseek/delivery-accepted` | event | `d63b8b8ffad9c02fd80c43a17df4f240c1fe8118ecca9de34f9d5871838ab5b9` | [`{ type: "session-log-deepseek/delivery-accepted" }`](#persistence-type-sha256-d63b8b8ffad9c02fd80c43a17df4f240c1fe8118ecca9de34f9d5871838ab5b9) |
 | `event:session/end-seed` | event | `5e6db6e24948d4a853c71cb9fabd252ad051ce93d4672c1266cf837c1c17b84e` | [`{ type: "session/end-seed" }`](#persistence-type-sha256-5e6db6e24948d4a853c71cb9fabd252ad051ce93d4672c1266cf837c1c17b84e) |
+| `event:session/thinking-cap-auto-continue` | event | `dd91d27c73c092df79ec5a54b350165a702d40a62ec248d7fedead5ffaa27973` | [`{ type: "session/thinking-cap-auto-continue" }`](#persistence-type-sha256-dd91d27c73c092df79ec5a54b350165a702d40a62ec248d7fedead5ffaa27973) |
 | `event:session/title` | event | `1b912703e2d64f91c99c675b8f805b01076c8325b905c1218ad81ef0b24909d5` | [`{ type: "session/title" }`](#persistence-type-sha256-1b912703e2d64f91c99c675b8f805b01076c8325b905c1218ad81ef0b24909d5) |
 | `event:session/title-llm-request` | event | `64b6ec45d21f5aed32624819c44ba5c918bbe11ca9c464496d9dbe0606dcb829` | [`{ type: "session/title-llm-request" }`](#persistence-type-sha256-64b6ec45d21f5aed32624819c44ba5c918bbe11ca9c464496d9dbe0606dcb829) |
 | `event:step/end` | event | `e0a787e6ec76c7c94fecbc501b489164ab0293db05bc947914077ad01e674f05` | [`{ type: "step/end" }`](#persistence-type-sha256-e0a787e6ec76c7c94fecbc501b489164ab0293db05bc947914077ad01e674f05) |
@@ -203,7 +204,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }
 ```
 
-来源：[`packages/core/agent/src/types.ts:110`](../packages/core/agent/src/types.ts)
+来源：[`packages/core/agent/src/types.ts:113`](../packages/core/agent/src/types.ts)
 
 ### `agent-preset/*`
 
@@ -727,7 +728,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'model/selection': ModelSelection
 ```
 
-来源：[`packages/core/agent/src/types.ts:121`](../packages/core/agent/src/types.ts)
+来源：[`packages/core/agent/src/types.ts:124`](../packages/core/agent/src/types.ts)
 
 ### `permission/*`
 
@@ -877,6 +878,24 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 ```
 
 来源：[`packages/core/session/src/types.ts:442`](../packages/core/session/src/types.ts)
+
+<a id="sessionthinking-cap-auto-continue--log-only"></a>
+
+#### `session/thinking-cap-auto-continue` — log-only
+
+```ts persistence-catalog
+/**
+ * Per-Session policy: auto-continue when thinking fills `max_tokens`.
+ * Log-only last-write-wins; writers mark it `ignorable` so older readers
+ * skip it and keep auto-continue off.
+ */
+'session/thinking-cap-auto-continue': {
+  /** Whether a later reasoning-only `max-tokens` stop should auto-continue. */
+  enabled: boolean
+}
+```
+
+来源：[`packages/core/agent/src/types.ts:130`](../packages/core/agent/src/types.ts)
 
 <a id="sessiontitle--log-only"></a>
 
@@ -2627,6 +2646,14 @@ SHA-256: `1c2686c0682e7bc51d61117b2652bd4a80707e331aa276d6ef915ae32534a330`
 
 `"session/end-seed"`
 
+<a id="persistence-type-sha256-6ee77c82970976377885685100e7f5049266a2699bfbf9ba03a701aa6ce814ac"></a>
+
+### `"session/thinking-cap-auto-continue"`
+
+SHA-256: `6ee77c82970976377885685100e7f5049266a2699bfbf9ba03a701aa6ce814ac`
+
+`"session/thinking-cap-auto-continue"`
+
 <a id="persistence-type-sha256-7a651f3b672c52fb615f22c0ce9cb3cc5b22aad92e6bbeefb0808fd7b9233a50"></a>
 
 ### `"session/title"`
@@ -2866,6 +2893,14 @@ SHA-256: `f9cfc89e8fe085b4fcc9cd32b74b6f103608c54d7d8cd97b47c01de34f252ba3`
 SHA-256: `5abab3a27fd2736660ecddd94b28d6bbf114986dd894880153bd1be3ccacb563`
 
 `"text-delta"`
+
+<a id="persistence-type-sha256-14422afba70f21ed95ad94baec53dada9cd12a42c3fb4eec6aa91fd15253d998"></a>
+
+### `"thinking-cap-auto-continue"`
+
+SHA-256: `14422afba70f21ed95ad94baec53dada9cd12a42c3fb4eec6aa91fd15253d998`
+
+`"thinking-cap-auto-continue"`
 
 <a id="persistence-type-sha256-8067b0d232c350f189738e60ee3c9939d46ca3b32b45db5525237b077893f649"></a>
 
@@ -4005,7 +4040,7 @@ SHA-256: `9e2c06d8653585b33d72d5c1a80da79c8a24a88c284409bca15cc0f0ead5ebfb`
 
 SHA-256: `96f4a9c81fc0f940ef71528a8cc66731ae4cf1f40d79680c5fe3c39f96d7723c`
 
-来源：[`packages/core/agent/src/types.ts:40`](../packages/core/agent/src/types.ts)
+来源：[`packages/core/agent/src/types.ts:41`](../packages/core/agent/src/types.ts)
 
 以下类型之一：
 
@@ -4485,6 +4520,7 @@ SHA-256: `c519fc9b5b12fa24780e5d87a511f0b973e06633b8939150449986cffb76ddd7`
 | `subagent-settled` | `"notice"` | `senderSessionId`: `string`; `summary`: `string` | [`SubagentSettledMessageSource`](#persistence-type-sha256-848639f8787f035b480ec53cb5686850897c5e8006d87ca231cd8a9ee8634936) |
 | `system-prompt` | 未声明 | 无 | [`SystemPromptMessageSource`](#persistence-type-sha256-3d1339bcc98cb53714bf31ac4a6e7c9ce15a412dd58451778a383627367a4666) |
 | `team-message` | 未声明 | `messageId`: `string`; `senderId`: `string`; `senderName`: `string`; `teamId`: `string` | [`TeamMessageSource`](#persistence-type-sha256-2152caf1a71e588e4df2358a806dea24936c1c47131134f01a12939d12cdc0c0) |
+| `thinking-cap-auto-continue` | 未声明 | 无 | [`{ kind: "thinking-cap-auto-continue" }`](#persistence-type-sha256-eca3a8cbb71c377b2f094d462180040a6c1fc6d50677a472fd7bf2e6a85291ae) |
 | `time-context` | `"catalog"` | 无 | [`{ kind: "time-context", form: "catalog" }`](#persistence-type-sha256-85fe96bf15d5c7559eec3bae4d6cf1a76fda9f5be05a29c2830cff560cab0c0d) |
 | `time-context` | `"instructions"` | 无 | [`{ kind: "time-context", form: "instructions" }`](#persistence-type-sha256-f6afe41e3926f422fe849debe90819fddd739f0f59e20be9c71018b9554a7f09) |
 | `time-context` | `"notice"` | `summary`: `string` | [`{ kind: "time-context", form: "notice" }`](#persistence-type-sha256-ee577a0cc18664c9daee50e9455153321155604f8f1817362f8f4a4b6fb9e1ad) |
@@ -4567,7 +4603,7 @@ SHA-256: `719c51f67074f97034a6c94297fe1f4b5d3c8d392c57586dab732aa5398c7a91`
 
 SHA-256: `f09e5e7acf5ff5ccd193ff2eeec015fa2ff7c29d98bc465f8c3302058d47e29b`
 
-来源：[`packages/core/agent/src/types.ts:79`](../packages/core/agent/src/types.ts)
+来源：[`packages/core/agent/src/types.ts:82`](../packages/core/agent/src/types.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
@@ -6580,7 +6616,7 @@ SHA-256: `0a92c5bdfa06c2e2615b777728f3aa95f408d43b9012e7b754568311251db623`
 
 SHA-256: `c2a13242efc3bea4b36a843ddf1524ff4d33c765a71b582fa1fdbfa4fa148434`
 
-来源：[`packages/team/agent-team/src/types.ts:177`](../packages/team/agent-team/src/types.ts)
+来源：[`packages/core/agent/src/types.ts:130`](../packages/core/agent/src/types.ts) · [`packages/team/agent-team/src/types.ts:177`](../packages/team/agent-team/src/types.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
@@ -6783,7 +6819,7 @@ SHA-256: `17d1afb770d9941936130996da00dc86782cfef731d8d6526162c301256a4ac3`
 
 SHA-256: `72258a6fae4af8fdb2934cb16af46b7d5c8b7f25f84785164532f237b9b69270`
 
-来源：[`packages/core/agent/src/types.ts:110`](../packages/core/agent/src/types.ts)
+来源：[`packages/core/agent/src/types.ts:113`](../packages/core/agent/src/types.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
@@ -7767,6 +7803,18 @@ SHA-256: `1d76406cbb2ddadb0dbbb51e9d8bc6cf678fed455cf8eb512f36f7c86d37a62f`
 | 属性 | 存在性 | 类型 |
 |---|---|---|
 | `kind` | 必需 | `"stop"` |
+
+<a id="persistence-type-sha256-eca3a8cbb71c377b2f094d462180040a6c1fc6d50677a472fd7bf2e6a85291ae"></a>
+
+### `{ kind: "thinking-cap-auto-continue" }`
+
+SHA-256: `eca3a8cbb71c377b2f094d462180040a6c1fc6d50677a472fd7bf2e6a85291ae`
+
+来源：[`packages/core/agent-loop/src/thinking-cap-auto-continue.ts:53`](../packages/core/agent-loop/src/thinking-cap-auto-continue.ts)
+
+| 属性 | 存在性 | 类型 |
+|---|---|---|
+| `kind` | 必需 | `"thinking-cap-auto-continue"` |
 
 <a id="persistence-type-sha256-b79641a9d25e756636dc0c706fdf3c4583ccb7d4920e009e6e86c0759cf4de4c"></a>
 
@@ -9170,6 +9218,22 @@ SHA-256: `5e6db6e24948d4a853c71cb9fabd252ad051ce93d4672c1266cf837c1c17b84e`
 | `seq` | 必需 | `number` |
 | `time` | 必需 | `number` |
 | `type` | 必需 | `"session/end-seed"` |
+
+<a id="persistence-type-sha256-dd91d27c73c092df79ec5a54b350165a702d40a62ec248d7fedead5ffaa27973"></a>
+
+<a id="persistence-type-eventsessionthinking-cap-auto-continue"></a>
+
+### `{ type: "session/thinking-cap-auto-continue" }`
+
+SHA-256: `dd91d27c73c092df79ec5a54b350165a702d40a62ec248d7fedead5ffaa27973`
+
+| 属性 | 存在性 | 类型 |
+|---|---|---|
+| `data` | 必需 | [`{ enabled }`](#persistence-type-sha256-c2a13242efc3bea4b36a843ddf1524ff4d33c765a71b582fa1fdbfa4fa148434) |
+| `ignorable` | 可选 | `true` |
+| `seq` | 必需 | `number` |
+| `time` | 必需 | `number` |
+| `type` | 必需 | `"session/thinking-cap-auto-continue"` |
 
 <a id="persistence-type-sha256-1b912703e2d64f91c99c675b8f805b01076c8325b905c1218ad81ef0b24909d5"></a>
 

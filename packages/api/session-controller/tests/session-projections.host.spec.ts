@@ -796,6 +796,7 @@ describe('Session control projection frames', () => {
     expect(pushes).toEqual([
       {
         type: 'projection', sessionId: session.id, seq: 0, changes: [
+          { key: 'thinkingCapAutoContinue', val: false },
           { key: 'test/last-user', val: { text: 'm0' } },
           { key: 'sessionListMetadata', val: { blank: true, lastPromptAt: 100 } },
           { key: 'conversationContinuation', val: null },
@@ -837,6 +838,7 @@ describe('Session control projection frames', () => {
       done: false,
       value: {
         type: 'projection', seq: 0, changes: [
+          { key: 'thinkingCapAutoContinue', val: false },
           { key: 'test/last-user', val: { text: 'm0' } },
           { key: 'sessionListMetadata', val: { blank: true, lastPromptAt: 100 } },
           { key: 'conversationContinuation', val: null },

@@ -103,6 +103,7 @@ The loop deep-freezes each derived message identity on its first request and reu
 | [`src/index.ts`](src/index.ts) | Plugin entry: `AgentLoop` service, config schema, declarative agent startup, factory registration |
 | [`src/agent.ts`](src/agent.ts) | The concrete `ReactLoopAgent` driver: inbox, turn/step machine, cancellation |
 | [`src/inbox.ts`](src/inbox.ts) | Package-internal `ReactLoopInbox`: durable projection, structural commands, and loop-only claim state |
+| [`src/thinking-cap-auto-continue.ts`](src/thinking-cap-auto-continue.ts) | Per-Session auto-continue after a reasoning-only `max-tokens` stop |
 | [`src/runtime-context.ts`](src/runtime-context.ts) | Per-step runtime-context snapshot handling |
 
 ### Creation and teardown
@@ -185,7 +186,7 @@ Runtime reminders, including a legacy refresh, append after existing messages an
 
 #### What the model sees
 
-Accepted user messages, assistant messages, tool calls and results, injected context, and steering are logged and sent on later steps. Raw stream chunks, lifecycle boundaries, and other log-only events are excluded.
+Accepted user messages, assistant messages, tool calls and results, injected context, and steering are logged and sent on later steps. Raw stream chunks, lifecycle boundaries, and other log-only events are excluded. When the Session's thinking-cap auto-continue policy is on, a reasoning-only `max-tokens` stop queues a user message whose text is exactly `continue(auto)` as the next turn, at most twice in a row.
 
 #### Token effect
 

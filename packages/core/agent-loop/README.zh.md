@@ -103,6 +103,7 @@ const handle = await ctx.agents.create({
 | [`src/index.ts`](src/index.ts) | 插件入口：`AgentLoop` 服务、配置 schema、声明式 agent 启动、工厂注册 |
 | [`src/agent.ts`](src/agent.ts) | 具体 `ReactLoopAgent` 驱动器：收件箱、轮次／步骤状态机、取消 |
 | [`src/inbox.ts`](src/inbox.ts) | 包内部的 `ReactLoopInbox`：持久投影、结构化命令与仅供循环使用的领取状态 |
+| [`src/thinking-cap-auto-continue.ts`](src/thinking-cap-auto-continue.ts) | 仅推理内容撞上 `max_tokens` 后按会话自动续写 |
 | [`src/runtime-context.ts`](src/runtime-context.ts) | 逐步骤运行时上下文快照处理 |
 
 ### 创建与拆除
@@ -185,7 +186,7 @@ loop 在发布工厂前等待必需的注册完成。它对模型选择和 inbox
 
 #### 模型看到什么
 
-已接纳的 user 消息、assistant 消息、工具调用与结果、注入上下文与 steering（中途引导）都会记录，并在后续步骤中发送。原始流分片、生命周期边界与其他仅写入日志的事件会被排除。
+已接纳的 user 消息、assistant 消息、工具调用与结果、注入上下文与 steering（中途引导）都会记录，并在后续步骤中发送。原始流分片、生命周期边界与其他仅写入日志的事件会被排除。该会话的 thinking-cap 自动续写策略开启时，仅含推理内容的 `max_tokens` 停止会把文本恰为 `continue(auto)` 的 user 消息排为下一轮，最多连续两次。
 
 #### Token 影响
 

@@ -342,6 +342,20 @@ export interface SessionSelectModelValue {
 /** Deployment-default model selection with no Session identity. */
 export type SessionSelectDefaultModelRequest = ModelSelection
 
+/** Session thinking-cap auto-continue request. */
+export interface SessionSetThinkingCapAutoContinueRequest {
+  readonly sessionId: SessionId
+  /** Whether a later reasoning-only `max-tokens` stop should auto-continue. */
+  readonly enabled: boolean
+}
+
+/** Installed thinking-cap auto-continue policy. */
+export interface SessionSetThinkingCapAutoContinueValue {
+  readonly enabled: boolean
+  /** Durable event seq of the policy write, or the current log cursor when unchanged. */
+  readonly seq: number
+}
+
 /** Session rename request. */
 export interface SessionRenameRequest {
   readonly sessionId: SessionId

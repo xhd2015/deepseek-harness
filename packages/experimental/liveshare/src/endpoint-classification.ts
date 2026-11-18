@@ -127,6 +127,7 @@ export const VIEWER_ENDPOINT_CLASSES = {
   'session/status': 'reader-global-read', // reader asks which visible Sessions run a turn
   'session/selectDefaultModel': 'owner-only', // owner saves the deployment default model
   'session/selectModel': 'owner-only', // owner selects a Session model
+  'session/setThinkingCapAutoContinue': 'owner-only', // owner sets the Session auto-continue policy
   'session/updateQueue': 'owner-only', // owner edits queued input
   'session/workspacePathApplications': 'owner-only', // owner applies a Workspace path
   'sessionStatus/follow': 'owner-only', // owner reading reminders
