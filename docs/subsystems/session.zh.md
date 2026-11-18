@@ -611,15 +611,14 @@ declare class Session {
    *
    * @param type - The event type (key of {@link SessionEventMap}).
    * @param data - The event payload; must be JSON-serializable.
-   * @param opts - Surface metadata: `surfaceOp` controls how the event enters
-   *   the ordered surface; `sourceEventSeqs` lists the seq numbers of earlier
-   *   events this one derives from. REQUIRED for
-   *   {@link SurfaceEventType} events (every message-producing event must
-   *   declare how it joins the surface, the sole source of derived model
-   *   history) and
-   *   rejected by the compiler for non-surface types like `turn/start` or
-   *   `assistant/attempt`. Assistant messages embed their exact provider
-   *   stream and cannot cite top-level source events.
+   * @param opts - For {@link SurfaceEventType} events, required surface
+   *   metadata: `surfaceOp` controls how the event enters the ordered surface;
+   *   `sourceEventSeqs` lists the seq numbers of earlier events this one
+   *   derives from (every message-producing event must declare how it joins
+   *   the surface, the sole source of derived model history). Assistant
+   *   messages embed their exact provider stream and cannot cite top-level
+   *   source events. For log-only types, an optional {@link LogOnlyAppendOptions}
+   *   may mark the record `ignorable` so an older reader can skip it.
    * @returns the logged event — its assigned `seq`/`time` plus the SNAPSHOT of
    *   `data` that entered the log, so reading `event.data` back sees the logged
    *   value, never the caller's still-mutable input.
@@ -643,7 +642,7 @@ declare class Session {
   append<T extends SessionEventType>(
     type: T,
     data: SessionEventMap[T],
-    ...opts: T extends SurfaceEventType ? [opts: SurfaceIntent<T>] : []
+    ...opts: T extends SurfaceEventType ? [opts: SurfaceIntent<T>] : [opts?: LogOnlyAppendOptions]
     ): SessionEvent<T>;
   /**
    * The {@link EpochHeader} in force after the log's last header event — the
