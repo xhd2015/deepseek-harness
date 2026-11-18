@@ -72,7 +72,7 @@ All settings are optional. With context window `W`, effective request output cap
 | `summarizationProvider` | `''` | Set together with `summarizationModel`; an empty pair uses the model that produced the latest assistant message, then the latest routed request target, then the `AgentOptions` pair. |
 | `summarizationModel` | `''` | Set together with `summarizationProvider`; an empty pair uses the model that produced the latest assistant message, then the latest routed request target, then the `AgentOptions` pair. |
 | `maxTokens` | `headroomTokens` (`65536`) | Positive summary output cap, including any provider-counted reasoning tokens. Explicit per-model caps override explicit global caps; otherwise the cap follows the resolved headroom. |
-| `compactionRetries` | `1` | Extra condensation attempts after the first when pressure remains above threshold. |
+| `compactionRetries` | `1` | Extra condensation attempts after the first when pressure remains above threshold. A retry whose selected span is only a prior checkpoint and cannot close the remaining excess fails instead of spending another summary call. |
 | `maxOverflowRetries` | `1` | Maximum retries after a confirmed context-window overflow; `0` disables recovery only. |
 | `modelPolicies` | `[]` | Exact `{ provider, model, ...partialPolicy }` overrides for individual model routes. |
 | `auto` | `true` | Enable automatic condensation and overflow recovery; set `false` for manual-only operation. |

@@ -72,7 +72,7 @@ kind: "package-reference"
 | `summarizationProvider` | `''` | 与 `summarizationModel` 一起设置；空对使用产生最新助手消息的模型，再回退到最新已路由请求目标，最后回退到 `AgentOptions` 对。 |
 | `summarizationModel` | `''` | 与 `summarizationProvider` 一起设置；空对使用产生最新助手消息的模型，再回退到最新已路由请求目标，最后回退到 `AgentOptions` 对。 |
 | `maxTokens` | `headroomTokens`（`65536`） | 正数摘要输出上限，包含提供方计入的推理 token。显式模型上限覆盖显式全局上限；否则跟随解析后的余量。 |
-| `compactionRetries` | `1` | 压力仍高于阈值时，在首次压缩后进行的额外尝试次数。 |
+| `compactionRetries` | `1` | 压力仍高于阈值时，在首次压缩后进行的额外尝试次数。若重试选中的范围只有旧检查点且无法消除剩余超出量，则直接失败，不再消耗一次摘要调用。 |
 | `maxOverflowRetries` | `1` | 已确认上下文窗口溢出后的最大重试次数；`0` 只禁用恢复。 |
 | `modelPolicies` | `[]` | 针对个别模型路由的精确 `{ provider, model, ...partialPolicy }` 覆盖。 |
 | `auto` | `true` | 启用自动压缩与溢出恢复；设为 `false` 则仅手动执行。 |
