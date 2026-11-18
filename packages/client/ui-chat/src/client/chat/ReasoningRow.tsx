@@ -39,6 +39,7 @@ function latestCompletedParagraphFirstLine(text: string): string {
  * when a paragraph's first line completes. Mode changes toggle CSS display without unmounting
  * collapsed summaries. The Body Slot receives both original and display-ready text.
  * @param props.text - complete or streaming reasoning text.
+ * @param props.encryptedCount - consecutive encrypted segments with no summary, when set.
  * @param props.running - whether this block is the streaming tail.
  * @param props.usePresentation - live display-policy selector for this reasoning row.
  * @param props.useDisclosure - independent open state with enclosing-Turn resets.
@@ -47,9 +48,11 @@ function latestCompletedParagraphFirstLine(text: string): string {
  * @returns the reasoning disclosure.
  */
 export const ReasoningRow = memo(function ReasoningRow({
-  text: rawText, running, textInteractionSource = false, usePresentation, useDisclosure, renderSlot, t,
+  text: rawText, encryptedCount, running, textInteractionSource = false, usePresentation, useDisclosure, renderSlot, t,
 }: {
   text: string
+  /** Consecutive encrypted segments with no summary; set renders one labeled row instead of raw text. */
+  encryptedCount?: number
   running: boolean
   textInteractionSource?: boolean
   useDisclosure: UseDisclosure
@@ -61,8 +64,11 @@ export const ReasoningRow = memo(function ReasoningRow({
     const text = reasoningText(rawText)
     return { text, hidden: text !== rawText && text.trim() === '' }
   }, [rawText])
-  const summaryText = running ? latestCompletedParagraphFirstLine(text) : firstLine(text)
-  const summary = useMemo(() => summaryText.replaceAll('**', ''), [summaryText])
+  const encrypted = encryptedCount !== undefined
+  const summaryText = encrypted
+    ? t(encryptedCount === 1 ? 'message.think.encrypted' : 'message.think.encryptedCount', { count: encryptedCount })
+    : (running ? latestCompletedParagraphFirstLine(text) : firstLine(text))
+  const summary = useMemo(() => encrypted ? summaryText : summaryText.replaceAll('**', ''), [encrypted, summaryText])
   const preview = usePresentation(policy => !expanded && summary !== ''
     && (running || policy.settledReasoningPreview))
   const collapsedContent = useMemo(() => (
@@ -77,9 +83,11 @@ export const ReasoningRow = memo(function ReasoningRow({
   ), [running, summary])
   const content = useMemo(() => expanded ? (
     <div className={css.thinkBody} data-text-interaction-source={textInteractionSource && !running ? '' : undefined}>
-      {renderSlot('conversation.chat.reasoning.body', { rawText, text, running })}
+      {encrypted
+        ? t('message.think.encryptedBody')
+        : renderSlot('conversation.chat.reasoning.body', { rawText, text, running })}
     </div>
-  ) : undefined, [expanded, renderSlot, running, rawText, text, textInteractionSource])
+  ) : undefined, [encrypted, expanded, renderSlot, running, rawText, t, text, textInteractionSource])
 
   if (hidden) return null
 
@@ -88,6 +96,8 @@ export const ReasoningRow = memo(function ReasoningRow({
       className={css.root}
       data-variant="think"
       data-state={running ? 'running' : 'ok'}
+      data-encrypted={encrypted || undefined}
+      data-encrypted-count={encrypted ? encryptedCount : undefined}
       data-expanded={expanded || undefined}
       data-preview={preview || undefined}
     >
