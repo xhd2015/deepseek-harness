@@ -27,6 +27,7 @@ import {
 } from './config.ts'
 import {
   assertNoActiveCompaction,
+  checkpointOnlyRangePrice,
   compactSurfaceRegion,
   retainTokensForSummarizerOnSurface,
   selectCompactableRange,
@@ -421,6 +422,17 @@ export class BasicCompactionEngine extends CompactionEngine {
         throw new Error(
           'no safe compaction range can reduce context below threshold '
           + `(${measurement.totalTokens} estimated tokens >= threshold ${spec.thresholdTokens})`,
+        )
+      }
+      // A retry that can only re-summarize a prior checkpoint cannot close the
+      // excess, so fail with the reason instead of spending another summary call.
+      const excessTokens = measurement.totalTokens - spec.thresholdTokens
+      const checkpointPrice = checkpointOnlyRangePrice(agent.session, measurement, range)
+      if (checkpointPrice !== null && checkpointPrice <= excessTokens) {
+        throw new Error(
+          'compaction still above threshold: selected range is only a prior checkpoint '
+          + `(${checkpointPrice} estimated tokens cannot close ${excessTokens} tokens `
+          + `above threshold ${spec.thresholdTokens})`,
         )
       }
       result = await this.compactRegion(range.start, range.end, agent, signal, budget)

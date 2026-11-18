@@ -12,6 +12,7 @@ import type { CompactionId } from '@deepseek-ai/dsh-compaction/types'
 import {
   ManualCompactionError,
   compactCheckpointSource,
+  isCompactCheckpointSource,
   toolPairingBalancedAfter,
   toolPairingBalancedBefore,
 } from '@deepseek-ai/dsh-compaction'
@@ -206,6 +207,44 @@ export function selectCompactableRange(
   const cutoff = surfaceNodes[keepFromIdx - 1]!
   return { start: first, end: cutoff }
 }
+
+/**
+ * Route-priced total of a selected span when every node is a compaction
+ * checkpoint, or `null` when the span contains any other history.
+ * @param session - session supplying the events behind `measurement.nodes`.
+ * @param measurement - the same measurement `selectCompactableRange` used.
+ * @param range - inclusive seq range returned by `selectCompactableRange`.
+ * @returns the span's `tokens` sum, or `null` when it is not checkpoint-only.
+ */
+export function checkpointOnlyRangePrice(
+  session: Session,
+  measurement: TokenMeasurement,
+  range: { start: SessionSeq; end: SessionSeq },
+): number | null {
+  const startIdx = measurement.nodes.findIndex(node => node.seq === range.start)
+  const endIdx = measurement.nodes.findIndex(node => node.seq === range.end)
+  if (startIdx === -1 || endIdx === -1 || startIdx > endIdx) {
+    throw new Error(
+      `compaction: selected range ${range.start}-${range.end} is not on the measured surface`,
+    )
+  }
+  let price = 0
+  for (let index = startIdx; index <= endIdx; index += 1) {
+    // `startIdx`/`endIdx` come from this same `nodes` array, so the slot exists.
+    // oxlint-disable-next-line typescript/no-non-null-assertion
+    const node = measurement.nodes[index]!
+    // Surface nodes are current log seqs, so the event exists.
+    // Existing Session history read; migration deferred.
+    // oxlint-disable-next-line typescript/no-non-null-assertion, typescript/no-deprecated
+    const event = session.eventAt(node.seq)!
+    if (event.type !== 'user/message' || !isCompactCheckpointSource(event.data.source)) {
+      return null
+    }
+    price += node.tokens
+  }
+  return price
+}
+
 
 /**
  * Run the single compaction transaction over one selected positional span.

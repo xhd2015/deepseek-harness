@@ -3,7 +3,9 @@ import { Context } from '@deepseek-ai/cordis'
 import type { AttachmentId } from '@deepseek-ai/dsh-attachment/types'
 import BasicCompactionEngine from '@deepseek-ai/dsh-compaction-basic'
 import type { BasicCompactionConfig } from '@deepseek-ai/dsh-compaction-basic'
-import { retainTokensForSummarizer, selectCompactableRange } from '@deepseek-ai/dsh-compaction-basic/src/region.ts'
+import {
+  checkpointOnlyRangePrice, retainTokensForSummarizer, selectCompactableRange,
+} from '@deepseek-ai/dsh-compaction-basic/src/region.ts'
 import { answeredRouteProjectionDefinition } from '@deepseek-ai/dsh-compaction-basic/src/answered-route.ts'
 import { frameSummary } from '@deepseek-ai/dsh-compaction-basic/src/summarizer.ts'
 import type { SummarizationInput, SummaryResult } from '@deepseek-ai/dsh-compaction-basic/src/summarizer.ts'
@@ -1019,6 +1021,84 @@ describe('pressure measurement and retention', () => {
 
     await expect(compactIfNeeded(compact, conversation(4)))
       .rejects.toThrow(/still above threshold after 1 compaction attempts/)
+  })
+
+  it('does not re-summarize a prior checkpoint that cannot close remaining pressure', async () => {
+    const compact = service({
+      auto: false,
+      compactionRetries: 1,
+      thresholdRatio: 0.3,
+      retainTokens: 180,
+    })
+    compact.summary = [{ type: 'text', text: 'tiny checkpoint' }]
+    const session = conversation(4, 'bulk '.repeat(400).trim())
+
+    await expect(compactIfNeeded(compact, session))
+      .rejects.toThrow(/only a prior checkpoint/)
+    expect(compact.calls).toHaveLength(1)
+    expect(session.snapshotEvents().filter(event => event.type === 'compaction/start')).toHaveLength(1)
+
+    // A second pass over the same checkpoint fails at the guard, not with another summary call.
+    await expect(compactIfNeeded(compact, session))
+      .rejects.toThrow(/only a prior checkpoint/)
+    expect(compact.calls).toHaveLength(1)
+  })
+
+  it('still re-summarizes an oversized checkpoint that can close remaining pressure', async () => {
+    const compact = service({
+      auto: false,
+      compactionRetries: 1,
+      thresholdRatio: 0.3,
+      retainTokens: 180,
+    })
+    compact.summary = Array.from({ length: 7 }, (_, index) => ({
+      type: 'text',
+      text: `summary ${index}`,
+    }))
+    compact.mutateDuringSummary = () => {
+      if (compact.calls.length > 1) {
+        compact.summary = [{ type: 'text', text: 'tiny' }]
+      }
+    }
+
+    const result = await compactIfNeeded(compact, conversation(4))
+    expect(result).not.toBeNull()
+    expect(compact.calls).toHaveLength(2)
+  })
+
+  it('prices a selected span only when every node is a compaction checkpoint', async () => {
+    const ctx = createContext()
+    const compact = service({
+      auto: false,
+      compactionRetries: 0,
+      thresholdRatio: 0.5,
+      retainTokens: 180,
+    }, ctx)
+    const session = conversation(4, 'bulk '.repeat(200).trim())
+    await compactIfNeeded(compact, session).catch(() => undefined)
+
+    const measurement = ctx.tokenMeter.measure(session)
+    const checkpoint = session.snapshotEvents().find(event =>
+      event.type === 'user/message' && event.data.source.kind === 'compact-checkpoint',
+    )
+    expect(checkpoint).toBeDefined()
+    expect(checkpointOnlyRangePrice(session, measurement, {
+      start: checkpoint!.seq,
+      end: checkpoint!.seq,
+    })).toBeGreaterThan(0)
+    // Any other history in the span disqualifies the whole span.
+    expect(checkpointOnlyRangePrice(session, measurement, {
+      start: measurement.nodes[0]!.seq,
+      end: measurement.nodes[measurement.nodes.length - 1]!.seq,
+    })).toBeNull()
+    expect(() => checkpointOnlyRangePrice(session, measurement, {
+      start: SessionSeq(999_999),
+      end: SessionSeq(999_999),
+    })).toThrow(/not on the measured surface/)
+    expect(() => checkpointOnlyRangePrice(session, measurement, {
+      start: measurement.nodes[1]!.seq,
+      end: measurement.nodes[0]!.seq,
+    })).toThrow(/not on the measured surface/)
   })
 
   it('rounds a retention cut head-ward to preserve tool-call/result pairing', async () => {
