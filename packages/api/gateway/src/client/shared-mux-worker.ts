@@ -7,7 +7,6 @@
  * subscribers also share one `/plugins/events` EventSource relay.
  */
 import {
-  REMOTE_STREAM_MUX_PATH,
   parseRemoteStreamClientMessage,
   parseRemoteStreamServerMessage,
   type RemoteStreamClientMessage,
@@ -33,9 +32,15 @@ const ports = new Set<MessagePort>()
 const hmrPorts = new Set<MessagePort>()
 const streams = new Map<string, MessagePort>()
 
-/** Convert the Worker origin into the Gateway's same-origin WebSocket URL. */
+/**
+ * Convert the Worker script location into the Gateway's same-origin WebSocket
+ * URL. The Worker is served under the configured API prefix, so its own path
+ * names the channel without a second boot global.
+ * @returns the absolute mux WebSocket URL.
+ */
 function socketUrl(): string {
-  const url = new URL(REMOTE_STREAM_MUX_PATH.slice(1), self.location.origin)
+  const prefix = self.location.pathname.replace(/\/remote\.shared-mux-worker\.js$/, '')
+  const url = new URL(`${prefix}/remote.mux`, self.location.origin)
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
   return url.href
 }

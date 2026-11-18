@@ -11,6 +11,7 @@ import { Command } from 'commander'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
+import { API_PATH, assertApiPrefix } from '@deepseek-ai/dsh-client-connection'
 import { parseCmdline } from '@deepseek-ai/dsh-cmdline'
 import { isWildcardHost, type TlsConfig } from '@deepseek-ai/dsh-host-webserver'
 import { isWebBrowserId, WEB_BROWSER_IDS, type WebBrowserId } from './browsers.ts'
@@ -58,6 +59,12 @@ export interface WebStartupValues {
   trustedHostsForSettings?: string[]
   /** Explicit `--trusted-host` authorities, in argument order. */
   trustedHosts: string[]
+  /**
+   * `--api-prefix`: absolute HTTP prefix of the shared API channel. Defaults to
+   * `/api`; a nested value such as `/api/dsh` nests the channel under a host
+   * that already owns `/api`.
+   */
+  apiPrefix: string
   /** Server certificate chain and unencrypted private key supplied together. */
   tls?: TlsConfig
 }
@@ -80,6 +87,7 @@ interface ServeOptions {
   tlsCert?: string
   tlsKey?: string
   browser?: string
+  apiPrefix?: string
 }
 
 /** `open` subcommand flags. */
@@ -106,6 +114,21 @@ function requireBrowser(program: Command, value: string | undefined): WebBrowser
 }
 
 /**
+ * Resolve `--api-prefix`, rejecting a value the transport cannot address.
+ * @param program - commander program carrying this invocation.
+ * @param value - raw flag value, absent when not specified.
+ * @returns the validated prefix, or `/api` when absent.
+ */
+function requireApiPrefix(program: Command, value: string | undefined): string {
+  if (value === undefined) return API_PATH
+  try {
+    return assertApiPrefix(value)
+  } catch (error) {
+    program.error(`error: ${(error as Error).message}`)
+  }
+}
+
+/**
  * This app's command: its flags, its description, and its help text.
  * @returns a fresh program, so one process can parse more than once (tests).
  */
@@ -121,6 +144,7 @@ function webCommand(): Command {
     .option('--public-url <url>', 'advertise this HTTP(S) root in the printed, opened, runtime-context, and DSH_WEB_URL forms; grants no trust')
     .option('--trusted-host <authority...>', 'extra authority the /api browser-trust fence accepts (host or host:port; repeatable)')
     .option('--trusted-host-for-settings <authority...>', 'authority whose page may also read and write Host settings, including credentials (host or host:port; repeatable; each must also be a --trusted-host)')
+    .option('--api-prefix <path>', 'absolute HTTP prefix of the shared API channel (default /api; use /api/dsh when an outer host already owns /api)')
     .option('--tls-cert <file>', 'PEM server certificate chain; requires --tls-key')
     .option('--tls-key <file>', 'unencrypted PEM private key; requires --tls-cert')
     .option('--browser <name>', `browser to open (${WEB_BROWSER_IDS.join(', ')})`)
@@ -207,6 +231,7 @@ function publishServe(ctx: Context, program: Command): void {
     ...options.auth === false && { disableAuth: true },
     ...options.trustedHostForSettings !== undefined && { trustedHostsForSettings: options.trustedHostForSettings },
     trustedHosts,
+    apiPrefix: requireApiPrefix(program, options.apiPrefix),
   } satisfies WebStartupValues)
 }
 
@@ -230,6 +255,8 @@ function publishOpen(ctx: Context, program: Command, dir: string | undefined, op
     ...initialPrompt !== undefined && { initialPrompt },
     ...browser !== undefined && { browser },
     trustedHosts: [],
+    // `open` addresses an already-running server, so its prefix is the default.
+    apiPrefix: API_PATH,
   } satisfies WebStartupValues)
 }
 

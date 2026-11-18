@@ -66,7 +66,8 @@ async function worker(): Promise<(port: MessagePort) => void> {
   const connects: ((event: unknown) => void)[] = []
   const globals = globalThis as Record<string, unknown>
   globals.self = {
-    location: { origin: 'http://127.0.0.1:8422' },
+    // The Worker derives its channel from its own script path.
+    location: { origin: 'http://127.0.0.1:8422', pathname: '/api/remote.shared-mux-worker.js' },
     addEventListener: (type: string, listener: (event: unknown) => void) => {
       if (type === 'connect') connects.push(listener)
     },

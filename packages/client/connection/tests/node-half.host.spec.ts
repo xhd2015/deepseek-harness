@@ -361,7 +361,7 @@ describe('connection node half', () => {
     }
   })
 
-  it('declares browser recovery timing as a synced field and injects only the settings-trust row', async () => {
+  it('declares browser recovery timing as a synced field and injects the page boot rows', async () => {
     expect(Config({ recovery: { generationReadyTimeoutMs: 25_000 } }).recovery?.get()).toEqual({
       backoffBaseMs: 500, backoffFactor: 2, backoffMaxMs: 10_000,
       generationReadyWarnMs: 3_000, generationReadyTimeoutMs: 25_000,
@@ -371,6 +371,8 @@ describe('connection node half', () => {
     ctx.emit('webserver/index-inject', rows, PAGE_PEER)
     expect(rows).toEqual([
       { kind: 'global', name: '__DSH_SETTINGS_TRUST__', value: { trustedHosts: [] } },
+      // The page addresses the default prefix unless a deployment nests it.
+      { kind: 'global', name: '__DSH_API_PREFIX__', value: '/api' },
     ])
     await dispose()
     const after: IndexInjection[] = []

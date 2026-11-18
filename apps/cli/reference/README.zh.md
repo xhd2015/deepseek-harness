@@ -37,7 +37,7 @@ dsh rescue
 
 | Profile | 参数 |
 |---|---|
-| `web` | 可重复的 `--host`、`--port`、`--tls-cert`、`--tls-key`、`--public-url`、可重复的 `--trusted-host`、可重复的 `--trusted-host-for-settings`、`--no-auth`、`--no-open`、`--browser`、`open [dir]` |
+| `web` | 可重复的 `--host`、`--port`、`--tls-cert`、`--tls-key`、`--public-url`、可重复的 `--trusted-host`、可重复的 `--trusted-host-for-settings`、`--no-auth`、`--no-open`、`--api-prefix` 把共享 API 通道从 `/api` 移到诸如 `/api/dsh` 的嵌套绝对路径，供已经占用 `/api` 的嵌入宿主使用。`--browser`、`open [dir]` |
 | `headless` | 任务文本，作为位置参数 |
 | `sdk` | 无选项；stdio 携带 JSON-RPC 协议 |
 | `sdk-minimal` | 无选项；stdio 携带相同的 JSON-RPC 协议 |
