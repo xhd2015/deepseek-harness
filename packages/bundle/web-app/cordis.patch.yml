@@ -72,6 +72,7 @@
     # controls also serve the file-tree directory opener.
     - id: open-in-app
       name: '@deepseek-ai/dsh-host-open-in-app'
+      disabled: !!js process.env.DSH_WEB_OPEN === '1'
       config:
         probeTimeoutMs: 10000
         iconTimeoutMs: 10000
@@ -108,6 +109,7 @@
     # an overlay to pin the interaction.
     - id: directory-picker
       name: '@deepseek-ai/dsh-host-directory-picker-auto'
+      disabled: !!js process.env.DSH_WEB_OPEN === '1'
 
     # Read-only projection of current Loader entries for trusted client RPCs.
     - id: plugin-inventory
@@ -219,11 +221,13 @@
     # also drops the two value lines.
     - id: harness-dev-context
       name: '@deepseek-ai/dsh-harness-dev-context'
+      disabled: !!js process.env.DSH_WEB_OPEN === '1'
 
     # The client-plugin reload chain stays mounted. Its SharedWorker owns one
     # origin-wide SSE subscription and broadcasts rebuild frames to every tab.
     - id: client-hmr
       name: '@deepseek-ai/dsh-client-hmr'
+      disabled: !!js process.env.DSH_WEB_OPEN === '1'
 
     # ── browser plugin roster (dsh.client rows; node halves are layer-2 hosts) ──
 
