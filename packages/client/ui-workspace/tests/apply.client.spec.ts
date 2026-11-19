@@ -140,8 +140,12 @@ async function bench(access: 'fake' | 'static' = 'fake', listed?: { ids: readonl
       phase: 'ready',
       projectionsBySession: {},
     }
-  const subscribe = () => () => {}
-  const workspacesSubscribe = vi.fn(subscribe)
+  const sessionListeners = new Set<() => void>()
+  const subscribe = (listener: () => void): (() => void) => {
+    sessionListeners.add(listener)
+    return () => { sessionListeners.delete(listener) }
+  }
+  const workspacesSubscribe = vi.fn((_listener: () => void) => () => {})
   const initializeDefault = vi.fn(async (): Promise<WorkspaceView | undefined> => undefined)
   ctx.provide('workspaces', {
     list: { getSnapshot: () => workspaceSnapshot, subscribe: workspacesSubscribe },
@@ -186,7 +190,11 @@ async function bench(access: 'fake' | 'static' = 'fake', listed?: { ids: readonl
     retain, using, selectPanel, collapseSidebar, search, renameSession, binding, fork, pickDirectory, pinSession, unpinSession,
     workspacesSubscribe, initializeDefault, history, scope, sessionOf,
     setWorkspaces: (snapshot: WorkspaceSnapshot): void => { workspaceSnapshot = snapshot },
-    setSessions: (snapshot: SessionListState): void => { sessionSnapshot = snapshot },
+    setSessions: (snapshot: SessionListState): void => {
+      sessionSnapshot = snapshot
+      for (const listener of [...sessionListeners]) listener()
+    },
+    sessionListenerCount: (): number => sessionListeners.size,
   }
 }
 
@@ -1145,6 +1153,29 @@ describe('ui-workspace session deep link', () => {
   it('still opens and mirrors a listed Session', async () => {
     const b = await deepLink('?session=linked', { ids: ['linked'] })
     expect(b.retain).toHaveBeenCalledWith('linked', { source: 'mainView' })
+  })
+
+  it('opens a well-formed id once its row reaches the ready list', async () => {
+    vi.stubGlobal('location', { search: '?session=paged' })
+    try {
+      const b = await bench('fake', { ids: ['other'] })
+      await b.ctx.plugin({ inject: [...inject], apply }).await()
+      // Nothing to open yet: the link stays pending rather than being discarded.
+      expect(b.retain).not.toHaveBeenCalled()
+      expect(b.sessionListenerCount()).toBeGreaterThan(0)
+
+      // The row exists but nothing has retained it yet, so the link still has to open it.
+      b.setSessions({
+        ids: [sid('other'), sid('paged')],
+        byId: { [sid('paged')]: { id: sid('paged'), retainedBy: {} } as never },
+        phase: 'ready',
+        projectionsBySession: {},
+      })
+
+      expect(b.retain).toHaveBeenCalledWith('paged', { source: 'mainView' })
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('reuses the current selection for a listed Session it already opened', async () => {
