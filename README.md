@@ -58,6 +58,12 @@ Start with the [development guide](docs/development.md) and [architecture docume
 
 For agents, follow [AGENTS.md](AGENTS.md).
 
+### Requirement specs
+
+`.specs/` records what this branch adds on top of upstream, one capability per folder, in the spec tree format shared with [eluc](https://github.com/xhd2015/eluc): `.specs/spec.json` describes the branch itself, `.specs/<capability>/spec.json` one capability, and a nested folder one part of it. A folder without `spec.json` still scopes its children.
+
+Each spec states what a user or an external client expects from the capability, never how it is implemented or tested, so it stays true when the code behind it is rewritten. Use it when rebasing onto a new upstream: a capability whose spec no longer holds is one the rebase dropped.
+
 ## Citation
 
 ```bibtex
