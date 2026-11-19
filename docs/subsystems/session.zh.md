@@ -971,6 +971,12 @@ resolveAgent(sessionId: SessionId): Promise<ApiSessionAgentResult>
 @Remote('modelCatalog') modelCatalog(): Promise<ModelCatalog>
 
 /**
+ * Re-probe live model listings, then describe every currently routable model.
+ * @returns provider-grouped models after the forced listing round-trip.
+ */
+@Remote('refreshModelCatalog') async refreshModelCatalog(): Promise<ModelCatalog>
+
+/**
  * Report whether this deployment can hand a Session workspace path to a native desktop.
  * @returns true when the matching open operation is available.
  */

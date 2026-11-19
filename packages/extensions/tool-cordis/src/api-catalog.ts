@@ -3041,6 +3041,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'provider-grouped models, the deployment default, and isolated provider failures.',
       },
       {
+        signature: '@Remote(\'refreshModelCatalog\') async refreshModelCatalog(): Promise<ModelCatalog>',
+        description: 'Re-probe live model listings, then describe every currently routable model.',
+        parameters: [],
+        returns: 'provider-grouped models after the forced listing round-trip.',
+      },
+      {
         signature: '@Remote canOpenWorkspacePath(): boolean',
         description: 'Report whether this deployment can hand a Session workspace path to a native desktop.',
         parameters: [],

@@ -42,6 +42,7 @@ export const VIEWER_ENDPOINT_CLASSES = {
   'llm/listProviders': 'reader-global-read', // the page lists providers
   'session/canOpenWorkspacePath': 'reader-global-read', // the page asks whether a path can be opened
   'session/modelCatalog': 'reader-global-read', // the page reads the model catalog
+  'session/refreshModelCatalog': 'owner-only', // a forced provider round-trip is not a viewer action
 
   // ── reader-session-read ─────────────────────────────────────────────────────────────
   'commands/list': 'reader-session-read', // the page lists slash commands for a visible Session (also granted globally)
