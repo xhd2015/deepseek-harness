@@ -5,6 +5,7 @@
  * states a later request reads again.
  */
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
+import { hostFetch } from './host-fetch.ts'
 
 /** What one store makes of its reads. */
 export interface HostReadPolicy<T> {
@@ -71,7 +72,7 @@ export class HostReadStore<T> {
   private async read(url: string, signal: AbortSignal): Promise<void> {
     let next: T
     try {
-      next = await this.policy.decode(await fetch(url, { signal }))
+      next = await this.policy.decode(await hostFetch(url, { signal }))
     } catch {
       // A transport failure publishes the policy's failed state until the connection is replaced and the store reset.
       next = this.policy.failed
