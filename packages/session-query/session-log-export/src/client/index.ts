@@ -10,6 +10,7 @@ import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type {} from '@deepseek-ai/dsh-client-ui-context-menu/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { IconCopyOutlineRegular, IconDownloadOutlineRegular, IconPaperPlaneOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { AutoContinueToast, type AutoContinueToastInjected } from './AutoContinueToast.tsx'
 import { SessionLogDownloadController } from './controller.ts'
 import { SessionMarkdownCopyController } from './copy-controller.ts'
 import { SessionMarkdownCopyToast, type SessionMarkdownCopyToastInjected } from './CopyToast.tsx'
@@ -52,6 +53,17 @@ export function apply(ctx: ClientContext): void {
     }, 'session-log-download: feedback availability')
   })
   const t = ctx.locale.bind(NS)
+  const autoContinueError = createSnapshotStore<{ seq: number } | null>(null)
+  let autoContinueErrorSeq = 0
+  ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+    name: 'shell.overlay',
+    id: 'session-log-download.auto-continue-toast',
+    locale: NS,
+    inject: (): AutoContinueToastInjected => ({
+      hooks: { autoContinueError },
+      dismissAutoContinueError: () => { autoContinueError.set(null) },
+    }),
+  }, AutoContinueToast))
   ctx.slots.inject('contextMenu.icon', function* () {
     for (const [key, Icon] of Object.entries({
       'session-log-download.copy': IconCopyOutlineRegular,
@@ -86,8 +98,15 @@ export function apply(ctx: ClientContext): void {
         label: t('menu.autoContinue'),
         checked: enabled,
         separatorBefore: true,
-        // A refused write leaves the projection unchanged, so a re-resolve still reads the old policy.
-        run: () => { void session.setThinkingCapAutoContinue(!enabled) },
+        // A refused write leaves the projection unchanged, so a re-resolve still
+        // reads the old policy; the toast is the only place the refusal surfaces.
+        run: async () => {
+          const result = await session.setThinkingCapAutoContinue(!enabled)
+          if (!result.ok) {
+            autoContinueErrorSeq += 1
+            autoContinueError.set({ seq: autoContinueErrorSeq })
+          }
+        },
       }]
     },
   }), 'session-log-download: Header auto-continue') })
