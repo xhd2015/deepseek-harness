@@ -83,7 +83,8 @@ export function apply(ctx: ClientContext): void {
       const enabled = session.projections.faceOf('thinkingCapAutoContinue').getSnapshot() === true
       return [{
         id: 'auto-continue',
-        label: t(enabled ? 'menu.autoContinueOn' : 'menu.autoContinueOff'),
+        label: t('menu.autoContinue'),
+        checked: enabled,
         separatorBefore: true,
         // A refused write leaves the projection unchanged, so a re-resolve still reads the old policy.
         run: () => { void session.setThinkingCapAutoContinue(!enabled) },

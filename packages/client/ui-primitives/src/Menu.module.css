@@ -441,3 +441,28 @@
   max-height: calc(100vh - 24px);
   max-height: calc(100dvh - 24px);
 }
+
+/* An independent on/off box, distinct from the selection check. */
+.checkboxMark {
+  box-sizing: border-box;
+  flex: none;
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-xs);
+  background: transparent;
+  color: var(--dsw-alias-label-primary-foreground);
+}
+
+.checkboxMarkChecked {
+  border-color: var(--dsw-alias-brand-primary);
+  background: var(--dsw-alias-brand-primary);
+}
+
+.checkboxMark svg {
+  width: 10px;
+  height: 10px;
+}

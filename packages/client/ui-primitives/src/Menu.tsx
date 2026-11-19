@@ -12,6 +12,19 @@ import { focusWithoutRing } from './focus.ts'
 import { MenuSurface } from './MenuSurface.tsx'
 import css from './Menu.module.css'
 
+/** Rows the menu's keyboard walk visits: ordinary and checkbox rows alike. */
+const MENU_ROW_SELECTOR = 'button[role="menuitem"], button[role="menuitemcheckbox"]'
+
+/**
+ * Whether an element is a row this menu's keyboard walk owns.
+ * @param element - candidate element.
+ * @returns true for an item or checkbox row.
+ */
+function isMenuRow(element: Element): boolean {
+  const role = element.getAttribute('role')
+  return role === 'menuitem' || role === 'menuitemcheckbox'
+}
+
 /** Selectable row (optionally with a nested submenu). */
 export interface MenuItem {
   id: string
@@ -23,6 +36,12 @@ export interface MenuItem {
   icon?: ReactNode
   /** Destructive row: error-colored text/icon and danger hover fill. */
   danger?: boolean
+  /**
+   * Independent on/off marker. When set, the row is a `menuitemcheckbox` with
+   * an always-visible trailing box; omit it for an ordinary action or a
+   * `selectedId`/`selectedIds` selection.
+   */
+  checked?: boolean
   /** Child choices opened by hover, focus, click, or ArrowRight; placement follows available space. */
   submenu?: readonly MenuEntry[]
 }
@@ -53,6 +72,11 @@ export interface MenuItemButtonProps {
   icon?: ReactNode
   /** Whether this row identifies the currently displayed page or view. */
   current?: boolean
+  /**
+   * Independent on/off marker. When set, the row is a `menuitemcheckbox` with
+   * an always-visible trailing box.
+   */
+  checked?: boolean
   /** Whether the row cannot be activated. */
   disabled?: boolean
   /**
@@ -84,6 +108,7 @@ export interface MenuItemButtonProps {
  * @param props.shortcut - effective key labels and accessible combination.
  * @param props.icon - optional leading icon.
  * @param props.current - whether the row identifies the currently displayed page or view.
+ * @param props.checked - independent on/off marker; omit for an ordinary action.
  * @param props.disabled - whether the row cannot be activated.
  * @param props.disabledReason - why a disabled row cannot be activated, shown in a tooltip and read as its description.
  * @param props.danger - whether to use the destructive row colors.
@@ -384,7 +409,7 @@ export function Menu({ open, anchor, items = [], children, submenuBackLabel, sel
         // button inside an error strip) and a list with no enabled row keep the
         // browser's traversal instead of being swallowed.
         if (insideList) {
-          if (focused instanceof Element && focused.getAttribute('role') === 'menuitem') {
+          if (focused instanceof Element && isMenuRow(focused)) {
             e.preventDefault()
             if (focused.getAttribute('aria-disabled') === 'true') {
               onClose()
@@ -506,7 +531,7 @@ export function Menu({ open, anchor, items = [], children, submenuBackLabel, sel
       // own handler ran; a submenu parent only opened its card.
       onClick={(e) => {
         e.stopPropagation()
-        const row = e.target instanceof Element ? e.target.closest('button[role="menuitem"]') : null
+        const row = e.target instanceof Element ? e.target.closest(MENU_ROW_SELECTOR) : null
         if (row !== null && row.getAttribute('aria-haspopup') !== 'menu') refocusAfterSelection()
       }}
       onContextMenu={contextual ? (event) => {
