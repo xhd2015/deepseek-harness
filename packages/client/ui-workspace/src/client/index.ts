@@ -489,7 +489,9 @@ function sessionListed(ids: readonly SessionId[], byId: SessionListState['byId']
 
 /**
  * Deep-link `?session=` on load, keep the query aligned with the selection,
- * and flag an unknown or malformed Session id for the overlay.
+ * and flag an unknown or malformed Session id for the overlay. A well-formed id
+ * missing from the ready list keeps waiting: the overlay stays until the Host
+ * list contains that row, then the Session opens.
  * @param uiWorkspace - navigation owner.
  * @param sessions - Client Session list.
  * @param unknownSession - overlay store for an unusable link.
@@ -500,6 +502,7 @@ function bindSessionUrl(
   unknownSession: { getSnapshot(): boolean; set(value: boolean): void; subscribe(listener: () => void): () => void },
 ): () => void {
   let deepLinkSettled = false
+  let announcedMissing = false
   const reconcile = (): void => {
     const snapshot = sessions.list.getSnapshot()
     if (snapshot.phase !== 'ready') return
@@ -507,22 +510,33 @@ function bindSessionUrl(
     const current = Object.values(snapshot.byId)
       .find(session => (session.retainedBy.mainView ?? 0) > 0)?.id
     if (!deepLinkSettled) {
-      if (query.kind === 'id' && sessionListed(snapshot.ids, snapshot.byId, query.id)) {
-        unknownSession.set(false)
-        if (current !== query.id) {
-          try {
-            uiWorkspace.openSession(query.id)
-          } catch {
-            unknownSession.set(true)
-            deepLinkSettled = true
-            return
+      if (query.kind === 'id') {
+        if (sessionListed(snapshot.ids, snapshot.byId, query.id)) {
+          unknownSession.set(false)
+          if (current !== query.id) {
+            try {
+              uiWorkspace.openSession(query.id)
+            } catch {
+              // retain() can refuse an id the list already projects; retry on the next snapshot.
+              if (!announcedMissing) {
+                unknownSession.set(true)
+                announcedMissing = true
+              }
+              return
+            }
           }
+          replaceSessionQuery(query.id)
+          deepLinkSettled = true
+          return
         }
-        replaceSessionQuery(query.id)
-        deepLinkSettled = true
+        // The row may still be paging in; keep the link pending instead of rejecting it.
+        if (!announcedMissing) {
+          unknownSession.set(true)
+          announcedMissing = true
+        }
         return
       }
-      if (query.kind === 'malformed' || query.kind === 'id') {
+      if (query.kind === 'malformed') {
         unknownSession.set(true)
         deepLinkSettled = true
         return
