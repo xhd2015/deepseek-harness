@@ -72,6 +72,7 @@
     # controls also serve the file-tree directory opener.
     - id: open-in-app
       name: '@deepseek-ai/dsh-host-open-in-app'
+      disabled: !!js process.env.DSH_WEB_OPEN === '1'
       config:
         probeTimeoutMs: 10000
         iconTimeoutMs: 10000
@@ -108,6 +109,7 @@
     # an overlay to pin the interaction.
     - id: directory-picker
       name: '@deepseek-ai/dsh-host-directory-picker-auto'
+      disabled: !!js process.env.DSH_WEB_OPEN === '1'
 
     # Read-only projection of current Loader entries for trusted client RPCs.
     - id: plugin-inventory
@@ -180,11 +182,16 @@
     # browser-facing asset paths do not depend on the advertised URL, which the
     # web-runtime row owns; Connection reads trust authorities from webStartup.
     # This row rejects wildcard binds.
+    - id: web-open
+      name: '@deepseek-ai/dsh-web-app/open'
+      inject: [webStartup]
+
     - id: webserver
       name: '@deepseek-ai/dsh-host-webserver'
       inject: [webStartup]
+      disabled: !!js process.env.DSH_WEB_OPEN === '1'
       config:
-        host: !!js ctx.webStartup.host ?? '127.0.0.1'
+        hosts: !!js ctx.webStartup.hosts ?? ['127.0.0.1']
         port: !!js ctx.webStartup.port ?? 3080
         tls: !!js ctx.webStartup.tls
         compression: gzip
@@ -200,6 +207,7 @@
     - id: web-runtime
       name: '@deepseek-ai/dsh-web-app'
       inject: [webStartup]
+      disabled: !!js process.env.DSH_WEB_OPEN === '1'
       config:
         publicUrl: !!js ctx.webStartup.publicUrl
         surfaceContext: true
@@ -213,13 +221,13 @@
     # also drops the two value lines.
     - id: harness-dev-context
       name: '@deepseek-ai/dsh-harness-dev-context'
+      disabled: !!js process.env.DSH_WEB_OPEN === '1'
 
-    # The client-plugin reload chain, always mounted: it is idle until a
-    # rebuild watcher (pnpm run dev:web) actually rewrites client bundles. It
-    # is a row rather than a child of web-runtime because its node half is a
-    # client-side package, which a host-side bundle cannot import.
+    # The client-plugin reload chain stays mounted. Its SharedWorker owns one
+    # origin-wide SSE subscription and broadcasts rebuild frames to every tab.
     - id: client-hmr
       name: '@deepseek-ai/dsh-client-hmr'
+      disabled: !!js process.env.DSH_WEB_OPEN === '1'
 
     # ── browser plugin roster (dsh.client rows; node halves are layer-2 hosts) ──
 
@@ -237,14 +245,24 @@
     - id: connection
       name: '@deepseek-ai/dsh-client-connection'
       inject: [webStartup]
+      disabled: !!js process.env.DSH_WEB_OPEN === '1'
       config:
         # Keep invocation authorities (each --trusted-host value) when adding
         # deployment values, for example: ['app.internal', ...ctx.webStartup.trustedHosts].
         # The listener's bind IP is accepted separately from this list.
         trustedHosts: !!js ctx.webStartup.trustedHosts
+        # `--trusted-host-for-settings` pages may also edit Host settings.
+        trustedHostsForSettings: !!js ctx.webStartup.trustedHostsForSettings ?? []
+        # `--api-prefix` nests the channel so an outer host can keep `/api`.
+        apiPrefix: !!js ctx.webStartup.apiPrefix
 
+    # `--no-auth` drops the credential layer only; the trust fence above still
+    # decides which authorities may reach this listener.
     - id: authentication-token
       name: '@deepseek-ai/dsh-host-authentication-token'
+      inject: [webStartup]
+      config:
+        disableAuth: !!js ctx.webStartup.disableAuth === true
 
     # Raw Blob and ReadableStream uploads run independently of Connection's
     # RPC and generation service.

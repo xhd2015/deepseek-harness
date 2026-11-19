@@ -12,10 +12,11 @@ import type { CompactionId } from '@deepseek-ai/dsh-compaction/types'
 import {
   ManualCompactionError,
   compactCheckpointSource,
+  isCompactCheckpointSource,
   toolPairingBalancedAfter,
   toolPairingBalancedBefore,
 } from '@deepseek-ai/dsh-compaction'
-import type { CompactionResult } from '@deepseek-ai/dsh-compaction'
+import type { CompactionBudget, CompactionResult } from '@deepseek-ai/dsh-compaction'
 import type { CommandId } from '@deepseek-ai/dsh-commands/types'
 import { createUserMessage, errorChain } from '@deepseek-ai/dsh-llm'
 import type { Message, UserMessage } from '@deepseek-ai/dsh-llm'
@@ -62,6 +63,8 @@ interface CompactionTransactionOptions {
   readonly flush?: () => Promise<void>
   /** Manual command that initiated this transaction, when present. */
   readonly sourceCommandId?: CommandId
+  /** Pressure budget that admitted an automatic trigger, when one did. */
+  readonly budget?: CompactionBudget
 }
 
 interface CompactionEntryState {
@@ -103,6 +106,56 @@ function systemHead(session: Session, headSeq: SessionSeq): SessionEvent<'system
   // oxlint-disable-next-line typescript/no-non-null-assertion, typescript/no-deprecated
   const head = session.eventAt(headSeq)!
   return head.type === 'system/message' ? head : undefined
+}
+
+/**
+ * Tokens to keep verbatim so the shadowed prefix can be replayed to the
+ * summarizer without overflowing the routed context window. The summarizer
+ * sends system, tools, and the shadowed span — the last overflowing request
+ * minus this retained tail, plus the compaction instruction.
+ * @param totalTokens - current request-priced total from the conversation meter.
+ * @param contextWindow - positive routed model capacity.
+ * @param surfaceTokens - route-priced sum of current surface nodes.
+ * @param firstCompactableTokens - price of the first non-system surface node;
+ *   the retain budget never swallows that node.
+ * @returns `0` when the total already fits with an 8% window margin; otherwise
+ *   the overflow plus that margin, capped so the oldest compactable node remains
+ *   in the shadowed prefix.
+ */
+export function retainTokensForSummarizer(
+  totalTokens: number,
+  contextWindow: number,
+  surfaceTokens: number,
+  firstCompactableTokens: number,
+): number {
+  if (!Number.isInteger(contextWindow) || contextWindow <= 0) return 0
+  const safety = Math.max(1, Math.floor(contextWindow * 0.08))
+  const computed = Math.max(0, totalTokens - contextWindow + safety)
+  const first = Math.max(1, firstCompactableTokens)
+  return Math.min(computed, Math.max(0, surfaceTokens - first))
+}
+
+/**
+ * {@link retainTokensForSummarizer} using the current surface's first
+ * non-system node as the prefix that must remain compactable.
+ * @param session - session supplying the system-head check.
+ * @param measurement - current conversation-meter totals and nodes.
+ * @param contextWindow - positive routed model capacity.
+ * @returns the tokens the summarizer request may occupy while leaving the rest compactable.
+ */
+export function retainTokensForSummarizerOnSurface(
+  session: Session,
+  measurement: TokenMeasurement,
+  contextWindow: number,
+): number {
+  const head = session.surface.nodes[0]
+  const firstIdx = head === undefined || systemHead(session, head) === undefined ? 0 : 1
+  return retainTokensForSummarizer(
+    measurement.totalTokens,
+    contextWindow,
+    measurement.surfaceTokens,
+    measurement.nodes[firstIdx]?.tokens ?? 1,
+  )
 }
 
 /**
@@ -154,6 +207,44 @@ export function selectCompactableRange(
   const cutoff = surfaceNodes[keepFromIdx - 1]!
   return { start: first, end: cutoff }
 }
+
+/**
+ * Route-priced total of a selected span when every node is a compaction
+ * checkpoint, or `null` when the span contains any other history.
+ * @param session - session supplying the events behind `measurement.nodes`.
+ * @param measurement - the same measurement `selectCompactableRange` used.
+ * @param range - inclusive seq range returned by `selectCompactableRange`.
+ * @returns the span's `tokens` sum, or `null` when it is not checkpoint-only.
+ */
+export function checkpointOnlyRangePrice(
+  session: Session,
+  measurement: TokenMeasurement,
+  range: { start: SessionSeq; end: SessionSeq },
+): number | null {
+  const startIdx = measurement.nodes.findIndex(node => node.seq === range.start)
+  const endIdx = measurement.nodes.findIndex(node => node.seq === range.end)
+  if (startIdx === -1 || endIdx === -1 || startIdx > endIdx) {
+    throw new Error(
+      `compaction: selected range ${range.start}-${range.end} is not on the measured surface`,
+    )
+  }
+  let price = 0
+  for (let index = startIdx; index <= endIdx; index += 1) {
+    // `startIdx`/`endIdx` come from this same `nodes` array, so the slot exists.
+    // oxlint-disable-next-line typescript/no-non-null-assertion
+    const node = measurement.nodes[index]!
+    // Surface nodes are current log seqs, so the event exists.
+    // Existing Session history read; migration deferred.
+    // oxlint-disable-next-line typescript/no-non-null-assertion, typescript/no-deprecated
+    const event = session.eventAt(node.seq)!
+    if (event.type !== 'user/message' || !isCompactCheckpointSource(event.data.source)) {
+      return null
+    }
+    price += node.tokens
+  }
+  return price
+}
+
 
 /**
  * Run the single compaction transaction over one selected positional span.
@@ -208,7 +299,9 @@ export async function compactSurfaceRegion(
     ...options.sourceCommandId === undefined ? {} : { sourceCommandId: options.sourceCommandId },
     turn: owner,
   }
-  const startEvent = session.append('compaction/start', lifecycle)
+  const startEvent = session.append('compaction/start', options.budget === undefined
+    ? lifecycle
+    : { ...lifecycle, budget: options.budget })
   const assertStable: StabilityCheck = options.stability === 'whole-surface'
     ? assertWholeSurfaceUnchanged
     : assertSelectedSpanStable

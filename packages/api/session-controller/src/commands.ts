@@ -23,6 +23,7 @@ import { SessionLogOffset, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import { SessionQueryError, type SessionObservation } from '@deepseek-ai/dsh-session-query'
 import { SessionTitleInvalidError } from '@deepseek-ai/dsh-session-title'
+import { isAbsoluteWorkspacePath } from '@deepseek-ai/dsh-util-workspace-path'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 import { RemoteError, remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
 import type { Workspace } from '@deepseek-ai/dsh-workspace'
@@ -44,12 +45,17 @@ import type {
   SessionCreateValue,
   SessionForkRequest,
   SessionForkValue,
+  SessionInjectRequest,
+  SessionInjectValue,
   SessionPromptRequest,
   SessionPromptValue,
   SessionRenameRequest,
   SessionRenameValue,
+  SessionSelectDefaultModelRequest,
   SessionSelectModelRequest,
   SessionSelectModelValue,
+  SessionSetThinkingCapAutoContinueRequest,
+  SessionSetThinkingCapAutoContinueValue,
   SessionUpdateQueueRequest,
   SessionUpdateQueueValue,
   SessionRequestId,
@@ -93,6 +99,14 @@ export class SessionCommandController {
     requests: Set<SessionRequestId>
   }>()
 
+  /**
+   * Committed injection receipts by request id. An injected batch cannot be
+   * recognized from the log alone (an assistant event carries no request id),
+   * so the retry contract is scoped to this process: the caller that mints the
+   * id is the one retrying it.
+   */
+  private readonly injectReceipts = new Map<SessionRequestId, SessionInjectValue>()
+
   private continuation!: ProjectionHandle<ContinuationState>
 
   /** Register complete-history empty-prompt eligibility. @returns when command admission is ready. */
@@ -131,12 +145,38 @@ export class SessionCommandController {
       }
     }
     const cwd = workspace?.path ?? request.cwd ?? this.defaultCwd
+    // Validate the requested initial route and effort before anything is created,
+    // so a bad pair fails without leaving a Session behind.
+    let modelSelection: AgentModelSelection | undefined
+    if (request.modelSelection !== undefined) {
+      const requested = request.modelSelection
+      try {
+        await this.requireModel(requested)
+        const candidate: AgentModelSelection = {
+          provider: requested.provider,
+          model: requested.model,
+          ...(requested.reasoningEffort === undefined
+            ? {}
+            : { reasoningEffort: brandString<ReasoningEffortId>(requested.reasoningEffort) }),
+        }
+        await this.ctx.llm.resolveCallConfig(candidate)
+        modelSelection = candidate
+      } catch (error: unknown) {
+        if (remoteErrorOf(error) !== undefined) throw error
+        throw new RemoteError(
+          'session/model-unavailable',
+          error instanceof Error ? error.message : String(error),
+          { provider: requested.provider, model: requested.model },
+        )
+      }
+    }
     let created: ApiSessionCreated
     try {
       created = await this.agents.createSession({
         ...(request.sessionId === undefined ? {} : { sessionId: request.sessionId }),
         cwd,
         ...(request.agentPreset === undefined ? {} : { agentPreset: request.agentPreset }),
+        ...(modelSelection === undefined ? {} : { modelSelection }),
         reusable: sessionId => !this.ctx.workspaceRegistry.archivedSessionIds.includes(sessionId)
           && (workspace === undefined || workspace.sessionIds.includes(sessionId)),
       })
@@ -155,7 +195,54 @@ export class SessionCommandController {
         )
       }
     }
-    return { sessionId, ...(created.agentPreset === undefined ? {} : { agentPreset: created.agentPreset }) }
+    return {
+      sessionId,
+      ...(created.agentPreset === undefined ? {} : { agentPreset: created.agentPreset }),
+      ...(created.modelSelection === undefined ? {} : { modelSelection: created.modelSelection }),
+    }
+  }
+
+  /**
+   * Record the Session-local thinking-cap auto-continue policy after resuming the Session.
+   * @param request - Session identity and requested policy.
+   * @returns the policy stored on the Session log and the seq the Client applies.
+   */
+  async setThinkingCapAutoContinue(
+    request: SessionSetThinkingCapAutoContinueRequest,
+  ): Promise<SessionSetThinkingCapAutoContinueValue> {
+    const agent = await this.resolveAgent(request.sessionId)
+    const current = this.ctx.sessionProjections
+      .snapshot(agent.session, ['thinkingCapAutoContinue'])
+      .values.thinkingCapAutoContinue
+    if (current === request.enabled) {
+      const cursor = Number(agent.session.seq)
+      return { enabled: request.enabled, seq: cursor === 0 ? 0 : cursor - 1 }
+    }
+    const event = agent.session.append(
+      'session/thinking-cap-auto-continue',
+      { enabled: request.enabled },
+      { ignorable: true },
+    )
+    return { enabled: request.enabled, seq: event.seq }
+  }
+
+  /**
+   * Validate one deployment-default model and persist it. Does not change any Session.
+   * @param request - provider, model, and optional reasoning effort.
+   * @returns the normalized selection after the default is durable.
+   */
+  async selectDefaultModel(request: SessionSelectDefaultModelRequest): Promise<SessionSelectModelValue> {
+    await this.requireModel(request)
+    const selected: AgentModelSelection = {
+      provider: request.provider,
+      model: request.model,
+      ...(request.reasoningEffort === undefined
+        ? {}
+        : { reasoningEffort: brandString<ReasoningEffortId>(request.reasoningEffort) }),
+    }
+    await this.ctx.llm.resolveCallConfig(selected)
+    await this.ctx.agentDefaultModel.saveSelection(selected)
+    return { selected: { ...selected } }
   }
 
   /**
@@ -262,9 +349,12 @@ export class SessionCommandController {
       )
     }
     const seed = buildForkSeed(source.events, boundary)
+    const cwd = this.forkChildCwd(request.cwd, source.header.cwd)
     let workspace: Workspace | undefined
     try {
-      workspace = await this.forkWorkspace(source.header)
+      workspace = request.cwd === undefined
+        ? await this.forkWorkspace(source.header)
+        : this.forkWorkspaceAt(cwd)
     } catch (error) {
       throw new RemoteError(
         'gateway/internal',
@@ -281,7 +371,7 @@ export class SessionCommandController {
         seed,
         inheritedEventCount: SessionLogOffset(boundary + 1),
         meta: {
-          ...(source.header.cwd === undefined ? {} : { cwd: source.header.cwd }),
+          ...(cwd === undefined ? {} : { cwd }),
           isSeeded: true,
           ...(composition.agentPreset === undefined
             ? {}
@@ -309,6 +399,53 @@ export class SessionCommandController {
       }
     }
     return { sessionId: childId }
+  }
+
+  /**
+   * Commit one injected batch and let the Agent act on it.
+   *
+   * The batch is written by `Agent.injectBatch` in a single append, so it is
+   * one contiguous seq run and either lands whole or not at all. Injection is
+   * accepted while the Agent is idle and while it runs: the driver opens a turn
+   * in the first case and takes one more step in the second.
+   * @param request - Session identity, idempotency key, and the ordered batch.
+   * @returns committed seqs in batch order and whether the Agent acts unprompted.
+   */
+  async inject(request: SessionInjectRequest): Promise<SessionInjectValue> {
+    const prior = this.injectReceipts.get(request.requestId)
+    if (prior !== undefined) return prior
+    if (request.messages.length === 0) {
+      throw new RemoteError('gateway/bad-request', 'an injected batch needs at least one message', {})
+    }
+    for (const message of request.messages) {
+      if (message.text.trim() === '') {
+        throw new RemoteError('gateway/bad-request', `injected ${message.kind} message has no text`, {})
+      }
+    }
+    const agent = await this.resolveAgent(request.sessionId)
+    // Batch injection is an optional driver capability; say so instead of
+    // throwing a TypeError when a foreign driver is attached.
+    if (agent.injectBatch === undefined) {
+      throw new RemoteError(
+        'session/inject-unavailable',
+        `session "${request.sessionId}" is driven by an Agent without batch injection`,
+        { sessionId: request.sessionId },
+      )
+    }
+    let committed
+    try {
+      committed = agent.injectBatch(request.messages)
+    } catch (error: unknown) {
+      if (remoteErrorOf(error) !== undefined) throw error
+      throw new RemoteError(
+        'session/inject-failed',
+        `injected batch was not committed: ${String(error)}`,
+        { sessionId: request.sessionId },
+      )
+    }
+    const value: SessionInjectValue = { seqs: [...committed.seqs], started: committed.started }
+    this.injectReceipts.set(request.requestId, value)
+    return value
   }
 
   /**
@@ -564,6 +701,32 @@ export class SessionCommandController {
       throw apiSessionSubagentOwnershipError(error.sessionId)
     }
     throw new RemoteError('gateway/internal', `failed to create session: ${String(error)}`, {})
+  }
+
+  /**
+   * Resolve the child working directory. An explicit cwd must be a non-empty
+   * fully qualified path; omission copies the source header cwd.
+   * @param requested - optional child cwd from the fork request.
+   * @param sourceCwd - source Session header cwd.
+   * @returns the cwd written on the child header, when any.
+   */
+  private forkChildCwd(requested: string | undefined, sourceCwd: string | undefined): string | undefined {
+    if (requested === undefined) return sourceCwd
+    const cwd = requested.trim()
+    if (cwd === '' || !isAbsoluteWorkspacePath(cwd)) {
+      throw new RemoteError('gateway/bad-request', 'fork cwd must be a fully qualified directory', {})
+    }
+    return cwd
+  }
+
+  /**
+   * Attach the registered Workspace whose path is the requested child cwd.
+   * @param cwd - child working directory, when the request named one.
+   * @returns the matching Workspace, or undefined when none is registered there.
+   */
+  private forkWorkspaceAt(cwd: string | undefined): Workspace | undefined {
+    if (cwd === undefined) return undefined
+    return this.ctx.workspaceRegistry.list().find(workspace => workspace.path === cwd)
   }
 
   private async forkWorkspace(source: SessionHeader): Promise<Workspace | undefined> {

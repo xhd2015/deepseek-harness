@@ -300,6 +300,66 @@ describe('ReasoningRow', () => {
     expect(settledSummary.closest('[data-streaming]')).toBeNull()
   })
 
+  it('collapses a run of encrypted reasoning into one row and keeps a real summary', () => {
+    const encrypted = { kind: 'reasoning' as const, text: '', encrypted: true as const }
+    const view = render(
+      <AssistantMarkdown
+        renderSlot={renderSlot}
+        useDisclosure={useDisclosure}
+        useGroupAction={useSearchableHidden}
+        usePresentation={useDetailedPresentation}
+        t={t}
+        blocks={[encrypted, encrypted, encrypted]}
+        streaming={false}
+        loadImage={unusedImageLoader}
+      />,
+    )
+    expect(view.container.querySelector('[data-encrypted-count="3"]')).toBeTruthy()
+    expect(view.container.textContent).not.toContain('gAAAA')
+
+    view.rerender(
+      <AssistantMarkdown
+        renderSlot={renderSlot}
+        useDisclosure={useDisclosure}
+        useGroupAction={useSearchableHidden}
+        usePresentation={useDetailedPresentation}
+        t={t}
+        blocks={[{ kind: 'reasoning', text: 'Inspect the session' }, encrypted, encrypted]}
+        streaming={false}
+        loadImage={unusedImageLoader}
+      />,
+    )
+    expect(view.getByText('Inspect the session')).toBeTruthy()
+    expect(view.container.querySelector('[data-encrypted-count="2"]')).toBeTruthy()
+  })
+
+  it('collapses non-Codex ciphertext separately and renders the anomaly as a hint', () => {
+    const opaque = { kind: 'reasoning' as const, text: '', opaque: true as const }
+    const encrypted = { kind: 'reasoning' as const, text: '', encrypted: true as const }
+    const view = render(
+      <AssistantMarkdown
+        renderSlot={renderSlot}
+        useDisclosure={useDisclosure}
+        useGroupAction={useSearchableHidden}
+        usePresentation={useDetailedPresentation}
+        t={t}
+        blocks={[opaque, opaque, encrypted]}
+        streaming={false}
+        loadImage={unusedImageLoader}
+      />,
+    )
+    // The two ciphertext kinds stay distinct rows instead of merging into one run.
+    expect(view.getAllByRole('button')).toHaveLength(2)
+    expect(view.getByText('加密但无摘要 · 2')).toBeTruthy()
+    expect(view.getByText('加密推理')).toBeTruthy()
+    expect(view.container.querySelector('[data-opaque-count="2"]')).toBeTruthy()
+
+    fireEvent.click(view.getByText('加密但无摘要 · 2'))
+    const hint = view.getByText('返回了加密推理，但没有可读摘要。')
+    expect(hint.tagName).toBe('P')
+    expect(hint.getAttribute('data-reasoning-hint')).toBe('opaque')
+  })
+
   it('expands from either Think or the reasoning summary', () => {
     const view = render(
       <AssistantMarkdown renderSlot={renderSlot} useDisclosure={useDisclosure} useGroupAction={useSearchableHidden}

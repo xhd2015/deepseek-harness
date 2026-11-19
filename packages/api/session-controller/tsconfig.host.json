@@ -14,6 +14,7 @@
     "src/catalog.ts",
     "src/commands.ts",
     "src/control.ts",
+    "src/drafts.ts",
     "src/file-references.ts",
     "src/history.ts",
     "src/history/controller.ts",
@@ -105,6 +106,9 @@
       "path": "../../skill/skill"
     },
     {
+      "path": "../../storage/storage-domain"
+    },
+    {
       "path": "../../subagent/subagent"
     },
     {
@@ -112,6 +116,9 @@
     },
     {
       "path": "../../util/values"
+    },
+    {
+      "path": "../../util/workspace-path"
     },
     {
       "path": "../../typert/protocol"

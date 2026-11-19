@@ -129,6 +129,17 @@ export interface PiAiAdapterOptions {
    */
   onReplayDegrade?: (detail: { provider: string; model: string; reason: string }) => void
   /**
+   * Wait for live listings to finish their first probe before an operation
+   * reads a configuration snapshot: discovery, resolution, and `prepareCall`.
+   * The snapshot taken afterwards stays frozen for that call.
+   */
+  awaitLiveCatalog?: () => Promise<void>
+  /**
+   * Re-probe live listings immediately. Used by {@link PiAiAdapter.refreshListing}
+   * so a selector can force a gateway round-trip.
+   */
+  refreshLiveCatalog?: () => Promise<void>
+  /**
    * Observe one request that sent replayed assistant messages without their
    * signed Anthropic thinking because the request prefix changed or was never
    * recorded. Stale messages stay omitted, so later requests of the
@@ -343,8 +354,22 @@ export class PiAiAdapter extends LlmAdapter {
     return this.current().profiles.get(provider)?.retryPolicy
   }
 
+  /**
+   * Served models first, then the ones this route's configuration refuses.
+   * A refused entry has no materialized model, so the id the document names is
+   * its label, and it holds no position in the adapter's own catalog order.
+   */
+  /**
+   * Re-probe every live listing this adapter owns.
+   * @returns after those probes settle.
+   */
+  override refreshListing(): Promise<void> {
+    return this.config.refreshLiveCatalog?.() ?? Promise.resolve()
+  }
+
   override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
     return Promise.resolve().then(async () => {
+      await this.config.awaitLiveCatalog?.()
       const snapshot = this.current()
       const profile = this.profileOf(snapshot, provider)
       try { await this.config.resolveApiKey(provider, profile) }
@@ -353,12 +378,15 @@ export class PiAiAdapter extends LlmAdapter {
         if (error instanceof LlmError && error.code === 'MISSING_CREDENTIAL') return []
         throw error
       }
-      return snapshot.models.getModels(provider).map(model => ({
+      const served: LlmModelInfo[] = snapshot.models.getModels(provider).map(model => ({
         provider,
         id: model.id,
         name: model.name,
         inputModalities: [...model.input],
       }))
+      const refused: LlmModelInfo[] = [...profile.modelErrors]
+        .map(([id, reason]) => ({ provider, id, name: id, unavailable: reason }))
+      return [...served, ...refused]
     })
   }
 
@@ -367,7 +395,8 @@ export class PiAiAdapter extends LlmAdapter {
     model: string,
     _signal?: AbortSignal,
   ): Promise<LlmResolvedModelInfo> {
-    return Promise.resolve().then(() => {
+    return Promise.resolve().then(async () => {
+      await this.config.awaitLiveCatalog?.()
       const snapshot = this.current()
       return this.modelInfo(snapshot, provider, model)
     })
@@ -393,14 +422,20 @@ export class PiAiAdapter extends LlmAdapter {
   }
 
   override prepareCall(provider: string, model: string, _signal?: AbortSignal): Promise<PreparedAdapterCall> {
-    const snapshot = this.current()
-    return Promise.resolve({
-      model: this.modelInfo(snapshot, provider, model),
-      stream: options => this.streamWithSnapshot(options, snapshot),
+    return Promise.resolve().then(async () => {
+      await this.config.awaitLiveCatalog?.()
+      const snapshot = this.current()
+      return {
+        model: this.modelInfo(snapshot, provider, model),
+        stream: (options: GenerateOptions) => this.streamWithSnapshot(options, snapshot),
+      }
     })
   }
 
   stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+    // The snapshot is read before the generator's first await, so a request
+    // finishes under the configuration it started with. Waiting for live
+    // listings belongs to `prepareCall`, the path a model call takes.
     return this.streamWithSnapshot(options, this.current())
   }
 

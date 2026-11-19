@@ -26,7 +26,7 @@ import type {
 } from './contract/slots.ts'
 import type { InputNotice } from './contract/input.ts'
 import type { ReferenceInsert } from './contract/draft-editor.ts'
-import { createConversationStore, readConversationViewPreference } from './stores.ts'
+import { createConversationStore, hasConversationDraftChanges, readConversationViewPreference } from './stores.ts'
 import { formatFileMention } from '@deepseek-ai/dsh-file-reference/grammar'
 import { relativizeToCwd, workspaceTitleOf } from '@deepseek-ai/dsh-util-workspace-path'
 import { ConversationController, UnsupportedImageMediaTypeError, isImageMediaType } from './service.ts'
@@ -34,6 +34,7 @@ import type { IConversation } from './service.ts'
 import { ComposerBlockRegistry } from './input/blocks.ts'
 import type { ComposerBlock } from './contract/composer-blocks.ts'
 import { InputHub } from './input/hub.ts'
+import { applyPendingAppendDraft, bindAppendDraftQuery } from './input/append-draft-query.ts'
 import { createComposerFileIntake } from './input/file-intake.ts'
 import { ComposerSubmissionPolicy } from './input/submission-policy.ts'
 import { queueDockEntry } from './queue/QueueDock.tsx'
@@ -305,6 +306,7 @@ export function apply(ctx: Context, config: Config = Config({})): void {
   })
 
   const inputHub = new InputHub(ctx, t)
+  ctx.effect(() => bindAppendDraftQuery(inputHub, sessions), 'ui-conversation: appendDraft query')
   const composerBlocks = new ComposerBlockRegistry()
 
   ctx.inject(['commandUi'], (scope) => {
@@ -429,7 +431,17 @@ export function apply(ctx: Context, config: Config = Config({})): void {
             },
           },
         },
-        bindDraftPersistence: write => inputHub.shell(sessionId).bindDraftPersistence(write),
+        bindDraftPersistence: (write) => {
+          const local = inputHub.shell(sessionId).bindDraftPersistence(write)
+          const host = inputHub.bindDraftMirror(
+            sessionId,
+            (text) => { actions.setDraft(text) },
+            hasConversationDraftChanges(sessionId),
+            actions.markDraftSaved,
+            () => { applyPendingAppendDraft(inputHub, sessionId) },
+          )
+          return () => { local(); host() }
+        },
         openView,
       }
     },

@@ -16,6 +16,8 @@
  */
 
 import { Command, CommanderError, InvalidArgumentError } from 'commander'
+import { parseModelListingDynamicSpec } from './model-listing-dynamic.ts'
+import type { ModelListingDynamicSpec } from './model-listing-dynamic.ts'
 
 /** Boot a named profile and hand it the invocation's inner arguments. */
 interface ProfileInvocation {
@@ -25,6 +27,8 @@ interface ProfileInvocation {
   fromDefaultProfile?: string | undefined
   /** Extra patch-list overlays applied after the profile's own layer, in argv order. */
   patches: string[]
+  /** `--model-listing-dynamic` shells, in argv order. */
+  modelListingDynamic: ModelListingDynamicSpec[]
   /** Everything after the launcher's own flags, verbatim, for injected app plugins. */
   args: string[]
 }
@@ -63,6 +67,7 @@ export type DshInvocation = ProfileInvocation | DumpConfigInvocation | DumpConfi
 /** Launcher flags for profile boot and configuration dumps. */
 interface BootOptions {
   patch?: string[]
+  modelListingDynamic?: string[]
   dumpConfig?: boolean
   dumpDefaultConfig?: boolean
   dumpConfigSchema?: boolean
@@ -94,6 +99,8 @@ Examples:
                                             recreate rescue from the shipped web template, then boot it
   dsh headless "run the tests"              answer one task, print the result, and exit
   dsh tui --patch ./extra.yml               boot a custom profile with one extra overlay
+  dsh web --model-listing-dynamic llm-proxy=http://127.0.0.1:8890,groupByProviders=true
+                                            discover providers and models from a gateway listing
   dsh tui --resume <session>                arguments after the launcher flags reach the app
   dsh web --help                            the web app's own flags and help
   dsh plugin --profile tui add <package>    install a plugin into the tui profile
@@ -111,10 +118,26 @@ Examples:
 function resolveBoot(program: Command, profile: string, options: BootOptions, args: string[]): DshInvocation {
   const patches = options.patch ?? []
   if (patches.includes('')) program.error('error: --patch needs a path')
+  const modelListingDynamic: ModelListingDynamicSpec[] = []
+  const seenListingIds = new Set<string>()
+  for (const token of options.modelListingDynamic ?? []) {
+    if (token === '') program.error('error: --model-listing-dynamic needs id=url')
+    let spec: ModelListingDynamicSpec
+    try {
+      spec = parseModelListingDynamicSpec(token)
+    } catch (error) {
+      program.error(`error: --model-listing-dynamic ${error instanceof Error ? error.message : String(error)}`)
+    }
+    if (seenListingIds.has(spec.id)) {
+      program.error(`error: --model-listing-dynamic duplicate id ${JSON.stringify(spec.id)}`)
+    }
+    seenListingIds.add(spec.id)
+    modelListingDynamic.push(spec)
+  }
   if (options.fromDefaultProfile === '') program.error('error: --from-default-profile needs a name')
   const dumps = [options.dumpConfig, options.dumpDefaultConfig, options.dumpConfigSchema].filter(Boolean)
   if (dumps.length === 0) {
-    return { mode: 'profile', profile, fromDefaultProfile: options.fromDefaultProfile, patches, args }
+    return { mode: 'profile', profile, fromDefaultProfile: options.fromDefaultProfile, patches, modelListingDynamic, args }
   }
   if (dumps.length > 1) {
     program.error('error: --dump-config, --dump-default-config, and --dump-config-schema are mutually exclusive')
@@ -168,6 +191,11 @@ export function parseDshArgs(argv: readonly string[], version: string, manageDes
     .option('--profile <name>', 'the profile under $DSH_HOME/profiles to boot', selectProfile)
     .option('--from-default-profile <name>', 'replace a custom profile with a fresh copy of a shipped profile template')
     .option('--patch <path>', 'extra patch-list overlay applied after the profile layer (repeatable)', collect)
+    .option(
+      '--model-listing-dynamic <id=url>',
+      'discover providers and models from GET {url}/v1/models (repeatable; optional ,groupByProviders=true|false and ,keyEnv=ENV)',
+      collect,
+    )
     .option('--dump-config', 'print the composed profile tree and exit')
     .option('--dump-config-schema', 'print JSON Schema for profile entries and patches without mounting')
     .option('--dump-default-config', 'print the profile tree without its user layer or --patch overlays and exit')

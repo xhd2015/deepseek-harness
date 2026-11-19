@@ -98,6 +98,8 @@ interface EditorTarget extends ProviderIdentity {
   baseURLEnv?: readonly string[]
   /** The route's native authentication (see {@link ProviderEditorProps.nativeAuth}). */
   nativeAuth?: LlmNativeAuth
+  /** Adapter refusals by model id, shown on the matching model row (see {@link ProviderEditorProps.modelErrors}). */
+  modelErrors?: Record<string, string>
 }
 
 /** A dormant directory row the add card can adopt, with its registered namespace. */
@@ -132,6 +134,7 @@ function renderProviderEditor({ target, row, ...props }: ProviderEditorRenderPro
       {...target.defaultBaseURL === undefined ? {} : { defaultBaseURL: target.defaultBaseURL }}
       {...target.baseURLEnv === undefined ? {} : { baseURLEnv: target.baseURLEnv }}
       {...target.nativeAuth === undefined ? {} : { nativeAuth: target.nativeAuth }}
+      {...target.modelErrors === undefined ? {} : { modelErrors: target.modelErrors }}
       {...row.credential === undefined ? {} : { credential: row.credential }}
       {...row.credentialChecks === undefined ? {} : { credentialChecks: row.credentialChecks }}
       {...props}
@@ -215,6 +218,7 @@ function targetOf(row: ProviderRow): EditorTarget {
     ...row.entry.defaultBaseURL === undefined ? {} : { defaultBaseURL: row.entry.defaultBaseURL },
     ...row.entry.baseURLEnv === undefined ? {} : { baseURLEnv: row.entry.baseURLEnv },
     ...row.entry.nativeAuth === undefined ? {} : { nativeAuth: row.entry.nativeAuth },
+    ...row.modelErrors === undefined ? {} : { modelErrors: row.modelErrors },
   }
 }
 
@@ -375,6 +379,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
   // one whose schema names the protocols one may speak; without it mounted
   // there is nothing to declare and the mode is not offered.
   const piAi = state.namespaces.get('llm-pi-ai')
+  const piAiNs = 'llm-pi-ai'
   const protocols = protocolChoices(piAi, schema)
   const reasoningLevels = reasoningLevelChoices(piAi, schema)
   // Each mode is offered while its namespace is mounted and enabled while it
@@ -675,6 +680,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                       taken={state.rows.map(row => row.entry.provider)}
                       protocols={protocols}
                       reasoningLevels={reasoningLevels}
+                      settingsNs={piAiNs}
                       revision={piAi.revision}
                       operations={operations}
                       t={t}

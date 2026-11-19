@@ -395,6 +395,22 @@ export class Session implements SessionFace {
    * @param title - raw title text (the host normalizes acceptance).
    * @returns the rename result (normalized accepted title + title event seq).
    */
+  /**
+   * Persist thinking-cap auto-continue and settle the projection cell from the
+   * response so `useProjection('thinkingCapAutoContinue')` updates immediately.
+   * @param enabled - whether a later reasoning-only `max-tokens` stop should auto-continue.
+   * @returns the stored policy and its event seq, or the business error.
+   */
+  async setThinkingCapAutoContinue(
+    enabled: boolean,
+  ): Promise<RemoteResult<{ enabled: boolean; seq: SessionSeq }>> {
+    const result = await this.remote.session.setThinkingCapAutoContinue({ sessionId: this.sessionId, enabled })
+    if (!result.ok) return result
+    const seq = SessionSeq(result.value.seq)
+    this.projections.apply('thinkingCapAutoContinue', result.value.enabled, seq)
+    return { ok: true, value: { enabled: result.value.enabled, seq } }
+  }
+
   async rename(title: string): Promise<RemoteResult<{ title: string; seq: SessionSeq }>> {
     const result = await this.remote.session.rename({ sessionId: this.sessionId, title })
     if (!result.ok) return result

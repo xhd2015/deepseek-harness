@@ -178,7 +178,13 @@ export interface Config {
    * IPv4 any, IPv6 any, and the IPv4-mapped forms of IPv4 any — is rejected at
    * load: it would expose the port on every interface at once.
    */
-  host: string
+  host?: string
+  /**
+   * Listen addresses: the same contract as {@link host}, one entry per address,
+   * all sharing {@link port}. Use this instead of `host` to serve several local
+   * addresses at once; giving both is a configuration error.
+   */
+  hosts?: string[]
   /** Listen port; zero requests an OS-assigned port. */
   port: number
   /**
@@ -213,6 +219,14 @@ type NodeMiddleware = (
   res: ServerResponse,
   next: () => void,
 ) => void
+
+/** One acquired listener address: every bound address shares the listening port. */
+export interface WebListenAddress {
+  /** Bind address as configured. */
+  readonly host: string
+  /** Port every listener bound; one shared value even when the config requested 0. */
+  readonly port: number
+}
 
 /** Dotted-quad tail of the IPv6 mixed notation: `::0.0.0.1`, `1:2:3:4:5:6:127.0.0.1`. */
 const IPV4_TAIL = /^(.*:)(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/
@@ -250,6 +264,50 @@ function parseIpLiteral(host: string): ipaddr.IPv4 | ipaddr.IPv6 | undefined {
 /** Rejection for a bind address that is no concrete IP literal. */
 function notLiteralError(value: string): Error {
   return new Error(`webserver: host ${JSON.stringify(value)} is not a concrete IPv4 or IPv6 address literal`)
+}
+
+/** Validate one configured bind literal, rejecting wildcard addresses. */
+function requireBindHost(value: string): string {
+  if (isWildcardAddress(requireIpLiteral(value))) {
+    throw new Error(`webserver: host ${JSON.stringify(value)} is an unspecified (wildcard) address, which is not supported: binding every interface would expose remote code execution to the network; bind one concrete IPv4 or IPv6 address of a local interface instead`)
+  }
+  return value
+}
+
+function requireIpLiteral(value: string): ipaddr.IPv4 | ipaddr.IPv6 {
+  const parsed = parseIpLiteral(value)
+  if (parsed === undefined) throw notLiteralError(value)
+  return parsed
+}
+
+/**
+ * Resolve the configured bind addresses, rejecting a configuration naming both
+ * forms, a wildcard address, and duplicates of one address and zone.
+ * @param config - configured single address or address list.
+ * @returns the effective addresses, the first one always present.
+ */
+function resolveBindHosts(config: Pick<Config, 'host' | 'hosts'>): [string, ...string[]] {
+  if (config.host !== undefined && config.hosts !== undefined) {
+    throw new Error('webserver: host and hosts are mutually exclusive; use hosts for multiple addresses')
+  }
+  if (config.host === undefined && config.hosts === undefined) {
+    throw new Error('webserver: one of host or hosts is required')
+  }
+  const values = config.hosts ?? [config.host as string]
+  const seen = new Set<string>()
+  const hosts: string[] = []
+  for (const entry of values) {
+    requireBindHost(entry)
+    const address = normalizeBindAddress(entry)
+    const zone = !isLoopbackHost(entry) && entry.includes('%') ? entry.slice(entry.indexOf('%')) : ''
+    const key = address + zone
+    if (seen.has(key)) continue
+    seen.add(key)
+    hosts.push(isIP(address) === 4 ? address : entry)
+  }
+  const [first, ...rest] = hosts
+  if (first === undefined) throw new Error('webserver: hosts must contain at least one address')
+  return [first, ...rest]
 }
 
 /** ipaddr's IPv4 unspecified range covers all of 0/8; only the all-zero address binds every interface. */
@@ -431,14 +489,8 @@ async function writeResponse(res: ServerResponse, response: Response, head: bool
  */
 export class WebServer extends Service {
   static Config: z<Config> = z.object({
-    host: z.transform(z.string(), (value) => {
-      const parsed = parseIpLiteral(value)
-      if (parsed === undefined) throw notLiteralError(value)
-      if (isWildcardAddress(parsed)) {
-        throw new Error(`webserver: host ${JSON.stringify(value)} is an unspecified (wildcard) address, which is not supported: binding every interface would expose remote code execution to the network; bind one concrete IPv4 or IPv6 address of a local interface instead`)
-      }
-      return value
-    }).required(),
+    host: z.transform(z.string(), requireBindHost).default(undefined as never),
+    hosts: z.array(z.transform(z.string(), requireBindHost)).default(undefined as never),
     port: z.natural().max(65535).required(),
     // An omitted object must not become `{}` and fail the required pair fields.
     tls: z.object({
@@ -464,7 +516,8 @@ export class WebServer extends Service {
   private readonly tlsConnections = new Set<Duplex>()
   private readonly indexTaps: ((html: string) => string)[] = []
   private fallback: WebFallback | undefined
-  private server!: Server
+  private readonly servers: Server[] = []
+  private readonly bindHosts: [string, ...string[]]
   private listenedPort: number | undefined
   private readonly gzip: NodeMiddleware | undefined
   private readonly tlsConfig: TlsConfig | undefined
@@ -472,6 +525,7 @@ export class WebServer extends Service {
   constructor(ctx: Context, private config: Config) {
     super(ctx, 'webServer')
     const resolved = config as ResolvedConfig
+    this.bindHosts = resolveBindHosts(resolved)
     // Schemastery passes an explicit `tls: null` through; only a real object serves TLS.
     this.tlsConfig = resolved.tls ?? undefined
     this.gzip = resolved.compression === 'gzip' ? createGzipMiddleware(resolved) : undefined
@@ -482,9 +536,25 @@ export class WebServer extends Service {
     return this.listenedPort
   }
 
-  /** The configured bind address (one concrete local interface). */
-  get host(): Config['host'] {
-    return this.config.host
+  /** The first configured bind address; deployment-wide policies use {@link hosts}. */
+  get host(): string {
+    return this.bindHosts[0]
+  }
+
+  /** Every effective bind address, deduplicated by address and interface zone. */
+  get hosts(): readonly string[] {
+    return this.bindHosts
+  }
+
+  /** Successfully acquired addresses; empty before every listener bound or after disposal. */
+  get endpoints(): readonly WebListenAddress[] {
+    const port = this.listenedPort
+    return port === undefined || !this.listening ? [] : this.bindHosts.map(host => ({ host, port }))
+  }
+
+  private get listening(): boolean {
+    return this.listenedPort !== undefined && this.servers.length === this.bindHosts.length
+      && this.servers.every(server => server.listening)
   }
 
   /**
@@ -503,12 +573,29 @@ export class WebServer extends Service {
    * @throws before `listen` binds a port, or when the bind address has no URL form.
    */
   getOrigin(): string {
-    const host = bindUrlHost(this.config.host)
-    if (host === undefined) {
-      throw new Error(`webserver: bind address ${JSON.stringify(this.config.host)} carries an interface zone id, which no URL can express`)
+    // The zone-id rejection comes first: it holds for every address, bound or not.
+    if (this.bindHosts.every(host => bindUrlHost(host) === undefined)) {
+      throw new Error(`webserver: bind address ${JSON.stringify(this.host)} carries an interface zone id, which no URL can express`)
     }
-    if (this.listenedPort === undefined) throw new Error('webserver: origin read before the listener bound a port')
-    return `${this.protocol}//${host}:${String(this.listenedPort)}`
+    const origin = this.getLocalOrigin()
+    /* v8 ignore next -- the zone-id case above already rejected every unreachable form. */
+    if (origin === undefined) throw new Error('webserver: origin read before the listener bound a port')
+    return origin
+  }
+
+  /**
+   * Choose a URL a local client can use, preferring IPv4 loopback, then any
+   * loopback, then the first URL-expressible address.
+   * @returns the origin, or undefined when every bound address carries a zone id.
+   * @throws before every listener bound its shared port.
+   */
+  getLocalOrigin(): string | undefined {
+    const port = this.listenedPort
+    if (port === undefined || !this.listening) throw new Error('webserver: origin read before the listener bound a port')
+    const candidates = this.bindHosts.filter(host => bindUrlHost(host) !== undefined)
+    const host = candidates.find(host => isLoopbackHost(host) && isIP(normalizeBindAddress(host)) === 4)
+      ?? candidates.find(isLoopbackHost) ?? candidates[0]
+    return host === undefined ? undefined : `${this.protocol}//${bindUrlHost(host)}:${String(port)}`
   }
 
   /**
@@ -666,105 +753,130 @@ export class WebServer extends Service {
       else this.gzip(req, res, next)
     }
     const tls = this.tlsConfig
-    // Disposal waits for in-flight acquisition and closes any listener it produces.
+    const upgradeHandler = (req: IncomingMessage, socket: Duplex, head: Buffer): void => {
+      const onError = (error: Error): void => {
+        this.ctx.logger.warn(error)
+        socket.destroy()
+      }
+      socket.on('error', onError)
+      socket.once('close', () => {
+        socket.off('error', onError)
+        this.upgradedSockets.delete(socket)
+      })
+      let route: WebUpgradeRoute | undefined
+      let target: URL
+      try {
+        /* v8 ignore next -- node:http always sets url on server requests. */
+        target = new URL(req.url ?? '/', 'http://x')
+        route = this.upgrades.get(target.pathname)
+      } catch (error) {
+        this.ctx.logger.warn(error instanceof Error ? error : new Error(String(error)))
+        socket.destroy()
+        return
+      }
+      if (route === undefined) {
+        socket.destroy()
+        return
+      }
+      this.upgradedSockets.add(socket)
+      const abort = new AbortController()
+      socket.once('close', () => { abort.abort() })
+      try {
+        const admission = this.authorize({
+          headers: req.headers, method: req.method, url: target, transport: 'upgrade',
+          signal: abort.signal, socket,
+        }, route.auth)
+        if (abort.signal.aborted || socket.destroyed) return
+        if (admission.kind === 'deny') {
+          const reason = { 401: 'Unauthorized', 403: 'Forbidden', 503: 'Service Unavailable' }[admission.status]
+          const body = reason.toLowerCase()
+          socket.end(`HTTP/1.1 ${String(admission.status)} ${reason}\r\nConnection: close\r\nCache-Control: no-store\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: ${String(Buffer.byteLength(body))}\r\n\r\n${body}`)
+          return
+        }
+        const dispatch = async (): Promise<void> => {
+          await this.ctx.waterfall(this, 'webserver/upgrade', req, socket, head, admission.peer, async () => {
+            if (!socket.destroyed) await route.handler(req, socket, head, admission.peer)
+          })
+        }
+        void dispatch().catch((error: unknown) => {
+          this.ctx.logger.warn(error instanceof Error ? error : new Error(String(error)))
+          socket.destroy()
+        })
+      } catch (error) {
+        this.ctx.logger.warn(error instanceof Error ? error : new Error(String(error)))
+        socket.destroy()
+      }
+    }
+    // Disposal waits for in-flight acquisition and closes every listener it produces.
     await this.ctx.effect(async () => {
-      if (tls === undefined) {
-        this.server = createServer(listener)
-      } else {
+      const servers = this.servers
+      // Every listener in the group serves the same material, read once.
+      let tlsMaterial: { cert: Buffer | string; key: Buffer | string } | undefined
+      let tlsFiles: { certFile: string; keyFile: string } | undefined
+      if (tls !== undefined) {
         const certFile = resolve(tls.certFile)
         const keyFile = resolve(tls.keyFile)
         const [cert, key] = await Promise.all([
           readTlsFile('certFile', certFile),
           readTlsFile('keyFile', keyFile),
         ])
-        try {
-          this.server = createSecureServer({ cert, key }, listener)
-        } catch (error) {
-          throw new Error(`webserver: tls.certFile ${certFile} and tls.keyFile ${keyFile} are not a usable certificate and key pair: ${error instanceof Error ? error.message : String(error)}`)
-        }
-        this.server.on('connection', (socket) => {
-          this.tlsConnections.add(socket)
-          socket.once('close', () => { this.tlsConnections.delete(socket) })
-        })
+        tlsMaterial = { cert, key }
+        tlsFiles = { certFile, keyFile }
       }
-      this.server.on('upgrade', (req, socket, head) => {
-        const onError = (error: Error): void => {
-          this.ctx.logger.warn(error)
-          socket.destroy()
-        }
-        socket.on('error', onError)
-        socket.once('close', () => {
-          socket.off('error', onError)
-          this.upgradedSockets.delete(socket)
-        })
-        let route: WebUpgradeRoute | undefined
-        let target: URL
-        try {
-          /* v8 ignore next -- node:http always sets url on server requests. */
-          target = new URL(req.url ?? '/', 'http://x')
-          route = this.upgrades.get(target.pathname)
-        } catch (error) {
-          this.ctx.logger.warn(error instanceof Error ? error : new Error(String(error)))
-          socket.destroy()
-          return
-        }
-        if (route === undefined) {
-          socket.destroy()
-          return
-        }
-        this.upgradedSockets.add(socket)
-        const abort = new AbortController()
-        socket.once('close', () => { abort.abort() })
-        try {
-          const admission = this.authorize({
-            headers: req.headers, method: req.method, url: target, transport: 'upgrade',
-            signal: abort.signal, socket,
-          }, route.auth)
-          if (abort.signal.aborted || socket.destroyed) return
-          if (admission.kind === 'deny') {
-            const reason = { 401: 'Unauthorized', 403: 'Forbidden', 503: 'Service Unavailable' }[admission.status]
-            const body = reason.toLowerCase()
-            socket.end(`HTTP/1.1 ${String(admission.status)} ${reason}\r\nConnection: close\r\nCache-Control: no-store\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: ${String(Buffer.byteLength(body))}\r\n\r\n${body}`)
-            return
+      // A configured port of 0 lets the OS choose once: every later address
+      // binds the port the first listener actually acquired.
+      let listenPort = this.config.port
+      for (const host of this.bindHosts) {
+        let server: Server
+        if (tlsMaterial === undefined) {
+          server = createServer(listener)
+        } else {
+          try {
+            server = createSecureServer(tlsMaterial, listener)
+          } catch (error) {
+            throw new Error(`webserver: tls.certFile ${tlsFiles?.certFile} and tls.keyFile ${tlsFiles?.keyFile} are not a usable certificate and key pair: ${error instanceof Error ? error.message : String(error)}`)
           }
-          const dispatch = async (): Promise<void> => {
-            await this.ctx.waterfall(this, 'webserver/upgrade', req, socket, head, admission.peer, async () => {
-              if (!socket.destroyed) await route.handler(req, socket, head, admission.peer)
+          server.on('connection', (socket) => {
+            this.tlsConnections.add(socket)
+            socket.once('close', () => { this.tlsConnections.delete(socket) })
+          })
+        }
+        server.on('upgrade', upgradeHandler)
+        servers.push(server)
+        try {
+          await new Promise<void>((resolve_, reject) => {
+            server.once('error', reject)
+            server.listen(listenPort, host, () => {
+              server.off('error', reject)
+              server.on('error', (err) => { this.ctx.logger.error(err) })
+              resolve_()
             })
-          }
-          void dispatch().catch((error: unknown) => {
-            this.ctx.logger.warn(error instanceof Error ? error : new Error(String(error)))
-            socket.destroy()
           })
         } catch (error) {
-          this.ctx.logger.warn(error instanceof Error ? error : new Error(String(error)))
-          socket.destroy()
+          // One refused address fails the whole group: a partial fan-out would
+          // advertise a port some addresses do not serve.
+          await Promise.all(servers.map(acquired => new Promise<void>((resolve_) => {
+            acquired.close(() => { resolve_() })
+          })))
+          throw error
         }
-      })
-
-      await new Promise<void>((resolve, reject) => {
-        this.server.once('error', reject)
-        this.server.listen(this.config.port, this.config.host, () => {
-          this.server.off('error', reject)
-          this.server.on('error', (err) => { this.ctx.logger.error(err) })
-          this.listenedPort = (this.server.address() as AddressInfo).port
-          resolve()
-        })
-      })
+        listenPort = (server.address() as AddressInfo).port
+        this.listenedPort = listenPort
+      }
 
       // Node does not include upgraded sockets in closeAllConnections(), and a TLS
       // connection joins that table only after its handshake. The service owns both
       // kinds with the other connections, so it tracks and destroys them explicitly.
       return async () => {
-        const serverClosed = new Promise<void>((resolve) => {
-          this.server.close(() => { resolve() })
-        })
-        this.server.closeAllConnections()
-        const socketsClosed = [...this.upgradedSockets, ...this.tlsConnections].map(socket => new Promise<void>((resolve) => {
-          socket.once('close', () => { resolve() })
+        const serversClosed = servers.map(server => new Promise<void>((resolve_) => {
+          server.close(() => { resolve_() })
+        }))
+        for (const server of servers) server.closeAllConnections()
+        const socketsClosed = [...this.upgradedSockets, ...this.tlsConnections].map(socket => new Promise<void>((resolve_) => {
+          socket.once('close', () => { resolve_() })
           socket.destroy()
         }))
-        await Promise.all([serverClosed, ...socketsClosed])
+        await Promise.all([...serversClosed, ...socketsClosed])
       }
     }, 'webServer.listen')
   }

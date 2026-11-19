@@ -7,10 +7,11 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { CompactionEngine, ManualCompactionError } from '@deepseek-ai/dsh-compaction'
-import type { CompactionResult, CompactionTrigger } from '@deepseek-ai/dsh-compaction'
+import type { CompactionBudget, CompactionResult, CompactionTrigger } from '@deepseek-ai/dsh-compaction'
 import type { EpochHeader, Session, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
 import { CONTEXT_WINDOW_EXCEEDED_CODE, LlmError } from '@deepseek-ai/dsh-llm'
+import type {} from '@deepseek-ai/dsh-token-meter/src/projection.ts'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type { CommandId } from '@deepseek-ai/dsh-commands/types'
@@ -26,7 +27,9 @@ import {
 } from './config.ts'
 import {
   assertNoActiveCompaction,
+  checkpointOnlyRangePrice,
   compactSurfaceRegion,
+  retainTokensForSummarizerOnSurface,
   selectCompactableRange,
 } from './region.ts'
 import { summarizeWithLlm } from './summarizer.ts'
@@ -34,7 +37,9 @@ import type { SummarizationInput, SummaryResult, SummaryRoute } from './summariz
 import type {
   BasicCompactionConfig,
   ModelCompactPolicyConfig,
+  ResolvedCompactSpec,
   ResolvedConfig,
+  ResolvedTargetPolicy,
 } from './types.ts'
 
 export type {
@@ -137,6 +142,7 @@ export class BasicCompactionEngine extends CompactionEngine {
   readonly config: ResolvedConfig
 
   private readonly warnedPressureConfigTargets = new Set<string>()
+  private readonly warnedClippedHeadroomTargets = new Set<string>()
   private readonly overflowRetries = new WeakMap<Agent, number>()
   private readonly overflowAgents = new WeakMap<Session, Agent>()
   /** Registered at construction; `summarize()` awaits it, so no read precedes readiness. */
@@ -298,10 +304,34 @@ export class BasicCompactionEngine extends CompactionEngine {
   }
 
   /**
+   * Report once per routed target that the policy's headroom exceeds the slack
+   * the threshold ratio leaves, so the effective headroom is smaller than the
+   * configured value and the trigger starts above it.
+   * @param targetKey - routed `provider/model` identity the warning is deduplicated by.
+   * @param policy - target policy carrying the configured headroom and ratio.
+   * @param spec - resolved budget whose effective headroom was clamped.
+   */
+  private warnClippedHeadroom(
+    targetKey: string,
+    policy: ResolvedTargetPolicy,
+    spec: ResolvedCompactSpec,
+  ): void {
+    if (spec.headroomTokens >= policy.headroomTokens) return
+    if (this.warnedClippedHeadroomTargets.has(targetKey)) return
+    this.warnedClippedHeadroomTargets.add(targetKey)
+    this.ctx.logger.warn(
+      `compaction-basic: ${targetKey} headroomTokens ${policy.headroomTokens} exceeds the `
+      + `${spec.headroomTokens}-token slack that thresholdRatio ${policy.thresholdRatio} leaves in `
+      + `a ${spec.contextWindow}-token window reserving ${spec.reservedCompletionTokens} completion tokens; `
+      + `pressure starts at ${spec.thresholdTokens} tokens`,
+    )
+  }
+
+  /**
    * Compact for replayed step-boundary pressure or one provider-confirmed context
    * overflow. Both triggers price the latest durable routed request envelope;
-   * overflow bypasses the normal threshold and retained-tail policy so it can
-   * force one useful balanced reduction.
+   * overflow bypasses the pressure threshold and keeps only enough tail for the
+   * summarizer request to fit in the routed context window.
    * @param agent - agent whose latest durable routed request is measured.
    * @param trigger - normal step-boundary pressure or context-overflow recovery.
    * @param signal - live turn cancellation signal forwarded to summarization.
@@ -318,9 +348,18 @@ export class BasicCompactionEngine extends CompactionEngine {
       case 'pressure':
         return this.compactPressure(agent, header, signal, false)
       case 'context-overflow': {
-        this.ctx.get('toolResultPruner')?.pruneSession(agent.session)
+        // Keep enough recent tail that the summarizer request still fits in the
+        // routed context window; a zero tail re-summarized the prior checkpoint.
+        const prune = this.ctx.get('toolResultPruner')
+        if (prune !== undefined) {
+          prune.pruneSession(agent.session)
+        }
         const measurement = this.ctx.tokenMeter.measure(agent.session)
-        const range = selectCompactableRange(agent.session, measurement, 0)
+        const range = selectCompactableRange(
+          agent.session,
+          measurement,
+          await this.retainForSummarizer(agent, measurement, signal),
+        )
         if (range === null) return null
         return this.compactRegion(range.start, range.end, agent, signal)
       }
@@ -365,8 +404,16 @@ export class BasicCompactionEngine extends CompactionEngine {
       prune.pruneSession(agent.session)
       measurement = meter.measure(agent.session, header)
     }
+    this.warnClippedHeadroom(targetKey, policy, spec)
     if (measurement.totalTokens < spec.thresholdTokens) return null
 
+    const budget: CompactionBudget = {
+      contextWindow: spec.contextWindow,
+      reservedCompletionTokens: spec.reservedCompletionTokens,
+      headroomTokens: spec.headroomTokens,
+      thresholdTokens: spec.thresholdTokens,
+      retainTokens: spec.retainTokens,
+    }
     let result: CompactionResult | null = null
     for (let attempt = 0; attempt <= spec.compactionRetries; attempt += 1) {
       const range = selectCompactableRange(agent.session, measurement, spec.retainTokens)
@@ -377,7 +424,18 @@ export class BasicCompactionEngine extends CompactionEngine {
           + `(${measurement.totalTokens} estimated tokens >= threshold ${spec.thresholdTokens})`,
         )
       }
-      result = await this.compactRegion(range.start, range.end, agent, signal)
+      // A retry that can only re-summarize a prior checkpoint cannot close the
+      // excess, so fail with the reason instead of spending another summary call.
+      const excessTokens = measurement.totalTokens - spec.thresholdTokens
+      const checkpointPrice = checkpointOnlyRangePrice(agent.session, measurement, range)
+      if (checkpointPrice !== null && checkpointPrice <= excessTokens) {
+        throw new Error(
+          'compaction still above threshold: selected range is only a prior checkpoint '
+          + `(${checkpointPrice} estimated tokens cannot close ${excessTokens} tokens `
+          + `above threshold ${spec.thresholdTokens})`,
+        )
+      }
+      result = await this.compactRegion(range.start, range.end, agent, signal, budget)
       measurement = meter.measure(agent.session, header)
       if (measurement.totalTokens < spec.thresholdTokens) return result
     }
@@ -395,6 +453,8 @@ export class BasicCompactionEngine extends CompactionEngine {
    * @param end - inclusive last surface-node seq.
    * @param agent - owner of the target session, used by the summarizer.
    * @param signal - optional summarization cancellation signal.
+   * @param budget - pressure budget that admitted an automatic trigger, recorded
+   *   on `compaction/start`; absent for a manual range compaction.
    * @returns the successful durable compaction result.
    */
   override async compactRegion(
@@ -402,6 +462,7 @@ export class BasicCompactionEngine extends CompactionEngine {
     end: SessionSeq,
     agent: Agent,
     signal?: AbortSignal,
+    budget?: CompactionBudget,
   ): Promise<CompactionResult> {
     return compactSurfaceRegion(
       this.regionDependencies(),
@@ -409,14 +470,15 @@ export class BasicCompactionEngine extends CompactionEngine {
       start,
       end,
       agent,
-      { owner: 'current-turn', stability: 'whole-surface' },
+      { owner: 'current-turn', stability: 'whole-surface', ...budget === undefined ? {} : { budget } },
       signal,
     )
   }
 
   /**
-   * Force one useful idle-session compaction below the pressure threshold, and
-   * resolve only after its standalone marker pair is durably checkpointed.
+   * Force one useful idle-session compaction below the pressure threshold,
+   * retaining enough tail for the summarizer request to fit, and resolve only
+   * after its standalone marker pair is durably checkpointed.
    * @param agent - idle agent whose next-turn admission this call reserves.
    * @param signal - cancellation scoped to this compaction request.
    * @param sourceCommandId - initiating command identity for presentation correlation.
@@ -433,10 +495,11 @@ export class BasicCompactionEngine extends CompactionEngine {
         const operationSignal = AbortSignal.any([agentSignal, signal])
         try {
           operationSignal.throwIfAborted()
+          const measurement = this.ctx.tokenMeter.measure(agent.session)
           const range = selectCompactableRange(
             agent.session,
-            this.ctx.tokenMeter.measure(agent.session),
-            0,
+            measurement,
+            this.retainFromProjectedWindow(agent.session, measurement),
           )
           if (range === null) return null
           return await compactSurfaceRegion(
@@ -473,6 +536,54 @@ export class BasicCompactionEngine extends CompactionEngine {
         'manual compaction requires an idle agent with no waking queued work',
         { cause: error },
       )
+    }
+  }
+
+  /**
+   * Retain budget from the projected context window, or `0` when none is known.
+   * @param session - session whose `contextPressure` projection is read.
+   * @param measurement - current conversation-meter totals.
+   */
+  private retainFromProjectedWindow(
+    session: Session,
+    measurement: Parameters<typeof retainTokensForSummarizerOnSurface>[1],
+  ): number {
+    const contextWindow = this.ctx.get('sessionProjections')
+      ?.snapshot(session).values.contextPressure?.contextWindow
+    if (typeof contextWindow !== 'number' || !Number.isInteger(contextWindow) || contextWindow <= 0) {
+      return 0
+    }
+    return retainTokensForSummarizerOnSurface(session, measurement, contextWindow)
+  }
+
+  /**
+   * Retain enough recent tail that the shadowed prefix plus the request envelope
+   * still fit in the routed context window for the summarizer call.
+   * @param agent - supplies the durable route or AgentOptions fallback.
+   * @param measurement - current conversation-meter totals.
+   * @param signal - forwarded to model-info resolution when no window is logged.
+   * @returns `0` when no capacity is known, otherwise the summarizer-fit retain budget.
+   */
+  private async retainForSummarizer(
+    agent: Agent,
+    measurement: Parameters<typeof retainTokensForSummarizerOnSurface>[1],
+    signal: AbortSignal,
+  ): Promise<number> {
+    const projectedWindow = this.ctx.get('sessionProjections')
+      ?.snapshot(agent.session).values.contextPressure?.contextWindow
+    if (typeof projectedWindow === 'number' && Number.isInteger(projectedWindow) && projectedWindow > 0) {
+      return retainTokensForSummarizerOnSurface(agent.session, measurement, projectedWindow)
+    }
+    const target = routedTarget(agent.session) ?? conversationTarget(agent, (await this.answeredRoute).stateOf(agent.session))
+    if (target === undefined) return 0
+    try {
+      const context = (await this.ctx.llm.resolveModelInfo(target.provider, target.model, signal)).context
+      if (context === undefined) return 0
+      return retainTokensForSummarizerOnSurface(agent.session, measurement, context.contextWindow)
+    } catch (error: unknown) {
+      // Unlisted routes have no adapter capacity; overflow still force-compacts.
+      void error
+      return 0
     }
   }
 

@@ -23,11 +23,12 @@ import {
 } from './agent.ts'
 import { SessionCommandController, hasPromptContent } from './commands.ts'
 import { SessionControlController } from './control.ts'
+import { SessionDraftController } from './drafts.ts'
 import { HistoryController } from './history/controller.ts'
 import { StateController } from './state/controller.ts'
 import { WebController } from './web/controller.ts'
 import { SessionFileReferences } from './file-references.ts'
-import { ApiSessionList } from './list.ts'
+import { ApiSessionList, isSessionRunning } from './list.ts'
 import { buildModelCatalog, hasProviderApiKey } from './catalog.ts'
 import { SessionSkillCatalog } from './skill-catalog.ts'
 import { SessionMediaReferences } from './media-references.ts'
@@ -43,10 +44,15 @@ import type {
   SessionControlFrame,
   SessionCreateRequest,
   SessionCreateValue,
+  SessionDraftRequest,
+  SessionDraftValue,
+  SessionSetDraftRequest,
   SessionFollowFrame,
   SessionFollowRequest,
   SessionForkRequest,
   SessionForkValue,
+  SessionInjectRequest,
+  SessionInjectValue,
   SessionListRequest,
   SessionListValue,
   SessionOpenWorkspacePathRequest,
@@ -59,8 +65,13 @@ import type {
   SessionRenameValue,
   SessionSearchRequest,
   SessionSearchValue,
+  SessionSelectDefaultModelRequest,
+  SessionSetThinkingCapAutoContinueRequest,
+  SessionSetThinkingCapAutoContinueValue,
   SessionSelectModelRequest,
   SessionSelectModelValue,
+  SessionStatusRequest,
+  SessionStatusValue,
   SessionProjectionsRequest,
   SessionProjectionsValue,
   SessionUpdateQueueRequest,
@@ -145,6 +156,7 @@ export class SessionController extends TypertRemoteService {
     'sessions',
     'sessionProjections',
     'sessionQuery',
+    'storageDomain',
     'typert',
     'typertGateway',
     'workspaceRegistry',
@@ -156,6 +168,7 @@ export class SessionController extends TypertRemoteService {
   })
 
   private historyController!: HistoryController
+  private drafts!: SessionDraftController
   private stateController!: StateController
   private webController!: WebController
 
@@ -190,6 +203,8 @@ export class SessionController extends TypertRemoteService {
   protected async [Service.init](): Promise<void> {
     const ctx = this.ctx
     ctx.typert.resources.register('session', { resolve: resolveSessionResource })
+    this.drafts = new SessionDraftController(ctx)
+    await this.drafts.open()
     this.agents = new ApiSessionAgentController(ctx)
     this.agents.initialize()
     this.commands = new SessionCommandController(ctx, this.agents, process.cwd())
@@ -300,6 +315,26 @@ export class SessionController extends TypertRemoteService {
   }
 
   /**
+   * Report whether each named or loaded Session is running a turn, without
+   * listing, resuming, or projecting. The answer names only Sessions whose
+   * Agent this caller admits, so an omitted id is unknown here rather than
+   * idle, and a reader with its own liveness source keeps that source.
+   * @param request - Session ids to report, or every loaded Agent when omitted.
+   * @returns the running flag of each admitted Session that currently has an Agent.
+   */
+  @Remote('status')
+  status(request: SessionStatusRequest): SessionStatusValue {
+    const ids = request.ids ?? this.ctx.agents.list().map(agent => agent.id)
+    const running: Record<string, boolean> = {}
+    for (const sessionId of ids) {
+      if (this.ctx.agents.get(sessionId) === undefined) continue
+      if (!this.ctx.remoteAccess.allows({ kind: 'session', id: sessionId })) continue
+      running[sessionId] = isSessionRunning(this.ctx, sessionId)
+    }
+    return { running }
+  }
+
+  /**
    * Create one ordinary Session for a new conversation, reusing the named blank Session while it is reusable.
    * @param request - optional blank Session to reuse, location, and Agent preset.
    * @returns the created or reused Session identity and its preset when configured.
@@ -310,6 +345,26 @@ export class SessionController extends TypertRemoteService {
   }
 
   /**
+   * Read durable composer text without resuming the Session or changing its transcript.
+   * @param request - Session identity.
+   * @returns saved text, or empty text when no draft exists.
+   */
+  @Remote('getDraft')
+  getDraft(request: SessionDraftRequest): Promise<SessionDraftValue> {
+    return this.drafts.get(request)
+  }
+
+  /**
+   * Replace durable composer text without admitting a prompt; dependent writes must be serialized by callers.
+   * @param request - Session identity and text; empty text clears the record.
+   * @returns the text after this write is durable.
+   */
+  @Remote('setDraft')
+  setDraft(request: SessionSetDraftRequest): Promise<SessionDraftValue> {
+    return this.drafts.set(request)
+  }
+
+  /**
    * Select one Session-local model after explicitly resuming the Session; save the default in the background.
    * @param request - Session identity and requested model selection.
    * @returns the normalized selection installed for the Session, without waiting for default persistence.
@@ -317,6 +372,28 @@ export class SessionController extends TypertRemoteService {
   @Remote('selectModel')
   selectModel(request: SessionSelectModelRequest): Promise<SessionSelectModelValue> {
     return this.commands.selectModel(request)
+  }
+
+  /**
+   * Record this Session's thinking-cap auto-continue policy.
+   * @param request - Session identity and requested policy.
+   * @returns the stored policy and the durable seq the Client applies.
+   */
+  @Remote('setThinkingCapAutoContinue')
+  setThinkingCapAutoContinue(
+    request: SessionSetThinkingCapAutoContinueRequest,
+  ): Promise<SessionSetThinkingCapAutoContinueValue> {
+    return this.commands.setThinkingCapAutoContinue(request)
+  }
+
+  /**
+   * Persist the deployment default model without addressing a Session.
+   * @param request - provider, model, and optional reasoning effort.
+   * @returns the normalized selection after the default is durable.
+   */
+  @Remote('selectDefaultModel')
+  selectDefaultModel(request: SessionSelectDefaultModelRequest): Promise<SessionSelectModelValue> {
+    return this.commands.selectDefaultModel(request)
   }
 
   /**
@@ -344,6 +421,16 @@ export class SessionController extends TypertRemoteService {
    */
   @Remote('modelCatalog')
   modelCatalog(): Promise<ModelCatalog> {
+    return buildModelCatalog(this.ctx)
+  }
+
+  /**
+   * Re-probe live model listings, then describe every currently routable model.
+   * @returns provider-grouped models after the forced listing round-trip.
+   */
+  @Remote('refreshModelCatalog')
+  async refreshModelCatalog(): Promise<ModelCatalog> {
+    await this.ctx.llm.refreshListings()
     return buildModelCatalog(this.ctx)
   }
 
@@ -491,6 +578,19 @@ export class SessionController extends TypertRemoteService {
       ...(principal === undefined ? {} : { principal }),
     }
     return this.commands.prompt(request, source)
+  }
+
+  /**
+   * Commit one injected transcript batch (user, thinking, assistant) and let the
+   * Agent run on it. Accepted whether the Agent is idle or already running.
+   * @param request - Session identity, idempotency key, and the ordered batch.
+   * @param signal - caller cancellation before the batch is committed.
+   * @returns committed seqs in batch order and whether the Agent acts unprompted.
+   */
+  @Remote('inject')
+  inject(request: SessionInjectRequest, signal: AbortSignal): Promise<SessionInjectValue> {
+    signal.throwIfAborted()
+    return this.commands.inject(request)
   }
 
   /**

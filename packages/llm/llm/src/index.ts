@@ -265,12 +265,24 @@ export abstract class LlmAdapter {
   }
 
   /**
-   * List models this adapter can currently advertise for one owned provider.
-   * Core routing accepts unlisted model ids; catalog-driven entry points such
-   * as the GUI may require membership. Adapters used there must advertise
-   * their available models; the base empty catalog offers no GUI selection.
+   * Re-probe any live model listing this adapter owns. The default is a no-op:
+   * static catalogs have nothing to refetch. Dynamic adapters override this so
+   * a selector can force a gateway round-trip instead of waiting for max-age.
+   * @returns after every owned listing has settled (success or last-known-good).
+   */
+  refreshListing(): Promise<void> {
+    return Promise.resolve()
+  }
+
+  /**
+   * List models this adapter can currently advertise for one owned provider,
+   * including a configured model it refuses to serve: that entry carries
+   * {@link LlmModelInfo.unavailable} so a selector can show why rather than
+   * hide a model the configuration names. Core routing accepts unlisted model
+   * ids. Adapters used by catalog-driven entry points must advertise their
+   * available models; the base empty catalog offers no GUI selection.
    * @param _provider - one provider route owned by this adapter.
-   * @returns discoverable models in adapter-preferred order.
+   * @returns discoverable models in adapter-preferred order, refused entries last.
    */
   listModels(_provider: string): Promise<readonly LlmModelInfo[]> {
     return Promise.resolve([])
@@ -397,6 +409,22 @@ export class LlmRuntime extends TypertRemoteService {
         this.warnAdaptersListenerFailure(error)
       }
     }
+  }
+
+  /**
+   * Re-probe live listings on every registered adapter, then notify topology
+   * observers. Adapters without a live catalog no-op. One adapter serving many
+   * routes is refreshed once.
+   * @returns after every adapter's refresh has settled.
+   */
+  async refreshListings(): Promise<void> {
+    const seen = new Set<LlmAdapter>()
+    for (const registration of this.adapters.values()) {
+      if (seen.has(registration.adapter)) continue
+      seen.add(registration.adapter)
+      await registration.adapter.refreshListing()
+    }
+    this.emitAdaptersUpdated()
   }
 
   /** Contained-listener diagnostic shared by the sync and async failure paths. */
@@ -725,8 +753,9 @@ export class LlmRuntime extends TypertRemoteService {
 
   /**
    * Discover models advertised by one registered provider. Catalog membership
-   * does not constrain core routing. Catalog-driven entry points may restrict
-   * selection and submission to the advertised models.
+   * does not constrain core routing. An entry the adapter refuses stays in the
+   * list and reports that refusal instead of disappearing. Catalog-driven
+   * entry points may still restrict selection to models the adapter can serve.
    * @param provider - registered provider route to inspect.
    * @returns detached model metadata in adapter-preferred order.
    */
@@ -743,6 +772,8 @@ export class LlmRuntime extends TypertRemoteService {
         || typeof model.name !== 'string'
         || model.name.length === 0
         || (model.description !== undefined && typeof model.description !== 'string')
+        || (model.unavailable !== undefined
+          && (typeof model.unavailable !== 'string' || model.unavailable.length === 0))
         || seen.has(model.id)
       ) {
         throw new LlmError(`adapter returned invalid or duplicate model metadata for provider "${provider}"`, 'INVALID_CATALOG')
@@ -759,6 +790,7 @@ export class LlmRuntime extends TypertRemoteService {
         ...badge === undefined ? {} : {
           badge: { text: typeof badge.text === 'string' ? badge.text : { ...badge.text }, tone: badge.tone },
         },
+        ...model.unavailable === undefined ? {} : { unavailable: model.unavailable },
       }
     })
   }
@@ -1218,6 +1250,7 @@ function detachDirectoryEntry(entry: LlmConfigurableProvider): LlmConfigurablePr
     settingsPath: [...entry.settingsPath],
     ...entry.baseURLEnv === undefined ? {} : { baseURLEnv: [...entry.baseURLEnv] },
     ...(nativeAuth === undefined ? {} : { nativeAuth: { ...nativeAuth, env: [...nativeAuth.env] } }),
+    ...entry.modelErrors === undefined ? {} : { modelErrors: { ...entry.modelErrors } },
   }
 }
 

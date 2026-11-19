@@ -115,6 +115,12 @@ export interface ModelCatalogModel {
   readonly reasoning?: ModelReasoning
   /** Provider-authored label shown beside the name; display data only. */
   readonly badge?: LlmModelBadge
+  /**
+   * Why the adapter refuses this model, when it lists one its configuration
+   * names but cannot serve. Present means the entry is shown for repair and is
+   * not selectable; absent means the adapter raised no objection.
+   */
+  readonly unavailable?: string
 }
 
 /** One provider and its successfully loaded model catalog. */
@@ -187,6 +193,12 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'session/provider-credentials-unavailable': Record<string, never>
     'session/provider-models-unavailable': { readonly provider: string }
     'session/model-unavailable': { readonly provider: string; readonly model: string }
+    /** An initial selection cannot be installed: the Session started, or recorded a different choice. */
+    'session/model-conflict': {
+      readonly sessionId: SessionId
+      readonly provider?: string
+      readonly model?: string
+    }
     'session/conflict': {
       readonly sessionId: SessionId
       readonly requestedCwd: string
@@ -206,6 +218,8 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'session/steer-unavailable': { readonly itemId: MessageId }
     'session/title-invalid': { readonly sessionId: SessionId }
     'session/fork-unavailable': { readonly sessionId: SessionId }
+    'session/inject-unavailable': { readonly sessionId: SessionId }
+    'session/inject-failed': { readonly sessionId: SessionId }
     'session/migration-required': { readonly sessionId: SessionId }
     'subagent/not-found': {
       readonly parentSessionId: SessionId
@@ -253,6 +267,21 @@ export interface SessionListValue {
   readonly items: readonly SessionSummary[]
 }
 
+/** Batch run-status request: which Sessions to report, or every loaded Agent when omitted. */
+export interface SessionStatusRequest {
+  /** Session ids the caller asks about; duplicates collapse and the answer keeps only admitted ids. */
+  readonly ids?: readonly SessionId[]
+}
+
+/**
+ * Batch run-status value. A Session appears only when it has an Agent the caller
+ * may see, so an absent id means "unknown here" rather than "loaded and idle".
+ */
+export interface SessionStatusValue {
+  /** Whether each loaded and admitted Session is running a turn. */
+  readonly running: Readonly<Record<string, boolean>>
+}
+
 /** Session search request. */
 export interface SessionSearchRequest {
   readonly query: string
@@ -274,6 +303,13 @@ export interface SessionCreateRequest {
   readonly sessionId?: SessionId
   /** Preset the Session runs, replacing a reused Session's recorded preset; the configured default when omitted. */
   readonly agentPreset?: string
+  /**
+   * Initial Session-only model selection. The route and effort are validated
+   * before creation and recorded on the Session; the deployment default is not
+   * saved. A blank Session records it, and a Session that already recorded a
+   * different choice fails with `session/model-conflict`.
+   */
+  readonly modelSelection?: ModelSelection
 }
 
 /** Session creation response value. */
@@ -282,6 +318,23 @@ export interface SessionCreateValue {
   readonly sessionId: SessionId
   /** Preset the Session runs, when the deployment composes a preset roster. */
   readonly agentPreset?: string
+  /** Accepted initial selection, echoed only when the request named one. */
+  readonly modelSelection?: ModelSelection
+}
+
+/** Identity of a Session whose composer draft is read without Agent activation. */
+export interface SessionDraftRequest {
+  readonly sessionId: SessionId
+}
+
+/** Exact composer text to save; empty text clears the durable record. */
+export interface SessionSetDraftRequest extends SessionDraftRequest {
+  readonly text: string
+}
+
+/** Durable text-only composer draft, absent from the Session transcript. */
+export interface SessionDraftValue {
+  readonly text: string
 }
 
 /** Session model-selection request. */
@@ -292,6 +345,23 @@ export interface SessionSelectModelRequest extends ModelSelection {
 /** Accepted model selection after Host resolution. */
 export interface SessionSelectModelValue {
   readonly selected: ModelSelection
+}
+
+/** Deployment-default model selection with no Session identity. */
+export type SessionSelectDefaultModelRequest = ModelSelection
+
+/** Session thinking-cap auto-continue request. */
+export interface SessionSetThinkingCapAutoContinueRequest {
+  readonly sessionId: SessionId
+  /** Whether a later reasoning-only `max-tokens` stop should auto-continue. */
+  readonly enabled: boolean
+}
+
+/** Installed thinking-cap auto-continue policy. */
+export interface SessionSetThinkingCapAutoContinueValue {
+  readonly enabled: boolean
+  /** Durable event seq of the policy write, or the current log cursor when unchanged. */
+  readonly seq: number
 }
 
 /** Session rename request. */
@@ -313,6 +383,8 @@ export interface SessionForkRequest {
   readonly atSeq?: number
   /** False asks the Host to check for required migration before forking. Defaults to true. */
   readonly allowMigration?: boolean
+  /** Child working directory; omission copies the source header cwd. */
+  readonly cwd?: string
 }
 
 /** Identity of a newly forked Session. */
@@ -334,6 +406,31 @@ export interface SessionPromptRequest {
 /** Receipt after one prompt enters the target Agent inbox. */
 export interface SessionPromptValue {
   readonly accepted: true
+}
+
+/** One entry of an injected batch, in transcript order. */
+export interface SessionInjectMessage {
+  /** `user` writes a user message; `thinking` and `assistant` write assistant messages. */
+  readonly kind: 'user' | 'thinking' | 'assistant'
+  /** Non-blank transcript text. */
+  readonly text: string
+}
+
+/** Inject one ordered batch as a single committed append, then let the Agent act on it. */
+export interface SessionInjectRequest {
+  /** Client-minted idempotency key: a retry with the same id must not append twice. */
+  readonly requestId: SessionRequestId
+  readonly sessionId: SessionId
+  /** Ordered batch; an empty batch is rejected. */
+  readonly messages: readonly SessionInjectMessage[]
+}
+
+/** Receipt after one injected batch commits. */
+export interface SessionInjectValue {
+  /** Committed event seqs, in batch order. */
+  readonly seqs: readonly number[]
+  /** Whether the Agent will act on the batch without another call. */
+  readonly started: boolean
 }
 
 /** Durable image read request. */

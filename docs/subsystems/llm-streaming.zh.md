@@ -518,6 +518,13 @@ interface LlmConfigurableProvider {
   nativeAuth?: LlmNativeAuth
   /** Configuration diagnostic for repair; unaffected models may remain serviceable. */
   error?: string
+  /**
+   * Per-model refusals on this route, keyed by model id: each entry is why a
+   * model the profile names cannot serve a request while its siblings still do.
+   * A configuration surface shows the text on that model's own row, which is
+   * where the field the diagnostic names is edited.
+   */
+  modelErrors?: Record<string, string>
 }
 ```
 
@@ -571,6 +578,14 @@ interface LlmModelInfo {
    * omits it, and no model request or Session event carries it.
    */
   badge?: LlmModelBadge
+  /**
+   * Why this entry cannot serve a request, when the adapter lists a model its
+   * own configuration names but it refuses to serve. Present means listed for
+   * repair, not selectable: a selector shows the text and offers no way to
+   * choose it, and a request naming it fails with this text. Absent means the
+   * adapter raises no objection — it is not a promise the request succeeds.
+   */
+  unavailable?: string
 }
 ```
 
@@ -944,12 +959,21 @@ declare abstract class LlmAdapter {
    */
   imageRequestTarget(_provider: string, _model: string, image: ImageAttachmentRef): ImageRequestTarget;
   /**
-   * List models this adapter can currently advertise for one owned provider.
-   * Core routing accepts unlisted model ids; catalog-driven entry points such
-   * as the GUI may require membership. Adapters used there must advertise
-   * their available models; the base empty catalog offers no GUI selection.
+   * Re-probe any live model listing this adapter owns. The default is a no-op:
+   * static catalogs have nothing to refetch. Dynamic adapters override this so
+   * a selector can force a gateway round-trip instead of waiting for max-age.
+   * @returns after every owned listing has settled (success or last-known-good).
+   */
+  refreshListing(): Promise<void>;
+  /**
+   * List models this adapter can currently advertise for one owned provider,
+   * including a configured model it refuses to serve: that entry carries
+   * {@link LlmModelInfo.unavailable} so a selector can show why rather than
+   * hide a model the configuration names. Core routing accepts unlisted model
+   * ids. Adapters used by catalog-driven entry points must advertise their
+   * available models; the base empty catalog offers no GUI selection.
    * @param _provider - one provider route owned by this adapter.
-   * @returns discoverable models in adapter-preferred order.
+   * @returns discoverable models in adapter-preferred order, refused entries last.
    */
   listModels(_provider: string): Promise<readonly LlmModelInfo[]>;
   /**
@@ -1030,6 +1054,14 @@ Source: [`packages/llm/deepseek-llm-api-extensions/src/index.ts`](../../packages
 The abstract `llm` service: an adapter registry plus a streaming model-call API, interceptable via the `llm/stream` waterfall.
 
 ```ts cordis-catalog
+/**
+ * Re-probe live listings on every registered adapter, then notify topology
+ * observers. Adapters without a live catalog no-op. One adapter serving many
+ * routes is refreshed once.
+ * @returns after every adapter's refresh has settled.
+ */
+async refreshListings(): Promise<void>
+
 /**
  * Register an adapter for the given provider routes. Throws `LlmError` with code
  * `DUPLICATE_ADAPTER` if any provider already has an adapter (all-or-nothing).
@@ -1133,8 +1165,9 @@ fileRequestText(ref: FileAttachmentRef): string
 
 /**
  * Discover models advertised by one registered provider. Catalog membership
- * does not constrain core routing. Catalog-driven entry points may restrict
- * selection and submission to the advertised models.
+ * does not constrain core routing. An entry the adapter refuses stays in the
+ * list and reports that refusal instead of disappearing. Catalog-driven
+ * entry points may still restrict selection to models the adapter can serve.
  * @param provider - registered provider route to inspect.
  * @returns detached model metadata in adapter-preferred order.
  */

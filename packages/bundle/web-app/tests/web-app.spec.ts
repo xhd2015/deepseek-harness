@@ -87,7 +87,7 @@ describe('web-app runtime glue', () => {
     expect(open).toHaveBeenCalledTimes(enabled ? 1 : 0)
     if (enabled) {
       expect(log).toHaveBeenCalledWith('dsh web: http://127.0.0.1:4567/?token=fixture')
-      expect(open).toHaveBeenCalledWith('http://127.0.0.1:4567/?token=fixture', expect.any(AbortSignal))
+      expect(open).toHaveBeenCalledWith('http://127.0.0.1:4567/?token=fixture', expect.any(AbortSignal), undefined)
       await open.mock.results[0]!.value
     }
   })

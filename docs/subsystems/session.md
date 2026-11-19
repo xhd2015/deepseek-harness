@@ -609,15 +609,14 @@ declare class Session {
    *
    * @param type - The event type (key of {@link SessionEventMap}).
    * @param data - The event payload; must be JSON-serializable.
-   * @param opts - Surface metadata: `surfaceOp` controls how the event enters
-   *   the ordered surface; `sourceEventSeqs` lists the seq numbers of earlier
-   *   events this one derives from. REQUIRED for
-   *   {@link SurfaceEventType} events (every message-producing event must
-   *   declare how it joins the surface, the sole source of derived model
-   *   history) and
-   *   rejected by the compiler for non-surface types like `turn/start` or
-   *   `assistant/attempt`. Assistant messages embed their exact provider
-   *   stream and cannot cite top-level source events.
+   * @param opts - For {@link SurfaceEventType} events, required surface
+   *   metadata: `surfaceOp` controls how the event enters the ordered surface;
+   *   `sourceEventSeqs` lists the seq numbers of earlier events this one
+   *   derives from (every message-producing event must declare how it joins
+   *   the surface, the sole source of derived model history). Assistant
+   *   messages embed their exact provider stream and cannot cite top-level
+   *   source events. For log-only types, an optional {@link LogOnlyAppendOptions}
+   *   may mark the record `ignorable` so an older reader can skip it.
    * @returns the logged event — its assigned `seq`/`time` plus the SNAPSHOT of
    *   `data` that entered the log, so reading `event.data` back sees the logged
    *   value, never the caller's still-mutable input.
@@ -641,7 +640,7 @@ declare class Session {
   append<T extends SessionEventType>(
     type: T,
     data: SessionEventMap[T],
-    ...opts: T extends SurfaceEventType ? [opts: SurfaceIntent<T>] : []
+    ...opts: T extends SurfaceEventType ? [opts: SurfaceIntent<T>] : [opts?: LogOnlyAppendOptions]
     ): SessionEvent<T>;
   /**
    * The {@link EpochHeader} in force after the log's last header event — the
@@ -904,6 +903,16 @@ resolveAgent(sessionId: SessionId): Promise<ApiSessionAgentResult>
 @Remote('search') async search(request: SessionSearchRequest, signal: AbortSignal): Promise<SessionSearchValue>
 
 /**
+ * Report whether each named or loaded Session is running a turn, without
+ * listing, resuming, or projecting. The answer names only Sessions whose
+ * Agent this caller admits, so an omitted id is unknown here rather than
+ * idle, and a reader with its own liveness source keeps that source.
+ * @param request - Session ids to report, or every loaded Agent when omitted.
+ * @returns the running flag of each admitted Session that currently has an Agent.
+ */
+@Remote('status') status(request: SessionStatusRequest): SessionStatusValue
+
+/**
  * Create one ordinary Session for a new conversation, reusing the named blank Session while it is reusable.
  * @param request - optional blank Session to reuse, location, and Agent preset.
  * @returns the created or reused Session identity and its preset when configured.
@@ -911,11 +920,39 @@ resolveAgent(sessionId: SessionId): Promise<ApiSessionAgentResult>
 @Remote('create') create(request: SessionCreateRequest): Promise<SessionCreateValue>
 
 /**
+ * Read durable composer text without resuming the Session or changing its transcript.
+ * @param request - Session identity.
+ * @returns saved text, or empty text when no draft exists.
+ */
+@Remote('getDraft') getDraft(request: SessionDraftRequest): Promise<SessionDraftValue>
+
+/**
+ * Replace durable composer text without admitting a prompt; dependent writes must be serialized by callers.
+ * @param request - Session identity and text; empty text clears the record.
+ * @returns the text after this write is durable.
+ */
+@Remote('setDraft') setDraft(request: SessionSetDraftRequest): Promise<SessionDraftValue>
+
+/**
  * Select one Session-local model after explicitly resuming the Session; save the default in the background.
  * @param request - Session identity and requested model selection.
  * @returns the normalized selection installed for the Session, without waiting for default persistence.
  */
 @Remote('selectModel') selectModel(request: SessionSelectModelRequest): Promise<SessionSelectModelValue>
+
+/**
+ * Record this Session's thinking-cap auto-continue policy.
+ * @param request - Session identity and requested policy.
+ * @returns the stored policy and the durable seq the Client applies.
+ */
+@Remote('setThinkingCapAutoContinue') setThinkingCapAutoContinue( request: SessionSetThinkingCapAutoContinueRequest, ): Promise<SessionSetThinkingCapAutoContinueValue>
+
+/**
+ * Persist the deployment default model without addressing a Session.
+ * @param request - provider, model, and optional reasoning effort.
+ * @returns the normalized selection after the default is durable.
+ */
+@Remote('selectDefaultModel') selectDefaultModel(request: SessionSelectDefaultModelRequest): Promise<SessionSelectModelValue>
 
 /**
  * Select the first available account model after login when no provider API key is configured.
@@ -928,6 +965,12 @@ resolveAgent(sessionId: SessionId): Promise<ApiSessionAgentResult>
  * @returns provider-grouped models, the deployment default, and isolated provider failures.
  */
 @Remote('modelCatalog') modelCatalog(): Promise<ModelCatalog>
+
+/**
+ * Re-probe live model listings, then describe every currently routable model.
+ * @returns provider-grouped models after the forced listing round-trip.
+ */
+@Remote('refreshModelCatalog') async refreshModelCatalog(): Promise<ModelCatalog>
 
 /**
  * Report whether this deployment can hand a Session workspace path to a native desktop.
@@ -982,6 +1025,15 @@ workspaceDesktop(): { name: string; available: boolean; fileManager: 'finder' | 
  * @returns acknowledgement that the Agent accepted the prompt.
  */
 @Remote('prompt') async prompt(request: SessionPromptRequest, signal: AbortSignal): Promise<SessionPromptValue>
+
+/**
+ * Commit one injected transcript batch (user, thinking, assistant) and let the
+ * Agent run on it. Accepted whether the Agent is idle or already running.
+ * @param request - Session identity, idempotency key, and the ordered batch.
+ * @param signal - caller cancellation before the batch is committed.
+ * @returns committed seqs in batch order and whether the Agent acts unprompted.
+ */
+@Remote('inject') inject(request: SessionInjectRequest, signal: AbortSignal): Promise<SessionInjectValue>
 
 /**
  * Read one image from the attachment store after gateway authorization.

@@ -115,6 +115,8 @@ type FakeRpcResult = Awaited<ReturnType<ConnectionRpcHandler>>
 type FakeRpcHandler = (endpoint: string, payload: unknown, signal: AbortSignal) => Promise<FakeRpcResult>
 
 class FakeConnectionService extends Service {
+  /** The shared API prefix this fake mounts its routes under. */
+  readonly apiPath = '/api'
   channel: string | undefined
   matches: ((endpoint: string) => boolean) | undefined
   handler: FakeRpcHandler | undefined

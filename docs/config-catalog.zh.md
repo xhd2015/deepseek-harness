@@ -113,7 +113,7 @@ export interface Config {
 
 - `inject`: `agents` · `sessions` · `llm` · `tools` · `systemPrompt` · `sessionProjections`
 - `refs`: [`AgentOptions`](subsystems/core.zh.md) · [`SessionId`](subsystems/core.zh.md) · `Volatile` (`@deepseek-ai/cosmokit`)
-- `source`: [`packages/core/agent-loop/src/index.ts:252`](../packages/core/agent-loop/src/index.ts)
+- `source`: [`packages/core/agent-loop/src/index.ts:257`](../packages/core/agent-loop/src/index.ts)
 
 ```ts config-catalog
 /** Agent-loop plugin configuration. */
@@ -224,7 +224,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-api-gateway`
 
 - `inject`: `typert` · `remoteAccess`
-- `source`: [`packages/api/gateway/src/index.ts:157`](../packages/api/gateway/src/index.ts)
+- `source`: [`packages/api/gateway/src/index.ts:162`](../packages/api/gateway/src/index.ts)
 
 ```ts config-catalog
 /** Gateway transport configuration. */
@@ -263,8 +263,8 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-api-session-controller`
 
-- `inject`: `agentDefaultModel` · `agents` · `attachments` · `fileUploads` · `fs` · `llm` · `remoteAccess` · `sessions` · `sessionProjections` · `sessionQuery` · `typert` · `typertGateway` · `workspaceRegistry`
-- `source`: [`packages/api/session-controller/src/index.ts:111`](../packages/api/session-controller/src/index.ts)
+- `inject`: `agentDefaultModel` · `agents` · `attachments` · `fileUploads` · `fs` · `llm` · `remoteAccess` · `sessions` · `sessionProjections` · `sessionQuery` · `storageDomain` · `typert` · `typertGateway` · `workspaceRegistry`
+- `source`: [`packages/api/session-controller/src/index.ts:122`](../packages/api/session-controller/src/index.ts)
 
 ```ts config-catalog
 /** Session Controller deployment policy. */
@@ -513,8 +513,21 @@ export interface ConnectionConfig {
    * an entry here. A non-canonical or non-bare authority fails plugin load.
    */
   trustedHosts?: string[]
+  /**
+   * Subset of {@link trustedHosts} whose page may read and write Host settings.
+   * The page receives the list as the `__DSH_SETTINGS_TRUST__` boot global.
+   * Every entry must also appear in {@link trustedHosts}: a settings grant is
+   * strictly narrower than the fence, so anything else is a misconfiguration.
+   */
+  trustedHostsForSettings?: string[]
   /** Maximum buffered JSON body for every `/api` request. Default: 300 MiB. */
   maxRequestBodyBytes?: number
+  /**
+   * Absolute HTTP prefix of the shared API channel. Default: `/api`.
+   * A nested prefix such as `/api/dsh` mounts the same channel under that path,
+   * for an embedding host that already owns `/api`.
+   */
+  apiPrefix?: string
 }
 
 /** Timing for generation readiness and automatic reconnection. */
@@ -793,9 +806,9 @@ export interface BasicCompactionConfig extends CompactionPolicyConfig {
 
 /** Policy fields shared by the default policy and exact model overrides. */
 export interface CompactionPolicyConfig {
-  /** Window fraction for pressure; capped at context window minus reserved output and `headroomTokens`. Defaults to `0.8`. */
+  /** Window fraction where pressure starts; headroom may only lower it further. Defaults to `0.8`. */
   thresholdRatio?: number
-  /** Additional pressure headroom beyond the routed output reservation. Non-negative integer; defaults to `65536`. */
+  /** Pressure slack below the `thresholdRatio` ceiling, capped at what that ratio leaves. Non-negative integer; defaults to `65536`. */
   headroomTokens?: number
   /** Recent context retained as a fraction of context window minus reserved output tokens. Defaults to `0.16`. */
   retainRatio?: number
@@ -1831,10 +1844,15 @@ export interface Config {
 - `source`: [`packages/host/authentication-token/src/index.ts:16`](../packages/host/authentication-token/src/index.ts)
 
 ```ts config-catalog
-/** Default browser and API cookie lifetime. */
+/** Default browser and API cookie lifetime, and the credential bypass. */
 export interface Config {
   /** Absolute cookie lifetime in days; default 30. */
   cookieMaxAgeDays: number
+  /**
+   * Skip process-token and cookie checks. Host and Origin trust still apply,
+   * so enable it only behind an outer proxy that authenticates the caller.
+   */
+  disableAuth?: boolean
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-host-authentication-token -->
@@ -1960,7 +1978,13 @@ export interface Config {
    * IPv4 any, IPv6 any, and the IPv4-mapped forms of IPv4 any — is rejected at
    * load: it would expose the port on every interface at once.
    */
-  host: string
+  host?: string
+  /**
+   * Listen addresses: the same contract as {@link host}, one entry per address,
+   * all sharing {@link port}. Use this instead of `host` to serve several local
+   * addresses at once; giving both is a configuration error.
+   */
+  hosts?: string[]
   /** Listen port; zero requests an OS-assigned port. */
   port: number
   /**
@@ -2066,7 +2090,7 @@ export interface Config extends ProtocolConfig, ModelListingConfig {
 
 - `inject`: `llm`
 - `refs`: `Api` (`@earendil-works/pi-ai`) · `CacheRetention` (`@earendil-works/pi-ai`) · `Model` (`@earendil-works/pi-ai`) · `ModelThinkingLevel` (`@earendil-works/pi-ai`) · `OpenAICompletionsCompat` (`@earendil-works/pi-ai`) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · `ThinkingBudgets` (`@earendil-works/pi-ai`) · `Transport` (`@earendil-works/pi-ai`) · `Volatile` (`@deepseek-ai/cordis`)
-- `source`: [`packages/llm/llm-pi-ai/src/config.ts:251`](../packages/llm/llm-pi-ai/src/config.ts)
+- `source`: [`packages/llm/llm-pi-ai/src/config.ts:268`](../packages/llm/llm-pi-ai/src/config.ts)
 
 ```ts config-catalog
 /** Plugin configuration: the provider routes this instance owns. */
@@ -2093,6 +2117,22 @@ export interface PiAiProviderProfile {
   api?: string
   /** Endpoint for this route's models; defaults to the installed catalog's endpoint. */
   baseURL?: string
+  /**
+   * When `"dynamic"`, this route is a listing shell: models come from
+   * `GET {origin}/v1/models` instead of `models`. Installed-catalog routes
+   * must not set it. Combining it with a `models` list is refused.
+   */
+  modelListingMode?: 'dynamic'
+  /**
+   * When true with {@link modelListingMode} `"dynamic"`, listing rows become
+   * `{route}-{owned_by}` providers. Omission is false: the shell id is the
+   * one served provider.
+   */
+  groupByProviders?: boolean
+  /** First-load bound for a dynamic listing; default 30s. */
+  modelsTimeoutMs?: number
+  /** Age after which a dynamic listing refreshes in the background; default 1h. */
+  modelsMaxAgeMs?: number
   /**
    * This route's model catalog. Omission serves the installed catalog for the
    * route unchanged; an explicit list replaces it, each entry defaulting its
@@ -4960,7 +5000,7 @@ export interface WebRuntimeConfig {
 ## `@deepseek-ai/dsh-web-app`
 
 - `inject`: `webServer`
-- `source`: [`packages/bundle/web-app/src/index.ts:55`](../packages/bundle/web-app/src/index.ts)
+- `source`: [`packages/bundle/web-app/src/index.ts:56`](../packages/bundle/web-app/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: composed deployment settings plus per-invocation command-line values. */

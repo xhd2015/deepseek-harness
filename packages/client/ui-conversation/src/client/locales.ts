@@ -14,6 +14,7 @@ export const zh = {
   'shortcut.complementary': '使用互补的 Queue／Steer 方式',
   'shortcut.slash': '打开命令菜单',
   'shortcut.mention': '打开引用菜单',
+  'draft.persistenceFailed': '无法同步会话草稿。当前编辑内容仍保留在此浏览器中。',
   'hint.plan': PLAN_NEXT_ACTION_ZH,
   'hint.goal': '输入目标，智能体将持续执行',
   'hint.goal.active': '当前目标进行中。可输入 edit 修改 / pause 暂停 / resume 继续 / clear 清除',
@@ -420,6 +421,7 @@ export const en = {
   'shortcut.complementary': 'Use the complementary Queue / Steer action',
   'shortcut.slash': 'Open command menu',
   'shortcut.mention': 'Open reference menu',
+  'draft.persistenceFailed': 'Could not synchronize the session draft. Your current edits remain in this browser.',
   'hint.plan': PLAN_NEXT_ACTION_EN,
   'hint.goal': 'describe the objective for a long-running task',
   'hint.goal.active': 'goal active — edit / pause / resume / clear',
@@ -821,6 +823,7 @@ export const en = {
 /** Japanese copy, checked against the English keys. */
 export const ja = {
   'quote.remove': '引用を削除',
+  'draft.persistenceFailed': 'セッションの下書きを同期できませんでした。現在の編集内容はこのブラウザに残っています。',
   'shortcut.newline': '改行',
   'shortcut.complementary': '補助のキュー / 実行中の指示変更を使用',
   'shortcut.slash': 'コマンドメニューを開く',
@@ -1224,6 +1227,7 @@ export const ja = {
 /** Spanish dictionary, checked against the English keys. */
 export const es = {
   'quote.remove': 'Eliminar cotización',
+  'draft.persistenceFailed': 'No se pudo sincronizar el borrador de la sesión. Tus cambios actuales permanecen en este navegador.',
   'shortcut.newline': 'Nueva linea',
   'shortcut.complementary': 'Usar la acción alternativa de poner en cola o redirigir',
   'shortcut.slash': 'Abrir menú de comandos',
@@ -1629,6 +1633,7 @@ export const es = {
 /** French dictionary, checked against the English keys. */
 export const fr = {
   'quote.remove': 'Supprimer le devis',
+  'draft.persistenceFailed': 'Impossible de synchroniser le brouillon de la session. Vos modifications actuelles restent dans ce navigateur.',
   'shortcut.newline': 'Nouvelle ligne',
   'shortcut.complementary': 'Utiliser l’action alternative de mise en attente ou de guidage',
   'shortcut.slash': 'Ouvrir le menu des commandes',
@@ -2034,6 +2039,7 @@ export const fr = {
 /** German dictionary, checked against the English keys. */
 export const de = {
   'quote.remove': 'Zitat entfernen',
+  'draft.persistenceFailed': 'Der Sitzungsentwurf konnte nicht synchronisiert werden. Ihre aktuellen Änderungen bleiben in diesem Browser.',
   'shortcut.newline': 'Neue Zeile',
   'shortcut.complementary': 'Die alternative Aktion zum Vormerken oder Lenken verwenden',
   'shortcut.slash': 'Befehlsmenü öffnen',
@@ -2439,6 +2445,7 @@ export const de = {
 /** Russian dictionary, checked against the English keys. */
 export const ru = {
   'quote.remove': 'Удалить цитату',
+  'draft.persistenceFailed': 'Не удалось синхронизировать черновик сеанса. Текущие правки остаются в этом браузере.',
   'shortcut.newline': 'Новая линия',
   'shortcut.complementary': 'Использовать альтернативное действие: поставить в очередь или направить',
   'shortcut.slash': 'Открыть командное меню',
@@ -2844,6 +2851,7 @@ export const ru = {
 /** Portuguese dictionary, checked against the English keys. */
 export const pt = {
   'quote.remove': 'Remover cotação',
+  'draft.persistenceFailed': 'Não foi possível sincronizar o rascunho da sessão. Suas edições atuais permanecem neste navegador.',
   'shortcut.newline': 'Nova linha',
   'shortcut.complementary': 'Usar a ação alternativa de enfileirar ou orientar',
   'shortcut.slash': 'Abrir menu de comando',

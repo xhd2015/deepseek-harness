@@ -27,6 +27,7 @@ import {
   CHAT_TEMPLATE_VARS,
   MAX_TOKENS_FIELDS,
   MODALITIES,
+  catalogProvider,
   PiAiCatalogError,
   resolveRouteModels,
   SUPPORTED_THINKING_FORMATS,
@@ -115,6 +116,22 @@ export interface PiAiProviderProfile {
   api?: string
   /** Endpoint for this route's models; defaults to the installed catalog's endpoint. */
   baseURL?: string
+  /**
+   * When `"dynamic"`, this route is a listing shell: models come from
+   * `GET {origin}/v1/models` instead of `models`. Installed-catalog routes
+   * must not set it. Combining it with a `models` list is refused.
+   */
+  modelListingMode?: 'dynamic'
+  /**
+   * When true with {@link modelListingMode} `"dynamic"`, listing rows become
+   * `{route}-{owned_by}` providers. Omission is false: the shell id is the
+   * one served provider.
+   */
+  groupByProviders?: boolean
+  /** First-load bound for a dynamic listing; default 30s. */
+  modelsTimeoutMs?: number
+  /** Age after which a dynamic listing refreshes in the background; default 1h. */
+  modelsMaxAgeMs?: number
   /**
    * This route's model catalog. Omission serves the installed catalog for the
    * route unchanged; an explicit list replaces it, each entry defaulting its
@@ -318,15 +335,17 @@ const compatProfile: z<PiAiCompatProfile> = z.object({
  * (`off:`) survives validation because schemastery passes nullable data
  * through before any member schema runs — `z.const(null)` only controls the
  * error for non-null wrong values and what a configuration UI renders.
- * Only resolution decides which levels may leave the value empty, so the
- * diagnostic can name the route and model. The assertion narrows
- * schemastery's `Dict`, which types every literal key as required; dict
- * validation checks only present keys, so the runtime value is a partial record.
+ * The key set is deliberately unconstrained here: resolution decides which
+ * keys are levels, which may leave the value empty, and reports one bad entry
+ * as that model's diagnostic, so a typo in one model does not refuse the whole
+ * namespace and hide every other model the document configures. Admission to
+ * the type is still the assertion below, whose runtime truth resolution
+ * establishes. Dict validation checks only present keys, so the runtime value
+ * is a partial record.
  */
 const reasoningEfforts = z.dict(
   z.union([z.string(), z.const(null)]),
-  z.union(THINKING_LEVELS),
-) as unknown as z<PiAiReasoningEfforts>
+) as z<PiAiReasoningEfforts>
 
 /** The fields a `models` entry and a `modelOverrides` value share; only the id's home differs. */
 const modelFields = {
@@ -357,6 +376,10 @@ const profile = z.object({
   displayName: z.string(),
   api: z.union(supportedProtocols()),
   baseURL: z.string(),
+  modelListingMode: z.const('dynamic'),
+  groupByProviders: z.boolean().default(false),
+  modelsTimeoutMs: z.number().step(1).min(0).max(Number.MAX_SAFE_INTEGER),
+  modelsMaxAgeMs: z.number().step(1).min(0).max(Number.MAX_SAFE_INTEGER),
   models: z.array(modelProfile),
   modelOverrides: z.dict(modelOverride),
   compat: compatProfile,
@@ -498,6 +521,39 @@ export function resolveProfiles(
     // always shown route keys, and a catalog route must not silently rename
     // itself on every configuration surface just because it gained a profile.
     const displayName = source.displayName ?? provider
+    if (source.modelListingMode === 'dynamic') {
+      if (catalogProvider(provider) !== undefined) {
+        throw new Error(`llm-pi-ai: provider "${provider}" sets modelListingMode, which is only for routes the installed catalog does not describe`)
+      }
+      if (source.baseURL === undefined) {
+        throw new Error(`llm-pi-ai: provider "${provider}" sets modelListingMode: dynamic and needs a baseURL`)
+      }
+      if (source.models !== undefined && source.models.length > 0) {
+        throw new Error(`llm-pi-ai: provider "${provider}" sets modelListingMode: dynamic beside a models list`)
+      }
+      const { apiKeyEnv, retryPolicy, models: _models, displayName: _displayName, ...rest } = source
+      resolved.set(provider, {
+        ...rest,
+        provider,
+        displayName,
+        ...apiKeyEnv === undefined ? {} : { apiKeyEnv: credentialRef(apiKeyEnv) },
+        streamIdleTimeoutMs,
+        maxRequestImageBytes,
+        maxRequestImages,
+        imageOffloadCountQuantum,
+        requestImagePixelBudget,
+        requestImageMaxBytes,
+        retryPolicy: resolveRetryPolicy(retryPolicy, `llm-pi-ai: provider "${provider}" retryPolicy`),
+        ...rest.headers === undefined ? {} : { headers: { ...rest.headers } },
+        ...rest.thinkingBudgets === undefined ? {} : { thinkingBudgets: { ...rest.thinkingBudgets } },
+        configuredMaxTokens: new Map(),
+        modelErrors: new Map(),
+      })
+      continue
+    }
+    if (source.groupByProviders === true) {
+      throw new Error(`llm-pi-ai: provider "${provider}" sets groupByProviders without modelListingMode: dynamic`)
+    }
     let catalog: RouteCatalog | undefined
     let piProvider: Provider | undefined
     let catalogError: string | undefined

@@ -19,6 +19,8 @@ export interface ConversationViewRequest {
 export interface ConversationStoreState {
   /** Composer draft (persisted; survives session switches and reloads). */
   draft: DraftInput
+  /** Whether the local text awaits Host acknowledgement; absent on older browser records. */
+  draftDirty?: boolean
   /** Preferred `conversation.view` entry id; null resolves to Chat when registered. */
   view: string | null
   /** Focus request consumed and acknowledged by the addressed View. */

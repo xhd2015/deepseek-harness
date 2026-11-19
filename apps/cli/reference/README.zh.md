@@ -37,7 +37,7 @@ dsh rescue
 
 | Profile | 参数 |
 |---|---|
-| `web` | `--host`、`--port`、`--tls-cert`、`--tls-key`、`--public-url`、可重复的 `--trusted-host`、`--no-open` |
+| `web` | 可重复的 `--host`、`--port`、`--tls-cert`、`--tls-key`、`--public-url`、可重复的 `--trusted-host`、可重复的 `--trusted-host-for-settings`、`--no-auth`、`--no-open`、`--api-prefix` 把共享 API 通道从 `/api` 移到诸如 `/api/dsh` 的嵌套绝对路径，供已经占用 `/api` 的嵌入宿主使用。`--browser`、`open [dir]` |
 | `headless` | 任务文本，作为位置参数 |
 | `sdk` | 无选项；stdio 携带 JSON-RPC 协议 |
 | `sdk-minimal` | 无选项；stdio 携带相同的 JSON-RPC 协议 |
@@ -108,7 +108,7 @@ dsh --profile tui
 
 ## Web Profile
 
-`dsh web` 使用 profile 简写。启动器先解析自身的 flag，其余 flag 属于 web 应用，由组合包中的普通提供方解析。`--host` 与 `--port` 覆盖组合的监听器取值，`--tls-cert`/`--tls-key` 则设置监听器的 `tls` 证书对。host 必须指名一个具体的本机地址，不能是通配地址（`--host 0.0.0.0` 会以用法错误退出）；`hostname -i` 可能列出多个，请只传一个。可重复的 `--trusted-host` 值会收集到 `ctx.webStartup.trustedHosts`；部署表达式可以添加自己的 authority。`--no-open` 只对本次调用关闭默认浏览器交接。客户端插件 HMR（热模块替换）接收器始终挂载，在 `pnpm run dev:web` 重建客户端 bundle 之前保持空闲；该命令先构建一次，再启动这同一个启动器并持续重建客户端 bundle，加 `--no-serve` 则只运行 watcher、配合别处启动的 `dsh web`。
+`dsh web` 使用 profile 简写。启动器先解析自身的 flag，其余 flag 属于 web 应用，由组合包中的普通提供方解析。`--host` 与 `--port` 覆盖组合的监听器取值，`--tls-cert`/`--tls-key` 则设置监听器的 `tls` 证书对。每个 host 都必须指名一个具体的本机地址，不能是通配地址（`--host 0.0.0.0` 会以用法错误退出）；重复 `--host` 可在同一个 `--port` 上服务多个地址，任一地址绑定失败会让整组启动失败。可重复的 `--trusted-host` 值会收集到 `ctx.webStartup.trustedHosts`；部署表达式可以添加自己的 authority。`--trusted-host-for-settings` 指名同时可以读写 Host 设置文档（含已存凭据）的 authority；每个条目必须同时出现在 `--trusted-host` 中，回环页面始终满足条件。`--no-auth` 会去掉进程 token 与 cookie 这层凭据校验，适用于前置代理已完成鉴权的部署；Host/Origin 信任栅栏仍然生效，因此它本身不授予任何权限。`--browser` 指定交接浏览器（`brave`、`chrome`、`firefox`、`edge`、`safari`）。`--no-open` 只对本次调用关闭浏览器交接。`dsh web open [dir]` 在已经运行的 GUI 上为该目录（默认：cwd）创建新 Session。客户端插件 HMR（热模块替换）接收器始终挂载，在 `pnpm run dev:web` 重建客户端 bundle 之前保持空闲；该命令先构建一次，再启动这同一个启动器并持续重建客户端 bundle，加 `--no-serve` 则只运行 watcher、配合别处启动的 `dsh web`。
 
 `--public-url <url>` 公告唯一的 HTTP(S) 应用根——可带转发前缀——替代监听器的绑定地址 URL（回环绑定时为回环地址）。它不授予信任，因此浏览器可见的 authority 仍需用 `--trusted-host` 点名；[在反向代理之后发布 Web UI](../../../docs/user/guide/public-deployments.zh.md)列出了前置代理必须提供的内容。
 
@@ -119,6 +119,9 @@ dsh web
 dsh web --host "$(hostname -i | awk '{print $1}')" --public-url https://app.example/ --trusted-host app.example
 dsh web --tls-cert ./server-chain.pem --tls-key ./server-key.pem
 dsh web --no-open
+dsh web --browser brave
+dsh web open
+dsh web open ~/proj --browser brave
 dsh web --patch ./extra.cordis.yml
 dsh web --dump-config
 dsh web --help

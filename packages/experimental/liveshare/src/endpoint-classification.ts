@@ -42,6 +42,7 @@ export const VIEWER_ENDPOINT_CLASSES = {
   'llm/listProviders': 'reader-global-read', // the page lists providers
   'session/canOpenWorkspacePath': 'reader-global-read', // the page asks whether a path can be opened
   'session/modelCatalog': 'reader-global-read', // the page reads the model catalog
+  'session/refreshModelCatalog': 'owner-only', // a forced provider round-trip is not a viewer action
 
   // ── reader-session-read ─────────────────────────────────────────────────────────────
   'commands/list': 'reader-session-read', // the page lists slash commands for a visible Session (also granted globally)
@@ -59,6 +60,7 @@ export const VIEWER_ENDPOINT_CLASSES = {
   'session/observeProjections': 'reader-session-read', // the page follows visible Session projections
   'session/observeState': 'reader-session-read', // the page follows a visible Session's passive state
   'session/state': 'reader-session-read', // the page reads a visible Session's passive state
+  'session/getDraft': 'reader-session-read', // the page reads the durable composer draft of a visible Session
   'session/wait': 'reader-session-read', // the page waits on a visible Session's passive state
   'toolResults/watch': 'reader-session-read', // the page inspects retained tool results of a visible Session
 
@@ -66,8 +68,10 @@ export const VIEWER_ENDPOINT_CLASSES = {
   'workspace/follow': 'reader-workspace-read', // the page follows a Workspace holding a visible Session (also granted globally)
 
   // ── reader-session-input ─────────────────────────────────────────────────────────────
+  'session/setDraft': 'reader-session-input', // the reader replaces the draft of a Session it may prompt
   'session/prompt': 'reader-session-input', // the reader prompts the confined source (either tier) or its own child under its ceiling
   'session/cancel': 'reader-session-input', // the reader stops its own child; a concrete source cancel is performed by the share host
+  'session/inject': 'reader-session-input', // injected messages reach the model exactly like a prompt, so they need the same grant
 
   // ── reader-fork ─────────────────────────────────────────────────────────────
   'session/fork': 'reader-fork', // the owner allowsFork switch decides the source and the reader’s own forks
@@ -102,7 +106,10 @@ export const VIEWER_ENDPOINT_CLASSES = {
   'session/initializeDefaultModel': 'owner-only', // owner initializes a Session default model
   'session/openWorkspacePath': 'owner-only', // owner opens a Workspace path
   'session/search': 'owner-only', // owner searches across Sessions
+  'session/status': 'reader-global-read', // reader asks which visible Sessions run a turn
+  'session/selectDefaultModel': 'owner-only', // owner saves the deployment default model
   'session/selectModel': 'owner-only', // owner selects a Session model
+  'session/setThinkingCapAutoContinue': 'owner-only', // owner sets the Session auto-continue policy
   'session/updateQueue': 'owner-only', // owner edits queued input
   'session/workspacePathApplications': 'owner-only', // owner applies a Workspace path
   'sessionStatus/follow': 'owner-only', // owner reading reminders

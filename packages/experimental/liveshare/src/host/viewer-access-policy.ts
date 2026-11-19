@@ -107,6 +107,7 @@ const VIEWER_GLOBAL_ROLE: RemoteAccessRole<'global'> = {
     'session/control',
     'session/list',
     'session/modelCatalog',
+    'session/status',
     'workspace/follow',
   ],
 }
@@ -129,6 +130,8 @@ const VIEWER_SESSION_READ_ROLE: RemoteAccessRole<'session'> = {
     'session/control',
     'session/events',
     'session/follow',
+    'session/getDraft',
+    'session/inject',
     'session/list',
     'session/observeEvent',
     'session/observeProjections',
@@ -165,7 +168,7 @@ const VIEWER_FORK_ROLE: RemoteAccessRole<'session'> = {
 const VIEWER_SOURCE_WRITE_ROLE: RemoteAccessRole<'session'> = {
   name: 'liveshare:viewer-source-write',
   resource: 'session',
-  actions: ['session/prompt', 'session/cancel'],
+  actions: ['session/prompt', 'session/cancel', 'session/setDraft'],
 }
 
 /**
@@ -179,7 +182,7 @@ const VIEWER_SOURCE_WRITE_ROLE: RemoteAccessRole<'session'> = {
 const VIEWER_CHILD_ROLE: RemoteAccessRole<'session'> = {
   name: 'liveshare:viewer-child',
   resource: 'session',
-  actions: ['session/prompt', 'session/cancel', 'session/rename'],
+  actions: ['session/prompt', 'session/cancel', 'session/rename', 'session/setDraft'],
 }
 
 /** Following one Workspace that holds a Session the reader can see. */

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parseDshArgs } from '../src/args.ts'
+import { parseModelListingDynamicSpec } from '../src/model-listing-dynamic.ts'
 
 const parse = (argv: string[], manageDesktopProfile = false) => parseDshArgs(argv, '1.2.3', manageDesktopProfile)
 
@@ -22,38 +23,39 @@ afterEach(() => { vi.restoreAllMocks() })
 
 describe('parseDshArgs', () => {
   it('routes profile boots and shorthand, handing the rest to the app', () => {
-    expect(parse(['--profile', 'tui'])).toEqual({ mode: 'profile', profile: 'tui', patches: [], args: [] })
+    expect(parse(['--profile', 'tui'])).toEqual({ mode: 'profile', profile: 'tui', patches: [], modelListingDynamic: [], args: [] })
     expect(parse(['--profile', 'tui', '--patch', 'a.yml', '--patch', 'b.yml']))
-      .toEqual({ mode: 'profile', profile: 'tui', patches: ['a.yml', 'b.yml'], args: [] })
+      .toEqual({ mode: 'profile', profile: 'tui', patches: ['a.yml', 'b.yml'], modelListingDynamic: [], args: [] })
     expect(parse(['--profile', 'rescue', '--from-default-profile', 'web']))
-      .toEqual({ mode: 'profile', profile: 'rescue', fromDefaultProfile: 'web', patches: [], args: [] })
-    expect(parse(['web'])).toEqual({ mode: 'profile', profile: 'web', patches: [], args: [] })
+      .toEqual({ mode: 'profile', profile: 'rescue', fromDefaultProfile: 'web', patches: [], modelListingDynamic: [], args: [] })
+    expect(parse(['web'])).toEqual({ mode: 'profile', profile: 'web', patches: [], modelListingDynamic: [], args: [] })
     expect(parse(['web', '--patch', 'web.yml']))
-      .toEqual({ mode: 'profile', profile: 'web', patches: ['web.yml'], args: [] })
+      .toEqual({ mode: 'profile', profile: 'web', patches: ['web.yml'], modelListingDynamic: [], args: [] })
   })
 
   it('ends the launcher flags at the first token it does not own', () => {
     // App flags, including its -h, and positionals reach the app verbatim.
     expect(parse(['--profile', 'tui', '--resume', 'abc']))
-      .toEqual({ mode: 'profile', profile: 'tui', patches: [], args: ['--resume', 'abc'] })
+      .toEqual({ mode: 'profile', profile: 'tui', patches: [], modelListingDynamic: [], args: ['--resume', 'abc'] })
     expect(parse(['--profile', 'web', '-h']))
-      .toEqual({ mode: 'profile', profile: 'web', patches: [], args: ['-h'] })
+      .toEqual({ mode: 'profile', profile: 'web', patches: [], modelListingDynamic: [], args: ['-h'] })
     expect(parse(['web', '--host', '127.0.0.1', '--port', '8080', '--no-open', '--future-web-flag']))
-      .toEqual({ mode: 'profile', profile: 'web', patches: [], args: ['--host', '127.0.0.1', '--port', '8080', '--no-open', '--future-web-flag'] })
+      .toEqual({ mode: 'profile', profile: 'web', patches: [], modelListingDynamic: [], args: ['--host', '127.0.0.1', '--port', '8080', '--no-open', '--future-web-flag'] })
     expect(parse(['--profile', 'headless', 'run', 'the', 'tests']))
-      .toEqual({ mode: 'profile', profile: 'headless', patches: [], args: ['run', 'the', 'tests'] })
+      .toEqual({ mode: 'profile', profile: 'headless', patches: [], modelListingDynamic: [], args: ['run', 'the', 'tests'] })
     // Launcher flags placed after that boundary belong to the app too.
     expect(parse(['--profile', 'tui', '--patch', 'a.yml', '--resume', 'b', '--patch', 'late.yml']))
-      .toEqual({ mode: 'profile', profile: 'tui', patches: ['a.yml'], args: ['--resume', 'b', '--patch', 'late.yml'] })
+      .toEqual({ mode: 'profile', profile: 'tui', patches: ['a.yml'], modelListingDynamic: [], args: ['--resume', 'b', '--patch', 'late.yml'] })
     expect(parse(['--profile', 'rescue', '--resume', 'abc', '--from-default-profile', 'web']))
       .toEqual({
         mode: 'profile',
         profile: 'rescue',
         patches: [],
+        modelListingDynamic: [],
         args: ['--resume', 'abc', '--from-default-profile', 'web'],
       })
     expect(parse(['web', '--from-default-profile', 'web']))
-      .toEqual({ mode: 'profile', profile: 'web', fromDefaultProfile: 'web', patches: [], args: [] })
+      .toEqual({ mode: 'profile', profile: 'web', fromDefaultProfile: 'web', patches: [], modelListingDynamic: [], args: [] })
   })
 
   it.each(['web', 'headless', 'sdk', 'sdk-minimal', 'acp', 'tui', 'custom', 'run', 'help'])('expands %s without looking up profiles', (profile) => {
@@ -73,8 +75,8 @@ describe('parseDshArgs', () => {
   it('reserves leading plugin for management and forwards later command names', () => {
     expect(parse(['--profile', 'plugin'])).toMatchObject({ mode: 'profile', profile: 'plugin' })
     expect(parse(['--profile', 'x', 'plugin', 'add', 'y']))
-      .toMatchObject({ mode: 'profile', profile: 'x', args: ['plugin', 'add', 'y'] })
-    expect(parse(['headless', 'web'])).toMatchObject({ profile: 'headless', args: ['web'] })
+      .toMatchObject({ mode: 'profile', profile: 'x', modelListingDynamic: [], args: ['plugin', 'add', 'y'] })
+    expect(parse(['headless', 'web'])).toMatchObject({ profile: 'headless', modelListingDynamic: [], args: ['web'] })
     expect(exitCode(['--patch', 'a.yml', 'tui'])).toBe(1)
     expect(exitCode(['--', 'tui'])).toBe(1)
   })
@@ -107,7 +109,7 @@ describe('parseDshArgs', () => {
 
   it('forwards late profile options to the application', () => {
     expect(parse(['web', 'task', '--profile', 'tui']))
-      .toMatchObject({ profile: 'web', args: ['task', '--profile', 'tui'] })
+      .toMatchObject({ profile: 'web', modelListingDynamic: [], args: ['task', '--profile', 'tui'] })
   })
 
   it('routes the plugin pnpm forwarder', () => {
@@ -187,7 +189,7 @@ describe('parseDshArgs', () => {
         patches: ['first.yml', 'second.json'],
       })
     expect(parse(['web', '--port', '8080', '--dump-config-schema']))
-      .toMatchObject({ mode: 'profile', args: ['--port', '8080', '--dump-config-schema'] })
+      .toMatchObject({ mode: 'profile', modelListingDynamic: [], args: ['--port', '8080', '--dump-config-schema'] })
   })
 
   it.each([
@@ -245,6 +247,74 @@ describe('parseDshArgs', () => {
     expect(exitCode(['plugin', '--profile', 'desktop', 'add', 'x'])).toBe(1)
     expect(exitCode(['plugin', '--profile', 'Desktop', 'add', 'x'])).toBe(1)
     expect(exitCode(['--from-default-profile', 'web', 'plugin', '--profile', 'x', 'add', 'y'])).toBe(1)
+  })
+
+  it('parses repeatable --model-listing-dynamic shells', () => {
+    expect(parse([
+      'web',
+      '--model-listing-dynamic', 'llm-proxy=http://127.0.0.1:8890,groupByProviders=true',
+    ])).toMatchObject({
+      mode: 'profile',
+      profile: 'web',
+      modelListingDynamic: [{
+        id: 'llm-proxy',
+        baseURL: 'http://127.0.0.1:8890',
+        groupByProviders: true,
+        apiKeyEnv: 'LLM_PROXY_API_KEY',
+      }],
+    })
+    expect(parse([
+      'web',
+      '--model-listing-dynamic', 'compass=https://example.test/v1,groupByProviders=false,keyEnv=COMPASS_KEY',
+    ])).toMatchObject({
+      modelListingDynamic: [{
+        id: 'compass',
+        baseURL: 'https://example.test/v1',
+        groupByProviders: false,
+        apiKeyEnv: 'COMPASS_KEY',
+      }],
+    })
+    expect(exitCode(['web', '--model-listing-dynamic'])).toBe(1)
+    expect(exitCode(['web', '--model-listing-dynamic', 'http://127.0.0.1:8890'])).toBe(1)
+    expect(exitCode(['web', '--model-listing-dynamic', 'gw=http://127.0.0.1:8890', '--model-listing-dynamic', 'gw=http://127.0.0.1:8891'])).toBe(1)
+  })
+
+  it('reads the suffixes a shell may carry in any order', () => {
+    expect(parseModelListingDynamicSpec('gw=https://x.test,keyEnv=X,agent-runner=codex')).toEqual({
+      id: 'gw',
+      baseURL: 'https://x.test',
+      groupByProviders: true,
+      apiKeyEnv: 'X',
+      agentRunner: 'codex',
+    })
+    // Without the suffix the shell names no runner, so the gateway keeps every
+    // variant instead of receiving an empty one.
+    expect(parseModelListingDynamicSpec('llm-proxy=http://127.0.0.1:8890')).not.toHaveProperty('agentRunner')
+  })
+
+  it('parses an agent-runner suffix into the query the gateway reads', () => {
+    expect(parse([
+      'web',
+      '--model-listing-dynamic', 'llm-proxy=http://127.0.0.1:8890,groupByProviders=true,agent-runner=dsh',
+    ])).toMatchObject({
+      modelListingDynamic: [{
+        id: 'llm-proxy',
+        baseURL: 'http://127.0.0.1:8890',
+        groupByProviders: true,
+        apiKeyEnv: 'LLM_PROXY_API_KEY',
+        agentRunner: 'dsh',
+      }],
+    })
+  })
+
+  it('rejects a runner value and a url the listing request cannot carry', () => {
+    expect(() => parseModelListingDynamicSpec('gw=https://x.test,agent-runner=')).toThrow('agent-runner needs a value')
+    expect(() => parseModelListingDynamicSpec('gw=https://x.test,agent-runner=dsh x'))
+      .toThrow('agent-runner "dsh x" must match [A-Za-z0-9._-]+')
+    // `baseURL` also becomes the inference origin, so a query or fragment here
+    // would be dropped by the listing URL and leak into every model request.
+    expect(() => parseModelListingDynamicSpec('gw=https://x.test/?a=1')).toThrow(/^invalid url https:\/\/x\.test\/\?a=1: /)
+    expect(() => parseModelListingDynamicSpec('gw=https://x.test/#a')).toThrow(/^invalid url https:\/\/x\.test\/#a: /)
   })
 
   it('keeps its own help for an invocation with no app to hand it to', () => {

@@ -70,6 +70,8 @@ export interface MenuActionView {
   readonly icon?: ContextMenuIcon
   readonly danger?: boolean
   readonly separatorBefore?: boolean
+  /** Independent on/off marker; set renders a `menuitemcheckbox` row instead of an action. */
+  readonly checked?: boolean
   /** Render after legacy component contributions in the shared Web popup. */
   readonly afterContent?: boolean
   readonly children?: readonly MenuActionView[]

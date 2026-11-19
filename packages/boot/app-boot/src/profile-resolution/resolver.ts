@@ -191,6 +191,19 @@ function canonicalPath(path: string): string {
   }
 }
 
+/**
+ * Real path of a fallback declarer.
+ *
+ * pnpm stores that manifest through a `node_modules` symlink. tsx skips
+ * tsconfig `paths` for an importer under `node_modules`, so resolution uses
+ * the real file and the loaded package sees the same paths.
+ * @param declarer - generation declarer path, possibly a symlink.
+ * @returns the canonical declarer path.
+ */
+function fallbackDeclarer(declarer: string): string {
+  return canonicalPath(declarer)
+}
+
 function prefixes(path: string): readonly string[] {
   const configured = resolve(path) + sep
   const canonical = canonicalPath(path) + sep
@@ -866,7 +879,7 @@ export function installRuntimeInterception(
         if (cacheable && !(result instanceof Promise)) state.esm = result
         return result
       }
-      const routedParent = pathToFileURL(route.kind === 'interception' ? route.entry.declarer : route.parent).href
+      const routedParent = pathToFileURL(route.kind === 'interception' ? fallbackDeclarer(route.entry.declarer) : route.parent).href
       const previous = delegatedEsm
       delegatedEsm = { parent: routedParent, request }
       const restoreImporter = (error: unknown): never => throwWithImporter(error, routedParent, parent)
@@ -948,7 +961,7 @@ export function installRuntimeInterception(
     request: string, routed: Exclude<ResolutionRoute, { kind: 'native' }>,
     parent: CommonJsParent, main: boolean, options?: CommonJsOptions,
   ): string => {
-    const anchor = routed.kind === 'interception' ? routed.entry.declarer : routed.parent
+    const anchor = routed.kind === 'interception' ? fallbackDeclarer(routed.entry.declarer) : routed.parent
     const synthetic = new cjs(anchor)
     // Late parent assignment preserves Node's require stack without publishing this routing anchor in parent.children.
     synthetic.parent = parent
@@ -985,7 +998,7 @@ export function installRuntimeInterception(
     if (state.route.kind === 'native') return resolveFrom(target.parentURL)
     const route = state.route
     if (route.kind === 'native-after-interception') return resolveFrom(pathToFileURL(route.parent).href)
-    return resolveFrom(pathToFileURL(route.entry.declarer).href)
+    return resolveFrom(pathToFileURL(fallbackDeclarer(route.entry.declarer)).href)
   }
   const wrappedFilename: CommonJsModule['_resolveFilename'] = (request, parent, main, options) => {
     if (delegatedCjs || !parent?.filename || options?.paths !== undefined) {

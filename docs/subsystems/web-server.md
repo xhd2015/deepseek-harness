@@ -76,7 +76,13 @@ interface Config {
    * IPv4 any, IPv6 any, and the IPv4-mapped forms of IPv4 any — is rejected at
    * load: it would expose the port on every interface at once.
    */
-  host: string
+  host?: string
+  /**
+   * Listen addresses: the same contract as {@link host}, one entry per address,
+   * all sharing {@link port}. Use this instead of `host` to serve several local
+   * addresses at once; giving both is a configuration error.
+   */
+  hosts?: string[]
   /** Listen port; zero requests an OS-assigned port. */
   port: number
   /**
@@ -141,7 +147,7 @@ Host `ctx.connection` members consumed by transport-independent adapters.
  * @param channel - shared channel mounted by Connection.
  * @returns Fetch handler for trusted, authenticated requests.
  */
-createSharedFetchHandler(channel: '/api'): ConnectionFetchHandler
+createSharedFetchHandler(channel: string): ConnectionFetchHandler
 
 /**
  * Apply Host/Origin checks and admit the first live Peer returned by a registered credential verifier.
@@ -218,6 +224,14 @@ The browser HTTP carrier service. Activation loads any configured TLS material, 
  * @throws before `listen` binds a port, or when the bind address has no URL form.
  */
 getOrigin(): string
+
+/**
+ * Choose a URL a local client can use, preferring IPv4 loopback, then any
+ * loopback, then the first URL-expressible address.
+ * @returns the origin, or undefined when every bound address carries a zone id.
+ * @throws before every listener bound its shared port.
+ */
+getLocalOrigin(): string | undefined
 
 /**
  * Register a named route. Duplicate (kind, path) throws — route patterns are

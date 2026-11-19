@@ -94,20 +94,33 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
           />,
         )
         break
-      case 'reasoning':
-        if (block.text.trim() === '') break
+      case 'reasoning': {
+        // A ciphertext replay renders as one labeled row even with no visible
+        // text, and consecutive segments of the same hint collapse into it.
+        const hint = reasoningHint(block)
+        if (hint === null && block.text.trim() === '') break
+        const start = i
+        let hintCount = hint === null ? 0 : 1
+        if (hint !== null) {
+          while (i + 1 < blocks.length && reasoningHint(blocks[i + 1]) === hint) {
+            hintCount += 1
+            i += 1
+          }
+        }
         rendered.push(
           <ProcessReasoning
-            key={i}
+            key={start}
             hidden={reasoningHidden}
             reveal={revealProcess}
             useGroupAction={useGroupAction}
           >
-            <ReasoningRow text={block.text} running={streaming && i === last} usePresentation={usePresentation}
+            <ReasoningRow text={block.text} {...hint !== null ? { hint, hintCount } : {}}
+              running={streaming && i === last} usePresentation={usePresentation}
               useDisclosure={useDisclosure} renderSlot={renderSlot} textInteractionSource={textInteractionSource} t={t} />
           </ProcessReasoning>,
         )
         break
+      }
       case 'image': {
         // Consecutive image blocks share one gallery so several images tile
         // into rows instead of each opening a one-image group of its own.
@@ -168,3 +181,15 @@ function ProcessReasoning({ hidden, reveal, useGroupAction, children }: {
 }
 
 const NOOP = (): void => {}
+
+/**
+ * The ciphertext hint a block presents, when it carries one.
+ * @param block - Chat block at the current index.
+ * @returns `codex`, `opaque`, or null for ordinary reasoning.
+ */
+function reasoningHint(block: AssistantBlock | undefined): 'codex' | 'opaque' | null {
+  if (block?.kind !== 'reasoning') return null
+  if (block.encrypted === true) return 'codex'
+  if (block.opaque === true) return 'opaque'
+  return null
+}

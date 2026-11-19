@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-09-16-web-open-from-cli.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-16-web-open-from-cli.md
+/agent-note-open-a-web-session-from-the-cli:
+  en: 26606d7d2bafa886
+  zh: 0401d604cf980ea3
+/agent-note-open-a-web-session-from-the-cli/problem:
+  en: ea40f2072925bd31
+  zh: 664df4635170f9ad
+/agent-note-open-a-web-session-from-the-cli/decision:
+  en: d4824d3d9f5aa5c6
+  zh: f998f3d06f81272a
+/agent-note-open-a-web-session-from-the-cli/alternatives-considered:
+  en: 3b6d9d9fb8d614b0
+  zh: 962017dd4aa5a91b
+/agent-note-open-a-web-session-from-the-cli/consequences:
+  en: 645d642a88f5e549
+  zh: 1a6420f1b4683457
