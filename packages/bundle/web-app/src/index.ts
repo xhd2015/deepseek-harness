@@ -101,19 +101,20 @@ function resolveDistIndex(): string {
 }
 
 /**
- * Record this process's bind origin and launch token for `dsh web open`.
- * The origin is the listener's own address, not an advertised public URL,
- * so a second process on this machine can reach it.
- * @param authenticatedUrl - URL that includes the process token query.
+ * Record this process's bind origin and, while browser authentication is on, its
+ * launch token, so `dsh web open` can reach it. The origin is the listener's own
+ * address, not an advertised public URL, so a second process on this machine can
+ * reach it. A `--no-auth` process records no token and still records the origin.
+ * @param authenticatedUrl - URL that includes the process token query, omitted
+ *   when this process disabled browser authentication.
  * @param origin - listener origin, for example `http://127.0.0.1:3080`.
  */
 function publishListenRecord(authenticatedUrl: string, origin: string): void {
   const token = new URL(authenticatedUrl).searchParams.get('token')
-  if (token === null) return
   writeWebListenFile({
     pid: process.pid,
     origin,
-    token,
+    ...token === null ? {} : { token },
   })
 }
 
