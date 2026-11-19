@@ -172,6 +172,27 @@ describe('MenuItemButton', () => {
   })
 })
 
+describe('MenuItemButton checked', () => {
+  it('renders an independent on/off box instead of an action row', () => {
+    const onSelect = vi.fn()
+    const { rerender } = render(<MenuItemButton checked onSelect={onSelect}>Auto-continue</MenuItemButton>)
+    const row = screen.getByRole('menuitemcheckbox', { name: 'Auto-continue' })
+    expect(row.getAttribute('aria-checked')).toBe('true')
+    // The box is a sibling of the label, so the accessible name stays the label alone.
+    expect(row.querySelector('span[aria-hidden="true"] svg')).not.toBeNull()
+    fireEvent.click(row)
+    expect(onSelect).toHaveBeenCalledOnce()
+
+    rerender(<MenuItemButton checked={false} onSelect={onSelect}>Auto-continue</MenuItemButton>)
+    expect(row.getAttribute('aria-checked')).toBe('false')
+    expect(row.querySelector('span[aria-hidden="true"] svg')).toBeNull()
+
+    // Omitting the flag returns the row to an ordinary action.
+    rerender(<MenuItemButton onSelect={onSelect}>Auto-continue</MenuItemButton>)
+    expect(screen.getByRole('menuitem', { name: 'Auto-continue' }).hasAttribute('aria-checked')).toBe(false)
+  })
+})
+
 describe('Menu', () => {
   beforeEach(() => {
     vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })))

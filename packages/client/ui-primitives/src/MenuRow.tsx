@@ -14,7 +14,7 @@ type OptionalProps<T, K extends keyof T> = { [P in K]?: T[P] | undefined }
 /** Package-internal row props: the `MenuItemButton` row fields plus data- and child-row presentation. */
 type MenuRowProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children'>
   & Pick<MenuItemButtonProps, 'children'>
-  & OptionalProps<MenuItemButtonProps, 'icon' | 'shortcut' | 'current' | 'disabledReason' | 'danger' | 'separatorBefore'>
+  & OptionalProps<MenuItemButtonProps, 'icon' | 'shortcut' | 'current' | 'checked' | 'disabledReason' | 'danger' | 'separatorBefore'>
   & {
     /** Whether this data row is the menu's current selection. */
     selected?: boolean
@@ -32,15 +32,17 @@ type MenuRowProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children'>
  * @param props - row content, native button events, and optional pointer wrapper events.
  * @returns one menu item; explained disabled rows remain focusable but never activate.
  */
-export function MenuRow({ children, icon, shortcut, current, disabled = false, disabledReason, danger,
+export function MenuRow({ children, icon, shortcut, current, checked, disabled = false, disabledReason, danger,
   separatorBefore, selected, selection = 'check', reserveIcon, decorativeIcon = true, wrapperProps, ...button }: MenuRowProps) {
   const reasonId = useId()
   const explained = disabled && disabledReason !== undefined
+  const checkbox = checked !== undefined
   // Tooltip remains mounted when the explanation changes, preserving button focus.
   return <div {...wrapperProps} className={css.itemWrap}>
     {separatorBefore && <div className={css.separator} role="separator" />}
     <Tooltip label={disabledReason ?? ''} disabled={!explained} side="bottom" delayMs={500} maxWidth={300} portal>
-      <button {...button} type="button" role="menuitem"
+      <button {...button} type="button" role={checkbox ? 'menuitemcheckbox' : 'menuitem'}
+        aria-checked={checkbox ? checked : undefined}
         className={clsx(css.item, selected && (selection === 'fill' ? css.selectedFill : css.selected), danger && css.danger)}
         disabled={disabled && !explained} aria-disabled={explained || undefined}
         aria-describedby={explained ? reasonId : undefined} aria-keyshortcuts={shortcut?.aria}
@@ -49,6 +51,11 @@ export function MenuRow({ children, icon, shortcut, current, disabled = false, d
         <span className={css.itemLabel}>{children}</span>
         {shortcut !== undefined && <span aria-hidden="true" className={css.shortcut}><ShortcutKeys keys={shortcut.keys} className={css.shortcutKeys} /></span>}
         {selected && selection === 'check' && <IconCheckOutlineRegular className={css.check} />}
+        {checkbox && (
+          <span className={clsx(css.checkboxMark, checked && css.checkboxMarkChecked)} aria-hidden="true">
+            {checked ? <IconCheckOutlineRegular /> : null}
+          </span>
+        )}
         {button['aria-haspopup'] === 'menu' && <IconChevronRightOutlineRegular aria-hidden="true" className={css.check} />}
       </button>
     </Tooltip>
