@@ -75,3 +75,11 @@
   padding: 4px 0 4px calc(22px + var(--dsh-content-font-delta, 0px));
   min-width: 0;
 }
+
+/* A missing-summary note, not model prose. */
+.hint {
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  line-height: calc(18px + var(--dsh-content-font-delta-secondary, 0px));
+}
