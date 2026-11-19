@@ -429,6 +429,30 @@ describe('Web session model selection', () => {
     await ctx.fiber.dispose()
   })
 
+  it('refreshModelCatalog re-probes adapters then returns the catalog', async () => {
+    const { ctx } = await harness()
+    class RefreshAdapter extends CatalogAdapter {
+      current: LlmModelInfo[] = [{ provider: 'plain', id: 'a', name: 'A' }]
+      override listModels(): Promise<readonly LlmModelInfo[]> {
+        return Promise.resolve(this.current)
+      }
+      override refreshListing(): Promise<void> {
+        this.current = [{ provider: 'plain', id: 'b', name: 'B' }]
+        return Promise.resolve()
+      }
+    }
+    ctx.llm.registerAdapter(['plain'], new RefreshAdapter('Plain', []))
+    const remote = await createSessionTestRemote(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      cwd: '/tmp',
+    })
+    const before = expectValue(await remote.modelCatalog())
+    expect((before.groups.find(group => group.id === 'plain')?.models ?? []).map(model => model.id)).toEqual(['a'])
+    const after = expectValue(await remote.refreshModelCatalog())
+    expect((after.groups.find(group => group.id === 'plain')?.models ?? []).map(model => model.id)).toEqual(['b'])
+    await ctx.fiber.dispose()
+  })
+
   it('preserves optional catalog metadata and string provider failures', async () => {
     const { ctx } = await harness()
     ctx.llm.registerAdapter(['plain'], new CatalogAdapter('Plain', [

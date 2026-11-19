@@ -92,6 +92,7 @@ export interface TestSessionRemote {
   selectModel(request: SessionSelectModelRequest): Promise<RemoteResult<SessionSelectModelValue>>
   selectDefaultModel(request: SessionSelectDefaultModelRequest): Promise<RemoteResult<SessionSelectModelValue>>
   modelCatalog(): Promise<RemoteResult<ModelCatalog>>
+  refreshModelCatalog(): Promise<RemoteResult<ModelCatalog>>
   rename(request: SessionRenameRequest): Promise<RemoteResult<SessionRenameValue>>
   fork(request: SessionForkRequest): Promise<RemoteResult<SessionForkValue>>
   prompt(request: SessionPromptRequest, signal?: AbortSignal): Promise<RemoteResult<SessionPromptValue>>
@@ -417,6 +418,7 @@ export async function createSessionTestRemote(
     selectModel: request => remoteResult(() => direct.selectModel(request)),
     selectDefaultModel: request => remoteResult(() => direct.selectDefaultModel(request)),
     modelCatalog: () => remoteResult(() => direct.modelCatalog()),
+    refreshModelCatalog: () => remoteResult(() => direct.refreshModelCatalog()),
     rename: request => remoteResult(() => direct.rename(request)),
     fork: request => remoteResult(() => direct.fork(request)),
     prompt: (request, signal = new AbortController().signal) => remoteResult(

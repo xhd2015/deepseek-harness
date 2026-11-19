@@ -46,6 +46,7 @@ export const VIEWER_ENDPOINT_CLASSES = {
   'productAnalytics/enabled': 'reader-global-read', // the page asks whether this host accepts analytics
   'productAnalytics/report': 'reader-global-read', // the page reports its own product events
   'productAnalytics/watchPolicy': 'reader-global-read', // the page follows the analytics policy
+  'session/status': 'reader-global-read', // reader asks which visible Sessions run a turn
   'speech/cancelPreparation': 'reader-global-read', // the page cancels its recognizer preparation
   'speech/catalog': 'reader-global-read', // the page reads recorder providers and limits
   'speech/follow': 'reader-global-read', // the page follows recognizer readiness
@@ -122,9 +123,9 @@ export const VIEWER_ENDPOINT_CLASSES = {
   'job/kill': 'owner-only', // owner background jobs
   'session/create': 'owner-only', // owner creates a Session
   'session/initializeDefaultModel': 'owner-only', // owner initializes a Session default model
+  'session/refreshModelCatalog': 'owner-only', // a forced provider round-trip is not a viewer action
   'session/openWorkspacePath': 'owner-only', // owner opens a Workspace path
   'session/search': 'owner-only', // owner searches across Sessions
-  'session/status': 'reader-global-read', // reader asks which visible Sessions run a turn
   'session/selectDefaultModel': 'owner-only', // owner saves the deployment default model
   'session/selectModel': 'owner-only', // owner selects a Session model
   'session/setThinkingCapAutoContinue': 'owner-only', // owner sets the Session auto-continue policy
