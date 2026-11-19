@@ -21,28 +21,50 @@ function hasVisibleText(value: unknown): boolean {
   })
 }
 
+/** OpenAI Fernet token. Codex ciphertext starts with this; other providers do not. */
+const CODEX_ENCRYPTED_PREFIX = 'gAAAAA'
+
+/** Which empty-summary ciphertext a reasoning replay carries, if either. */
+export type CiphertextReasoning = 'codex' | 'opaque'
+
 /**
- * Whether a replayed reasoning block carries only encrypted content and no
- * summary, so it must render as one labeled row instead of raw text.
- * Local: the client bundle cannot value-import the conversation package.
- * @param block - replay block stored beside the assistant message.
- * @returns true when the block is an encrypted reasoning replay with no visible text.
+ * Classify a reasoning replay that has ciphertext and no readable summary, so it
+ * renders as one labeled row instead of raw text. Local: the client bundle
+ * cannot value-import the conversation package.
+ * @param block - replay block stored beside the assistant content block.
+ * @returns `codex` for an OpenAI Fernet blob, `opaque` for any other ciphertext, or null.
  */
-export function isEncryptedReasoningReplay(block: unknown): boolean {
+export function ciphertextReasoning(block: unknown): CiphertextReasoning | null {
   const replay = asRecord(block)
-  if (replay === null || replay.type !== 'reasoning') return false
+  if (replay === null || replay.type !== 'reasoning') return null
   const signature = replay.thinkingSignature
-  if (typeof signature !== 'string' || signature.length === 0) return false
+  if (typeof signature !== 'string' || signature.length === 0) return null
   let parsed: unknown
   try {
     parsed = JSON.parse(signature) as unknown
   } catch {
-    return false
+    return null
   }
   const item = asRecord(parsed)
-  if (item === null || item.type !== 'reasoning') return false
-  if (typeof item.encrypted_content !== 'string' || item.encrypted_content.length === 0) return false
-  return !hasVisibleText(item.summary) && !hasVisibleText(item.content)
+  if (item === null || item.type !== 'reasoning') return null
+  if (typeof item.encrypted_content !== 'string' || item.encrypted_content.length === 0) return null
+  if (hasVisibleText(item.summary) || hasVisibleText(item.content)) return null
+  return item.encrypted_content.startsWith(CODEX_ENCRYPTED_PREFIX) ? 'codex' : 'opaque'
+}
+
+/**
+ * Build the Chat block for one reasoning segment, keeping a ciphertext hint
+ * distinct from real thinking text.
+ * @param text - the segment's reasoning text.
+ * @param replayBlock - replay block stored at the same index, when present.
+ * @returns the Chat reasoning block.
+ */
+function reasoningBlock(text: string, replayBlock: unknown): AssistantBlock {
+  if (text.trim() !== '') return { kind: 'reasoning', text }
+  const hint = ciphertextReasoning(replayBlock)
+  if (hint === 'codex') return { kind: 'reasoning', text, encrypted: true }
+  if (hint === 'opaque') return { kind: 'reasoning', text, opaque: true }
+  return { kind: 'reasoning', text }
 }
 
 /**
@@ -163,9 +185,7 @@ export function toAssistantBlocks(
 export function toAssistantBlock(block: ContentBlock, replayBlock?: unknown): AssistantBlock {
   switch (block.type) {
     case 'text': return { kind: 'text', text: block.text }
-    case 'reasoning': return block.text.trim() === '' && isEncryptedReasoningReplay(replayBlock)
-      ? { kind: 'reasoning', text: block.text, encrypted: true }
-      : { kind: 'reasoning', text: block.text }
+    case 'reasoning': return reasoningBlock(block.text, replayBlock)
     case 'image': return { kind: 'image', attachment: block.attachment }
     case 'tool-call': return { kind: 'tool-call', callId: String(block.id), name: block.name, argsRaw: block.arguments }
     default: return { kind: 'other', block }

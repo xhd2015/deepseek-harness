@@ -286,8 +286,9 @@ function snapshotAppend(
 ) {
   // A log-only envelope carries `ignorable`; anything else is surface metadata,
   // including a bare `sourceEventSeqs` that must still be validated.
-  const intent = isLogOnlyAppendOptions(opts) ? undefined : opts
-  const ignorable = opts !== undefined && 'ignorable' in opts && opts.ignorable === true
+  const logOnly = isLogOnlyAppendOptions(opts)
+  const intent = logOnly ? undefined : opts
+  const ignorable = logOnly && opts.ignorable === true
   const surfaceOp = intent?.surfaceOp
   const sourceEventSeqs = intent?.sourceEventSeqs
   const dataSnapshot = snapshotJsonValue(data)

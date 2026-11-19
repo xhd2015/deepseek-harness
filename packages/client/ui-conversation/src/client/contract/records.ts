@@ -33,7 +33,7 @@ export interface AssistantProviderMetadataView {
 /** Assistant content blocks sorted by what a UI target presents. */
 export type AssistantBlock =
   | { kind: 'text'; text: string }
-  | { kind: 'reasoning'; text: string; encrypted?: true }
+  | { kind: 'reasoning'; text: string; encrypted?: true; opaque?: true }
   | { kind: 'image'; attachment: ImageAttachmentRef }
   | { kind: 'tool-call'; callId: string; name: string; argsRaw: string }
   | { kind: 'other'; block: unknown }
