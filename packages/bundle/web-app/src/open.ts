@@ -125,7 +125,7 @@ export async function runOpen(request: OpenRequest): Promise<string> {
 
 async function createWorkspaceAndSession(
   origin: string,
-  token: string,
+  token: string | undefined,
   directory: string,
   signal: AbortSignal,
 ): Promise<{ sessionId: string }> {
@@ -148,7 +148,7 @@ async function createWorkspaceAndSession(
 
 async function rpc<T>(
   origin: string,
-  token: string,
+  token: string | undefined,
   endpoint: string,
   args: Record<string, unknown>,
   signal: AbortSignal,
@@ -160,7 +160,7 @@ async function rpc<T>(
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        authorization: `Bearer ${token}`,
+        ...token === undefined ? {} : { authorization: `Bearer ${token}` },
       },
       body: JSON.stringify({
         type: 'client-request',
@@ -203,10 +203,10 @@ function rpcResult<T>(body: unknown, rpcId: string, endpoint: string): RpcResult
   return result as RpcResult<T>
 }
 
-function sessionLaunchUrl(origin: string, token: string, sessionId: string): string {
+function sessionLaunchUrl(origin: string, token: string | undefined, sessionId: string): string {
   const url = new URL(origin)
   url.pathname = '/'
-  url.searchParams.set('token', token)
+  if (token !== undefined) url.searchParams.set('token', token)
   url.searchParams.set(SESSION_QUERY, sessionId)
   return url.href
 }

@@ -16,8 +16,12 @@ export interface WebListenRecord {
   readonly pid: number
   /** Canonical loopback origin, for example `http://127.0.0.1:3080`. */
   readonly origin: string
-  /** Process launch token accepted as `Authorization: Bearer`. */
-  readonly token: string
+  /**
+   * Process launch token accepted as `Authorization: Bearer`; absent when the
+   * serving process disabled browser authentication with `--no-auth`, which
+   * leaves every loopback request authorized without a credential.
+   */
+  readonly token?: string
 }
 
 /**
@@ -30,7 +34,8 @@ export function webListenFilePath(home: string = resolveDshHome()): string {
 }
 
 /**
- * Write the serving process's origin and launch token.
+ * Write the serving process's origin and, while browser authentication is on,
+ * its launch token.
  * @param record - listen facts for this process.
  * @param path - file to replace.
  */
@@ -83,7 +88,7 @@ function isListenRecord(value: unknown): value is WebListenRecord {
   const record = value as Record<string, unknown>
   return typeof record.pid === 'number' && Number.isInteger(record.pid) && record.pid > 0
     && typeof record.origin === 'string' && /^https?:\/\//u.test(record.origin)
-    && typeof record.token === 'string' && record.token.length > 0
+    && (record.token === undefined || (typeof record.token === 'string' && record.token.length > 0))
 }
 
 function processAlive(pid: number): boolean {
