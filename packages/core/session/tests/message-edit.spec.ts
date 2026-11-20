@@ -5,12 +5,14 @@ import {
   messageEditProjection,
   type SessionSeq,
 } from '@deepseek-ai/dsh-session'
+import type { SessionId } from '@deepseek-ai/dsh-session'
+import { brandString } from '@deepseek-ai/dsh-brand'
 import { deriveEventMessage, foldSurface } from '@deepseek-ai/dsh-session/surface'
 import { createAssistantMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 
 /** Build a session with one user message and one assistant reply. */
 function seeded(): { session: Session; userSeq: SessionSeq; assistantSeq: SessionSeq } {
-  const session = Session.create('session-edit-test', [], undefined, undefined, [messageEditProjection])
+  const session = Session.create(brandString<SessionId>('session-edit-test'), [], undefined, undefined, [messageEditProjection])
   const user = session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: 'original question' }],
     source: { kind: 'user' },

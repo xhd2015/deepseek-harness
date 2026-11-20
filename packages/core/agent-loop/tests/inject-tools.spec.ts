@@ -26,11 +26,22 @@ async function createAgent(): Promise<Agent> {
   return ctx.agentLoop.create(brandString<SessionId>('inject-tools'), { provider: 'mock', model: 'mock' })
 }
 
+/**
+ * The shipped loop always provides batch injection, but the runtime surface marks
+ * it optional so a foreign driver can omit it. Narrow once here rather than at
+ * every call site.
+ */
+function inject(agent: Agent): NonNullable<Agent['injectBatch']> {
+  const batch = agent.injectBatch
+  if (batch === undefined) throw new Error('the shipped loop driver must implement injectBatch')
+  return batch.bind(agent)
+}
+
 describe('injectBatch tool entries', () => {
   it('commits a call and its result, and reports both seq runs', async () => {
     const agent = await createAgent()
     const head = Number(agent.session.seq)
-    const result = agent.injectBatch([
+    const result = inject(agent)([
       { kind: 'tool-call', tool: 'bash', arguments: '{"command":"pwd"}' },
       // The call above will occupy `head`; a result may name it before commit.
       { kind: 'tool-result', call: head as never, text: '/tmp/project' },
@@ -62,8 +73,8 @@ describe('injectBatch tool entries', () => {
 
   it('answers a committed call from an earlier request', async () => {
     const agent = await createAgent()
-    const first = agent.injectBatch([{ kind: 'tool-call', tool: 'read', arguments: '{"path":"a.txt"}' }])
-    const second = agent.injectBatch([
+    const first = inject(agent)([{ kind: 'tool-call', tool: 'read', arguments: '{"path":"a.txt"}' }])
+    const second = inject(agent)([
       { kind: 'tool-result', call: first.callSeqs[0]!, text: 'file body' },
     ])
     const call = agent.session.eventAt(first.callSeqs[0]!)
@@ -75,7 +86,7 @@ describe('injectBatch tool entries', () => {
   it('marks a failed result', async () => {
     const agent = await createAgent()
     const head = Number(agent.session.seq)
-    const result = agent.injectBatch([
+    const result = inject(agent)([
       { kind: 'tool-call', tool: 'bash', arguments: '{}' },
       { kind: 'tool-result', call: head as never, text: 'exit code 1', isError: true },
     ])
@@ -87,7 +98,7 @@ describe('injectBatch tool entries', () => {
   it('refuses a result that answers no call, before committing anything', async () => {
     const agent = await createAgent()
     const before = agent.session.seq
-    expect(() => agent.injectBatch([
+    expect(() => inject(agent)([
       { kind: 'tool-result', call: 999 as never, text: 'orphan' },
     ])).toThrow(/not a tool call/)
     // Nothing was written: a rejected batch leaves no residue.
@@ -96,16 +107,16 @@ describe('injectBatch tool entries', () => {
 
   it('refuses a result whose target is a non-call event', async () => {
     const agent = await createAgent()
-    const user = agent.injectBatch([{ kind: 'user', text: 'hello' }])
-    expect(() => agent.injectBatch([
+    const user = inject(agent)([{ kind: 'user', text: 'hello' }])
+    expect(() => inject(agent)([
       { kind: 'tool-result', call: user.seqs[0]!, text: 'not a call' },
     ])).toThrow(/not a tool call/)
   })
 
   it('refuses a call with no tool name or no arguments', async () => {
     const agent = await createAgent()
-    expect(() => agent.injectBatch([{ kind: 'tool-call', tool: '  ', arguments: '{}' }])).toThrow(/no tool name/)
-    expect(() => agent.injectBatch([{ kind: 'tool-call', tool: 'bash', arguments: ' ' }])).toThrow(/no arguments/)
+    expect(() => inject(agent)([{ kind: 'tool-call', tool: '  ', arguments: '{}' }])).toThrow(/no tool name/)
+    expect(() => inject(agent)([{ kind: 'tool-call', tool: 'bash', arguments: ' ' }])).toThrow(/no arguments/)
   })
 
   it('keeps text entries working alongside tool entries', async () => {
@@ -118,7 +129,7 @@ describe('injectBatch tool entries', () => {
       { kind: 'tool-result', call: (head + 2) as never, text: 'a.txt' },
       { kind: 'assistant', text: 'there is one file' },
     ]
-    const result = agent.injectBatch(entries)
+    const result = inject(agent)(entries)
     expect(result.seqs).toHaveLength(5)
     expect(agent.session.deriveMessages()).toHaveLength(4)
   })
