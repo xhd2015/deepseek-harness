@@ -292,26 +292,111 @@ declare module './types.ts' {
      * has no provider/model route.
      */
     injectBatch?(messages: readonly InjectedMessage[]): InjectedBatchResult
+
+    /**
+     * Commit one batch of changes to already-produced messages as a single
+     * transcript event, then let the driver act on the edited history.
+     *
+     * The commit is the transaction: a change that names no current surface
+     * message throws before anything is written. Message identity is preserved,
+     * so a client keyed by seq keeps its rows.
+     * @param edits - ordered rewrites and removals.
+     * @returns the committed record seq and whether a run was started.
+     * @throws when the batch is empty, a rewrite is blank, or a removal is
+     * malformed.
+     */
+    editBatch?(edits: readonly InjectedMessageEdit[]): InjectedEditResult
   }
 }
 
 /** One transcript event requested through {@link AgentRuntime.injectBatch}. */
-export type InjectedMessageKind = 'user' | 'thinking' | 'assistant'
+export type InjectedMessageKind = 'user' | 'thinking' | 'assistant' | 'tool-call' | 'tool-result'
+
+/** A batch entry that carries model-visible text. */
+export interface InjectedTextMessage {
+  readonly kind: 'user' | 'thinking' | 'assistant'
+  readonly text: string
+}
+
+/**
+ * A batch entry that asserts the model called a tool.
+ *
+ * `arguments` is the raw JSON string the model would have produced, exactly as
+ * `tool/call` stores it: unparsed, so an injected call and a real one are
+ * indistinguishable to every reader.
+ */
+export interface InjectedToolCall {
+  readonly kind: 'tool-call'
+  /** Tool name, as the registry knows it. */
+  readonly tool: string
+  /** Raw JSON argument object text. */
+  readonly arguments: string
+}
+
+/**
+ * A batch entry that asserts a tool returned a result.
+ *
+ * `call` names the call this answers: either a seq from the same batch (a
+ * `tool-call` entry already listed) or an existing call seq in the session. The
+ * pairing is validated before anything is committed, because a result that
+ * answers no call makes the next request invalid at the provider rather than at
+ * the log.
+ */
+export interface InjectedToolResult {
+  readonly kind: 'tool-result'
+  /** Call seq this result answers. */
+  readonly call: SessionSeq
+  /** Model-visible result text. */
+  readonly text: string
+  /** Whether the call failed; absent means success. */
+  readonly isError?: boolean
+}
 
 /**
  * One entry of an injected batch. `thinking` becomes an assistant message
  * carrying a reasoning block, `assistant` an assistant message carrying text,
- * and `user` an ordinary user message.
+ * `user` an ordinary user message, and the two tool forms assert one call and
+ * its result.
  */
-export interface InjectedMessage {
-  readonly kind: InjectedMessageKind
-  readonly text: string
+export type InjectedMessage = InjectedTextMessage | InjectedToolCall | InjectedToolResult
+
+/** One change to an already-produced message. */
+export type InjectedMessageEdit =
+  | {
+    /** Surface node being rewritten; the node keeps this seq. */
+    readonly seq: SessionSeq
+    /** Replacement message text. */
+    readonly text: string
+  }
+  | {
+    /** Surface node removed from model history; the node keeps this seq. */
+    readonly seq: SessionSeq
+    readonly deleted: true
+  }
+
+/** What an edit batch committed, and whether it woke the driver. */
+export interface InjectedEditResult {
+  /** Seq of the committed `message/edit` record. */
+  readonly seq: SessionSeq
+  /** Whether the driver will act on the edited history without another call. */
+  readonly started: boolean
 }
 
 /** What an injected batch committed, and whether it woke the driver. */
 export interface InjectedBatchResult {
-  /** Committed event seqs, in batch order. */
+  /**
+   * Committed event seqs, in batch order.
+   *
+   * A batch can produce more events than it has entries: a `tool-result` entry
+   * commits one surface event, while a `tool-call` commits a log-only event that
+   * never appears on the surface. Callers that need to address a specific entry
+   * read {@link callSeqs} or {@link resultSeqs}.
+   */
   readonly seqs: readonly SessionSeq[]
+  /** Seqs of committed `tool/call` events, in batch order. */
+  readonly callSeqs: readonly SessionSeq[]
+  /** Seqs of committed `tool/result` events, in batch order. */
+  readonly resultSeqs: readonly SessionSeq[]
   /** Whether the driver will act on the batch without another call. */
   readonly started: boolean
 }

@@ -45,6 +45,8 @@ import type {
   SessionCreateValue,
   SessionForkRequest,
   SessionForkValue,
+  SessionEditRequest,
+  SessionEditValue,
   SessionInjectRequest,
   SessionInjectValue,
   SessionPromptRequest,
@@ -106,6 +108,7 @@ export class SessionCommandController {
    * id is the one retrying it.
    */
   private readonly injectReceipts = new Map<SessionRequestId, SessionInjectValue>()
+  private readonly editReceipts = new Map<SessionRequestId, SessionEditValue>()
 
   private continuation!: ProjectionHandle<ContinuationState>
 
@@ -420,8 +423,9 @@ export class SessionCommandController {
       throw new RemoteError('gateway/bad-request', 'an injected batch needs at least one message', {})
     }
     for (const message of request.messages) {
-      if (message.text.trim() === '') {
-        throw new RemoteError('gateway/bad-request', `injected ${message.kind} message has no text`, {})
+      const blank = message.kind === 'tool-call' ? message.arguments.trim() === '' : message.text.trim() === ''
+      if (blank) {
+        throw new RemoteError('gateway/bad-request', `injected ${message.kind} message has no ${message.kind === 'tool-call' ? 'arguments' : 'text'}`, {})
       }
     }
     const agent = await this.resolveAgent(request.sessionId)
@@ -436,7 +440,10 @@ export class SessionCommandController {
     }
     let committed
     try {
-      committed = agent.injectBatch(request.messages)
+      // The wire carries plain numbers; the driver addresses commits by branded seq.
+      committed = agent.injectBatch(request.messages.map(message => message.kind === 'tool-result'
+        ? { ...message, call: SessionSeq(message.call) }
+        : message))
     } catch (error: unknown) {
       if (remoteErrorOf(error) !== undefined) throw error
       throw new RemoteError(
@@ -445,8 +452,61 @@ export class SessionCommandController {
         { sessionId: request.sessionId },
       )
     }
-    const value: SessionInjectValue = { seqs: [...committed.seqs], started: committed.started }
+    const value: SessionInjectValue = {
+      seqs: [...committed.seqs],
+      callSeqs: [...committed.callSeqs],
+      resultSeqs: [...committed.resultSeqs],
+      started: committed.started,
+    }
     this.injectReceipts.set(request.requestId, value)
+    return value
+  }
+
+  /**
+   * Commit one batch of changes to already-produced messages, then let the Agent
+   * act on the edited history.
+   *
+   * The batch is one log append, so a rejected change leaves no residue. Each
+   * change keeps its target's surface seq: an edit rewrites the message the node
+   * derives, and a removal makes that node derive nothing, which is what lets a
+   * client key rows by seq across an edit.
+   * @param request - session, idempotency key, and the ordered changes.
+   * @returns the committed record seq and whether the Agent will act on it.
+   */
+  async edit(request: SessionEditRequest): Promise<SessionEditValue> {
+    const prior = this.editReceipts.get(request.requestId)
+    if (prior !== undefined) return prior
+    if (request.edits.length === 0) {
+      throw new RemoteError('gateway/bad-request', 'an edit batch needs at least one change', {})
+    }
+    const seen = new Set<number>()
+    for (const change of request.edits) {
+      if (seen.has(change.seq)) {
+        throw new RemoteError('gateway/bad-request', `edit names seq ${change.seq} twice`, {})
+      }
+      seen.add(change.seq)
+      if (!('deleted' in change) && change.text.trim() === '') {
+        throw new RemoteError('gateway/bad-request', `edit of seq ${change.seq} has no text`, {})
+      }
+    }
+    const agent = await this.resolveAgent(request.sessionId)
+    const editBatch = agent.editBatch?.bind(agent)
+    if (editBatch === undefined) {
+      throw new RemoteError(
+        'session/edit-unavailable',
+        `session "${request.sessionId}" is driven by an Agent without history editing`,
+        { sessionId: request.sessionId },
+      )
+    }
+    let committed
+    try {
+      committed = editBatch(request.edits.map(change => ({ ...change, seq: SessionSeq(change.seq) })))
+    } catch (error: unknown) {
+      if (remoteErrorOf(error) !== undefined) throw error
+      throw new RemoteError('session/edit-failed', `edits were not committed: ${String(error)}`, { sessionId: request.sessionId })
+    }
+    const value: SessionEditValue = { seq: Number(committed.seq), started: committed.started }
+    this.editReceipts.set(request.requestId, value)
     return value
   }
 

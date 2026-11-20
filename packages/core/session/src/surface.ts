@@ -27,8 +27,11 @@ export interface SessionMessageProjectionContext {
   events: readonly SessionEvent[]
   /** Absolute sequence of the window's first event. */
   baseSeq: SessionLogOffset
-  /** Previously projected messages keyed by their original event sequences. */
-  messages: ReadonlyMap<SessionSeq, Message>
+  /**
+   * Previously projected messages keyed by their original event sequences.
+   * A `null` entry means an edit removed that message from model history.
+   */
+  messages: ReadonlyMap<SessionSeq, Message | null>
 }
 
 /** Pure interpretation of one plugin-owned event that changes existing message content. */
@@ -40,10 +43,12 @@ export interface SessionMessageProjection<T extends SessionEventType = SessionEv
    * message identities and publish immutable copies without mutating the input.
    * @param event - candidate event, not yet applied to the supplied history.
    * @param context - history preceding this decision.
-   * @returns changed current messages keyed by their original sequences.
+   * @returns changed current messages keyed by their original sequences. A
+   * `null` value removes that message from model history while the surface node,
+   * and therefore its seq, stays in place.
    * @throws when the durable decision cannot be applied to this history.
    */
-  project(event: SessionEvent<T>, context: SessionMessageProjectionContext): ReadonlyMap<SessionSeq, Message>
+  project(event: SessionEvent<T>, context: SessionMessageProjectionContext): ReadonlyMap<SessionSeq, Message | null>
 }
 
 /** Runtime counterpart of the message-producing event union. */
@@ -119,10 +124,9 @@ export function isReplacementSurfaceEvent(
  */
 export function deriveEventMessage(
   event: SessionEvent,
-  projectedMessages?: ReadonlyMap<SessionSeq, Message>,
+  projectedMessages?: ReadonlyMap<SessionSeq, Message | null>,
 ): Message | null {
-  const projected = projectedMessages?.get(event.seq)
-  if (projected !== undefined) return projected
+  if (projectedMessages?.has(event.seq) === true) return projectedMessages.get(event.seq) ?? null
   // Intentionally non-exhaustive: only message-producing events derive
   // history; turn/step boundaries, failed attempts, and errors are trace/replay
   // data.
@@ -237,8 +241,11 @@ export interface SurfaceFoldResult {
   nodes: SessionSeq[]
   /** Replacement operations in event order. */
   replacements: SurfaceFoldReplacement[]
-  /** Immutable projected messages, keyed by their original event sequences. */
-  projectedMessages: ReadonlyMap<SessionSeq, Message>
+  /**
+   * Immutable projected messages, keyed by their original event sequences.
+   * A `null` entry means an edit removed that message from model history.
+   */
+  projectedMessages: ReadonlyMap<SessionSeq, Message | null>
 }
 
 /** One system node on the current surface, including an empty head. */
@@ -265,7 +272,7 @@ interface SurfaceFoldState {
   nodes: SessionSeq[]
   replaceGeneration: number
   contentGeneration: number
-  projectedMessages: Map<SessionSeq, Message>
+  projectedMessages: Map<SessionSeq, Message | null>
   projections: Set<SessionMessageProjection>
 }
 
@@ -280,7 +287,7 @@ interface SurfaceReplacePlan extends SurfaceFoldReplacement {
 type SurfacePlan =
   | { kind: 'append'; seq: SessionSeq }
   | SurfaceReplacePlan
-  | { kind: 'project'; projection: SessionMessageProjection; messages: ReadonlyMap<SessionSeq, Message> }
+  | { kind: 'project'; projection: SessionMessageProjection; messages: ReadonlyMap<SessionSeq, Message | null> }
 
 /** Create an empty surface fold state. */
 function createFoldState(): SurfaceFoldState {
@@ -534,12 +541,16 @@ function planSurfaceEvent(
   const projection = projections.find(item => item.type === event.type)
   if (projection !== undefined) {
     let projectionEvents: readonly SessionEvent[] | undefined
-    return { kind: 'project', projection, messages: projection.project(event, {
+    const messages = projection.project(event, {
       nodes: state.nodes,
       get events() { return candidates === undefined ? events : (projectionEvents ??= [...events, ...candidates]) },
       baseSeq,
       messages: state.projectedMessages,
-    }) }
+    })
+    // A projection may also reshape the surface: `message/edit` rewrites content
+    // and removes nodes in one committed decision. Keeping the two effects in one
+    // event is what makes an edit-and-delete batch atomic.
+    return { kind: 'project', projection, messages }
   }
   if (MESSAGE_PROJECTION_EVENT_TYPES.has(event.type)) {
     throw new Error(`session event "${event.type}" requires a message projection; load its owning plugin or supply its projection definition`)

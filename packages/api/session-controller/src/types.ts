@@ -211,6 +211,12 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'session/title-invalid': { readonly sessionId: SessionId }
     'session/fork-unavailable': { readonly sessionId: SessionId }
     'session/inject-unavailable': { readonly sessionId: SessionId }
+    /** The Agent's driver refuses committed-history edits. */
+    'session/edit-unavailable': { readonly sessionId: SessionId }
+    /** An edit names a message that is not a current surface node. */
+    'session/edit-rejected': { readonly sessionId: SessionId; readonly seq: number; readonly reason: string }
+    /** The driver refused the edit batch; nothing was written. */
+    'session/edit-failed': { readonly sessionId: SessionId }
     'session/inject-failed': { readonly sessionId: SessionId }
     'session/migration-required': { readonly sessionId: SessionId }
     'subagent/not-found': {
@@ -401,12 +407,28 @@ export interface SessionPromptValue {
 }
 
 /** One entry of an injected batch, in transcript order. */
-export interface SessionInjectMessage {
-  /** `user` writes a user message; `thinking` and `assistant` write assistant messages. */
-  readonly kind: 'user' | 'thinking' | 'assistant'
-  /** Non-blank transcript text. */
-  readonly text: string
-}
+export type SessionInjectMessage =
+  | {
+    /** `user` writes a user message; `thinking` and `assistant` write assistant messages. */
+    readonly kind: 'user' | 'thinking' | 'assistant'
+    /** Non-blank transcript text. */
+    readonly text: string
+  }
+  | {
+    /** Asserts the model called a tool. */
+    readonly kind: 'tool-call'
+    readonly tool: string
+    /** Raw JSON argument object text, exactly as `tool/call` stores it. */
+    readonly arguments: string
+  }
+  | {
+    /** Asserts a tool returned a result. */
+    readonly kind: 'tool-result'
+    /** Call seq this answers: a `tool-call` entry in this batch or a committed call. */
+    readonly call: number
+    readonly text: string
+    readonly isError?: boolean
+  }
 
 /** Inject one ordered batch as a single committed append, then let the Agent act on it. */
 export interface SessionInjectRequest {
@@ -421,7 +443,42 @@ export interface SessionInjectRequest {
 export interface SessionInjectValue {
   /** Committed event seqs, in batch order. */
   readonly seqs: readonly number[]
+  /** Seqs of committed `tool/call` events, in batch order. */
+  readonly callSeqs?: readonly number[]
+  /** Seqs of committed `tool/result` events, in batch order. */
+  readonly resultSeqs?: readonly number[]
   /** Whether the Agent will act on the batch without another call. */
+  readonly started: boolean
+}
+
+/** One change to an existing message in the session's model-visible history. */
+export type SessionEditChange =
+  | {
+    /** Surface node being rewritten; the node keeps this seq. */
+    readonly seq: number
+    /** Replacement text for the message content. */
+    readonly text: string
+  }
+  | {
+    /** Surface node being removed from model history; the node keeps this seq. */
+    readonly seq: number
+    readonly deleted: true
+  }
+
+/** Rewrite or remove existing messages, then let the Agent act on the result. */
+export interface SessionEditRequest {
+  /** Client-minted idempotency key: a retry with the same id must not apply twice. */
+  readonly requestId: SessionRequestId
+  readonly sessionId: SessionId
+  /** Ordered changes; an empty list is rejected. */
+  readonly edits: readonly SessionEditChange[]
+}
+
+/** Receipt after one edit batch commits. */
+export interface SessionEditValue {
+  /** Committed event seq, the `message/edit` record carrying these changes. */
+  readonly seq: number
+  /** Whether the Agent will act on the edits without another call. */
   readonly started: boolean
 }
 

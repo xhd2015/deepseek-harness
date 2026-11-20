@@ -46,6 +46,7 @@ export const KNOWN_SESSION_EVENT_TYPES: ReadonlySet<string> = new Set([
   'job/registered',
   'job/settled',
   'llm/retry',
+  'message/edit',
   'llm/retry-started',
   'model/selection',
   'permission/preset',
@@ -91,4 +92,5 @@ export const KNOWN_SESSION_EVENT_TYPES: ReadonlySet<string> = new Set([
 /** Event types whose model-visible effects require an explicit pure interpreter. */
 export const MESSAGE_PROJECTION_EVENT_TYPES: ReadonlySet<string> = new Set([
   'image/offload',
+  'message/edit',
 ])

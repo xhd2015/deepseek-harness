@@ -12,7 +12,9 @@ import type {
   AgentStatus,
   CancelOptions,
   InjectedBatchResult,
+  InjectedEditResult,
   InjectedMessage,
+  InjectedMessageEdit,
   ModelSelection,
   ModelSelectionProjectionState,
   InboxTarget,
@@ -26,14 +28,17 @@ import {
   LlmError,
   createAssistantMessage,
   createDeveloperMessage,
+  createToolResultMessage,
   createUserMessage,
   errorChain,
   markAgentLoopRequest,
 } from '@deepseek-ai/dsh-llm'
+import type { ToolCallId } from '@deepseek-ai/dsh-llm'
+import { brandString } from '@deepseek-ai/dsh-brand'
 import { assertNever, deepFreeze } from '@deepseek-ai/dsh-util-values'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import { createScope } from '@deepseek-ai/dsh-scope'
-import type { EpochHeader, RequestContext, Session, SessionEventInput, SessionId, SessionSeq, TurnEndReason, UserMessage } from '@deepseek-ai/dsh-session'
+import type { EpochHeader, MessageEdit, RequestContext, Session, SessionEventInput, SessionId, SessionSeq, TurnEndReason, UserMessage } from '@deepseek-ai/dsh-session'
 import { canonicalHeader, headerEquals, ToolCallRecovery } from '@deepseek-ai/dsh-session'
 import { renderContextSections } from '@deepseek-ai/dsh-system-prompt'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
@@ -228,14 +233,23 @@ export class ReactLoopAgent implements Agent {
     const selection = this.model.current() ?? this.options
     const turn = this.currentTurn()
     const step = this.currentStep()
-    const inputs: SessionEventInput[] = messages.map((message) => {
-      const text = message.text.trim()
-      if (text === '') throw new Error('agent "' + this.id + '": injected ' + message.kind + ' has no text')
+    // A tool call is log-only, so the batch cannot know its own seqs until the
+    // append runs. Every result that targets a call listed in this batch is
+    // therefore resolved after commit, from the seq the call actually got.
+    const pending: { entry: number; call: SessionSeq }[] = []
+    // Seqs are assigned densely from the current head, so the seq of each entry is
+    // predictable before the append. That is what lets a result name a call that
+    // appears earlier in the same batch.
+    const head = Number(this.session.seq)
+    const inputs: SessionEventInput[] = messages.map((message, index): SessionEventInput => {
       switch (message.kind) {
-        case 'user':
+        case 'user': {
+          const text = this.requiredText(message.text, 'user')
           return ['user/message', createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }), { surfaceOp: 'append' }]
+        }
         case 'thinking':
-        case 'assistant':
+        case 'assistant': {
+          const text = this.requiredText(message.text, message.kind)
           return ['assistant/message', {
             turn,
             step,
@@ -251,6 +265,42 @@ export class ReactLoopAgent implements Agent {
               texts: [text],
             }],
           }, { surfaceOp: 'append' }]
+        }
+        case 'tool-call': {
+          const tool = message.tool.trim()
+          if (tool === '') throw new Error('agent "' + this.id + '": injected tool-call has no tool name')
+          if (message.arguments.trim() === '') {
+            throw new Error('agent "' + this.id + '": injected tool-call for "' + tool + '" has no arguments')
+          }
+          return ['tool/call', {
+            turn,
+            step,
+            callId: brandString<ToolCallId>('inject-' + String(head + index)),
+            name: tool,
+            arguments: message.arguments,
+          }]
+        }
+        case 'tool-result': {
+          const text = this.requiredText(message.text, 'tool-result')
+          // A call earlier in this batch gets its predictable seq; anything else
+          // must already be committed.
+          const resolved = message.call >= head && message.call < head + messages.length
+            ? messages[message.call - head]?.kind === 'tool-call'
+            : this.session.eventAt(message.call)?.type === 'tool/call'
+          if (!resolved) {
+            throw new Error('agent "' + this.id + '": injected tool-result answers ' + String(message.call) + ', which is not a tool call in this batch or the session')
+          }
+          pending.push({ entry: index, call: message.call })
+          return ['tool/result', {
+            turn,
+            step,
+            message: createToolResultMessage({
+              callId: this.callIdAt(head, messages, message.call),
+              content: [{ type: 'text', text }],
+              isError: message.isError === true,
+            }),
+          }, { surfaceOp: 'append' }]
+        }
       }
     })
     const committed = this.session.append(inputs)
@@ -259,7 +309,70 @@ export class ReactLoopAgent implements Agent {
     // needs waking, and waking it here is what turns "inject" into "inject and run".
     if (this.phase.kind === 'idle') this.wakeDriver()
     else if (this.phase.kind === 'maintenance') this.phase.wakeRequested = true
-    return { seqs: committed.map(event => event.seq), started: true }
+    return {
+      seqs: committed.map(event => event.seq),
+      callSeqs: committed.filter(event => event.type === 'tool/call').map(event => event.seq),
+      resultSeqs: committed.filter(event => event.type === 'tool/result').map(event => event.seq),
+      started: true,
+    }
+  }
+
+  /**
+   * Commit one batch of changes to already-produced messages.
+   *
+   * A rewrite stays a projection of its node (the node keeps its seq); a removal
+   * makes that node derive nothing. Both are one `message/edit` event, so the
+   * batch is atomic and replays identically from the log.
+   *
+   * Removing a message is refused when the node is already absent: unlike an
+   * edit written by another build, a removal the caller asks for now is a
+   * mistake worth reporting, and the alternative is silently doing nothing.
+   * @param edits - ordered rewrites and removals.
+   * @returns the committed record seq and whether the driver was woken.
+   */
+  editBatch(edits: readonly InjectedMessageEdit[]): InjectedEditResult {
+    if (edits.length === 0) throw new Error('agent "' + this.id + '": edit batch is empty')
+    const nodes = new Set(this.session.surface.nodes)
+    const seen = new Set<number>()
+    const changes: MessageEdit[] = edits.map((edit) => {
+      if (seen.has(edit.seq)) throw new Error('agent "' + this.id + '": edit names seq ' + String(edit.seq) + ' twice')
+      seen.add(edit.seq)
+      if (!nodes.has(edit.seq)) {
+        throw new Error('agent "' + this.id + '": seq ' + String(edit.seq) + ' is not a current message')
+      }
+      return 'deleted' in edit
+        ? { seq: edit.seq, deleted: true }
+        : { seq: edit.seq, text: this.requiredText(edit.text, 'assistant') }
+    })
+    const committed = this.session.append('message/edit', { edits: changes })
+    // An edit rewrites history the driver has not yet read; waking it is what
+    // makes "edit then run" one call. A running driver picks the change up at
+    // its next step, which the projection's content generation already forces.
+    if (this.phase.kind === 'idle') this.wakeDriver()
+    else if (this.phase.kind === 'maintenance') this.phase.wakeRequested = true
+    return { seq: committed.seq, started: true }
+  }
+
+  /** Trimmed non-empty text for one injected entry, or a loud rejection. */
+  private requiredText(text: string, kind: InjectedMessage['kind']): string {
+    const trimmed = text.trim()
+    if (trimmed === '') throw new Error('agent "' + this.id + '": injected ' + kind + ' has no text')
+    return trimmed
+  }
+
+  /**
+   * The call id a tool result answers.
+   *
+   * A call in this batch has not been committed yet, so its id is the one
+   * {@link injectBatch} is about to stamp; a committed call carries its own.
+   */
+  private callIdAt(head: number, messages: readonly InjectedMessage[], call: SessionSeq): ToolCallId {
+    if (call >= head && call < head + messages.length) return brandString<ToolCallId>('inject-' + String(call))
+    const event = this.session.eventAt(call)
+    if (event?.type !== 'tool/call') {
+      throw new Error('agent "' + this.id + '": ' + String(call) + ' is not a committed tool call')
+    }
+    return event.data.callId
   }
 
   /** Turn the next step is attributed to: the open one, or the next to open. */

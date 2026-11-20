@@ -93,6 +93,7 @@ export const VIEWER_ENDPOINT_CLASSES = {
   'session/prompt': 'reader-session-input', // the reader prompts the confined source (either tier) or its own child under its ceiling
   'session/cancel': 'reader-session-input', // the reader stops its own child; a concrete source cancel is performed by the share host
   'session/inject': 'reader-session-input', // injected messages reach the model exactly like a prompt, so they need the same grant
+  'session/edit': 'owner-only', // rewriting committed history is not input; it changes what an earlier turn already said
 
   // ── reader-fork ─────────────────────────────────────────────────────────────
   'session/fork': 'reader-fork', // the owner allowsFork switch decides the source and the reader’s own forks

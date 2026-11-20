@@ -17,6 +17,7 @@ import type { TypertLookup } from '@deepseek-ai/dsh-typert-protocol'
 import type { CreateSessionOptions, EpochHeader, LogOnlyAppendOptions, PluginRecord, PluginRecordMap, PluginRecordType, PrepareSessionOptions, RequestContext, SessionEvent, SessionEventInput, SessionEventMap, SessionEventType, SessionHeader, SessionId, SessionSeedEventState, SurfaceIntent, SurfaceEventType } from './types.ts'
 import { SurfaceManager, validateSessionEventData, validateSurfaceMetadata } from './surface.ts'
 import type { SessionSurface, SessionMessageProjection } from './surface.ts'
+import { messageEditProjection } from './message-edit-projection.ts'
 import { foldRequestHeader } from './request-header.ts'
 import { ToolHistoryProjection } from './tool-history.ts'
 import { assertMessageEventShape, checkSessionLog, needsInheritedSeedMarker } from './validation.ts'
@@ -36,6 +37,7 @@ export type { SessionPreparationOptions } from './preparation.ts'
 export type { AssistantMessage, DeveloperMessage, SystemMessage, ToolResultMessage, UserMessage } from '@deepseek-ai/dsh-llm'
 export { interruptedTurnClosers, ToolCallRecovery, TOOL_NOT_STARTED, TOOL_OUTCOME_UNKNOWN } from './repair.ts'
 export type { SystemSurfaceNode, SessionSurface, SurfaceFoldReplacement, SurfaceFoldResult, SessionMessageProjection, SessionMessageProjectionContext } from './surface.ts'
+export { messageEditProjection }
 export { deriveEventMessage, foldSurface, isAppendSurfaceEvent, isReplacementSurfaceEvent, isSurfaceEvent, isSurfaceEligibleType } from './surface.ts'
 export { canonicalHeader, foldRequestHeader, headerEquals } from './request-header.ts'
 export { KNOWN_SESSION_EVENT_TYPES } from './known-event-types.ts'
@@ -840,7 +842,13 @@ export type SessionForkSource = Session | SessionId
 export class SessionStore extends Service {
   private store = new Map<SessionId, SessionEntry>()
   private counter = 0
-  private readonly projections: SessionMessageProjection[] = []
+  /**
+   * Core-owned interpreters, always present. `message/edit` is a session
+   * capability rather than a plugin decision: a log containing one must load in
+   * every composition, or an edit written by one build would make that session
+   * unreadable in another.
+   */
+  private readonly projections: SessionMessageProjection[] = [messageEditProjection]
 
   /** Borrowed definitions for detached replay; contributions live until their registering fibers unload. */
   get messageProjections(): readonly SessionMessageProjection[] {

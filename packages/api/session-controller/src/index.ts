@@ -51,6 +51,8 @@ import type {
   SessionFollowRequest,
   SessionForkRequest,
   SessionForkValue,
+  SessionEditRequest,
+  SessionEditValue,
   SessionInjectRequest,
   SessionInjectValue,
   SessionListRequest,
@@ -563,6 +565,19 @@ export class SessionController extends TypertRemoteService {
   inject(request: SessionInjectRequest, signal: AbortSignal): Promise<SessionInjectValue> {
     signal.throwIfAborted()
     return this.commands.inject(request)
+  }
+
+  /**
+   * Rewrite or remove already-produced messages, then let the Agent act on the
+   * edited history.
+   * @param request - session, idempotency key, and the ordered changes.
+   * @param signal - request cancellation.
+   * @returns the committed record seq and whether a run was started.
+   */
+  @Remote('edit')
+  edit(request: SessionEditRequest, signal: AbortSignal): Promise<SessionEditValue> {
+    signal.throwIfAborted()
+    return this.commands.edit(request)
   }
 
   /**

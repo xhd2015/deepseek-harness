@@ -440,7 +440,45 @@ export interface SessionEventMap {
    * so tolerating concurrent writers needs a signal beyond the log.
    */
   'session/end-seed': { inherited?: true }
+  /**
+   * Rewrites the model-visible content of existing surface messages, or removes
+   * them from the surface, without changing any message's identity: the surface
+   * node keeps its original seq. Model requests and derived history read the
+   * projected result, so an edit that happens while a turn runs takes effect on
+   * the next step rather than mid-step.
+   *
+   * Each target must name a current surface node. A target that a later
+   * compaction shadowed is skipped rather than refused: the edit was valid when
+   * it was written, and a compaction must not turn committed history into a log
+   * that refuses to load.
+   *
+   * This event is NOT ignorable. A reader that skips it would show the
+   * pre-edit text as if the edit never happened, which is a wrong history rather
+   * than a rejected one, so a build that cannot interpret it must refuse the log.
+   * @messageProjection
+   */
+  'message/edit': { edits: readonly MessageEdit[] }
 }
+
+/**
+ * One committed change to an existing surface message.
+ *
+ * `seq` names the message by its original surface node; the node is preserved,
+ * so a client that keys rows by seq keeps working across an edit.
+ */
+export type MessageEdit =
+  | {
+    /** Surface node being rewritten. */
+    seq: SessionSeq
+    /** Replacement text for the message's model-visible content. */
+    text: string
+  }
+  | {
+    /** Surface node being removed from the model-visible history. */
+    seq: SessionSeq
+    /** Present and true only on a removal; the log keeps the original event. */
+    deleted: true
+  }
 
 /** The appendable event-type keys of {@link SessionEventMap}, plugin-merged extensions included. */
 export type SessionEventType = keyof SessionEventMap
