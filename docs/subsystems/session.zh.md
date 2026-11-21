@@ -170,6 +170,24 @@ interface SessionEventMap {
    * so tolerating concurrent writers needs a signal beyond the log.
    */
   'session/end-seed': { inherited?: true }
+  /**
+   * Rewrites the model-visible content of existing surface messages, or removes
+   * them from the surface, without changing any message's identity: the surface
+   * node keeps its original seq. Model requests and derived history read the
+   * projected result, so an edit that happens while a turn runs takes effect on
+   * the next step rather than mid-step.
+   *
+   * Each target must name a current surface node. A target that a later
+   * compaction shadowed is skipped rather than refused: the edit was valid when
+   * it was written, and a compaction must not turn committed history into a log
+   * that refuses to load.
+   *
+   * This event is NOT ignorable. A reader that skips it would show the
+   * pre-edit text as if the edit never happened, which is a wrong history rather
+   * than a rejected one, so a build that cannot interpret it must refuse the log.
+   * @messageProjection
+   */
+  'message/edit': { edits: readonly MessageEdit[] }
 }
 ```
 
@@ -374,8 +392,11 @@ interface SessionMessageProjectionContext {
   events: readonly SessionEvent[]
   /** Absolute sequence of the window's first event. */
   baseSeq: SessionLogOffset
-  /** Previously projected messages keyed by their original event sequences. */
-  messages: ReadonlyMap<SessionSeq, Message>
+  /**
+   * Previously projected messages keyed by their original event sequences.
+   * A `null` entry means an edit removed that message from model history.
+   */
+  messages: ReadonlyMap<SessionSeq, Message | null>
 }
 ```
 
@@ -389,10 +410,12 @@ interface SessionMessageProjection<T extends SessionEventType = SessionEventType
    * message identities and publish immutable copies without mutating the input.
    * @param event - candidate event, not yet applied to the supplied history.
    * @param context - history preceding this decision.
-   * @returns changed current messages keyed by their original sequences.
+   * @returns changed current messages keyed by their original sequences. A
+   * `null` value removes that message from model history while the surface node,
+   * and therefore its seq, stays in place.
    * @throws when the durable decision cannot be applied to this history.
    */
-  project(event: SessionEvent<T>, context: SessionMessageProjectionContext): ReadonlyMap<SessionSeq, Message>
+  project(event: SessionEvent<T>, context: SessionMessageProjectionContext): ReadonlyMap<SessionSeq, Message | null>
 }
 ```
 
@@ -450,8 +473,11 @@ interface SurfaceFoldResult {
   nodes: SessionSeq[]
   /** Replacement operations in event order. */
   replacements: SurfaceFoldReplacement[]
-  /** Immutable projected messages, keyed by their original event sequences. */
-  projectedMessages: ReadonlyMap<SessionSeq, Message>
+  /**
+   * Immutable projected messages, keyed by their original event sequences.
+   * A `null` entry means an edit removed that message from model history.
+   */
+  projectedMessages: ReadonlyMap<SessionSeq, Message | null>
 }
 ```
 

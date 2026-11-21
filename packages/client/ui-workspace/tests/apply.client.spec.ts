@@ -1134,7 +1134,7 @@ describe('ui-workspace session deep link', () => {
     const b = await deepLink('')
     expect(b.collapseSidebar).not.toHaveBeenCalled()
     b.ctx.uiWorkspace.openSession('picked' as never)
-    expect(b.retain).toHaveBeenCalledWith('picked', { source: 'mainView' })
+    expect(b.retain).toHaveBeenCalledWith('picked', { source: 'mainView', facets: { conversation: true } })
     expect(b.collapseSidebar).not.toHaveBeenCalled()
   })
 
@@ -1147,7 +1147,7 @@ describe('ui-workspace session deep link', () => {
 
   it('still opens and mirrors a listed Session', async () => {
     const b = await deepLink('?session=linked', { ids: ['linked'] })
-    expect(b.retain).toHaveBeenCalledWith('linked', { source: 'mainView' })
+    expect(b.retain).toHaveBeenCalledWith('linked', { source: 'mainView', facets: { conversation: true } })
   })
 
   it('opens a well-formed id once its row reaches the ready list', async () => {
@@ -1167,7 +1167,7 @@ describe('ui-workspace session deep link', () => {
         projectionsBySession: {},
       })
 
-      expect(b.retain).toHaveBeenCalledWith('paged', { source: 'mainView' })
+      expect(b.retain).toHaveBeenCalledWith('paged', { source: 'mainView', facets: { conversation: true } })
     } finally {
       vi.unstubAllGlobals()
     }
