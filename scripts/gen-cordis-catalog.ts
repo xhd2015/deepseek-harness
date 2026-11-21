@@ -579,6 +579,8 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   SessionSeq: 'session.md',
   SessionSeqCursor: 'session.md',
   OptionalSessionSeq: 'session.md',
+  SessionEditRequest: 'session.md',
+  SessionEditValue: 'session.md',
   SessionInjectRequest: 'session.md',
   SessionInjectValue: 'session.md',
   SessionSetThinkingCapAutoContinueRequest: 'session.md',

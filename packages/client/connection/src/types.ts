@@ -22,4 +22,10 @@ export interface ConnectionConfig {
   trustedHostsForSettings?: string[]
   /** Maximum buffered JSON body for every `/api` request. Default: 300 MiB. */
   maxRequestBodyBytes?: number
+  /**
+   * Absolute HTTP prefix of the shared API channel. Default: `/api`.
+   * A nested prefix such as `/api/dsh` mounts the same channel under that path,
+   * for an embedding host that already owns `/api`.
+   */
+  apiPrefix?: string
 }

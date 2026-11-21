@@ -224,7 +224,7 @@ async function deepLink(search: string, listed?: { ids: readonly string[]; curre
   vi.stubGlobal('location', { search })
   try {
     const b = await bench('fake', listed)
-    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    await b.ctx.plugin({ inject: [...inject], apply }, syncedConfig({ recentViewLimit: 10 })).await()
     return b
   } finally {
     vi.unstubAllGlobals()
@@ -1154,7 +1154,7 @@ describe('ui-workspace session deep link', () => {
     vi.stubGlobal('location', { search: '?session=paged' })
     try {
       const b = await bench('fake', { ids: ['other'] })
-      await b.ctx.plugin({ inject: [...inject], apply }).await()
+      await b.ctx.plugin({ inject: [...inject], apply }, syncedConfig({ recentViewLimit: 10 })).await()
       // Nothing to open yet: the link stays pending rather than being discarded.
       expect(b.retain).not.toHaveBeenCalled()
       expect(b.sessionListenerCount()).toBeGreaterThan(0)

@@ -1048,6 +1048,15 @@ workspaceDesktop(): { name: string; available: boolean; fileManager: 'finder' | 
 @Remote('inject') inject(request: SessionInjectRequest, signal: AbortSignal): Promise<SessionInjectValue>
 
 /**
+ * Rewrite or remove already-produced messages, then let the Agent act on the
+ * edited history.
+ * @param request - session, idempotency key, and the ordered changes.
+ * @param signal - request cancellation.
+ * @returns the committed record seq and whether a run was started.
+ */
+@Remote('edit') edit(request: SessionEditRequest, signal: AbortSignal): Promise<SessionEditValue>
+
+/**
  * Read one image from the attachment store after gateway authorization.
  * @param request - image reference and gateway permission scope; Session existence is not checked.
  * @returns the durable attachment reference and base64-encoded bytes.

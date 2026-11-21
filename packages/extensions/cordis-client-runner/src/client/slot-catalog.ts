@@ -4830,6 +4830,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       'client-ui-workspace RowActionToast id \'workspace.row-toast\'',
       'experimental-client-ui-forge ActionToast id \'forge-panel.toast\'',
       'cua PermissionToast id \'cua-permission-outcome\'',
+      'session-log-export AutoContinueToast id \'session-log-download.auto-continue-toast\'',
       'session-log-export SessionMarkdownCopyToast id \'session-log-download.copy-toast\'',
       'session-log-export SessionLogDownloadDialog id \'session-log-download\'',
     ],

@@ -373,7 +373,7 @@ type CheckoutKeys = 'sessionId' | 'usePanel' | 'useHost' | 'useContextMenu' | 'r
 describe('CheckoutRow', () => {
   function row(state: ForgePanelState | null, home?: string) {
     const panel = panelStore(state)
-    const host = createSnapshotStore<RemoteHostFacts>({ home, isLoopback: true })
+    const host = createSnapshotStore<RemoteHostFacts>({ home, isLoopback: true, settingsTrusted: true })
     const restore = vi.fn<() => void>()
     const refreshIfStale = vi.fn<() => void>()
     const opened: ContextMenuTarget[] = []

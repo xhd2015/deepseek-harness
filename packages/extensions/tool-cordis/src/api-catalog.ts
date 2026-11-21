@@ -3521,6 +3521,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'committed seqs in batch order and whether the Agent acts unprompted.',
       },
       {
+        signature: '@Remote(\'edit\') edit(request: SessionEditRequest, signal: AbortSignal): Promise<SessionEditValue>',
+        description: 'Rewrite or remove already-produced messages, then let the Agent act on the edited history.',
+        parameters: [{ name: 'request', description: 'session, idempotency key, and the ordered changes.' }, { name: 'signal', description: 'request cancellation.' }],
+        returns: 'the committed record seq and whether a run was started.',
+      },
+      {
         signature: '@Remote(\'attachment\') attachment(request: SessionAttachmentRequest): Promise<SessionAttachmentValue>',
         description: 'Read one image from the attachment store after gateway authorization.',
         parameters: [{ name: 'request', description: 'image reference and gateway permission scope; Session existence is not checked.' }],
@@ -9943,6 +9949,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionDraftValue {\n    readonly text: string;\n}',
   },
   {
+    name: 'SessionEditChange',
+    declaration: 'export type SessionEditChange = {\n    readonly seq: number;\n    readonly text: string;\n} | {\n    readonly seq: number;\n    readonly deleted: true;\n};',
+  },
+  {
+    name: 'SessionEditRequest',
+    declaration: 'export interface SessionEditRequest {\n    readonly requestId: SessionRequestId;\n    readonly sessionId: SessionId;\n    readonly edits: readonly SessionEditChange[];\n}',
+  },
+  {
+    name: 'SessionEditValue',
+    declaration: 'export interface SessionEditValue {\n    readonly seq: number;\n    readonly started: boolean;\n}',
+  },
+  {
     name: 'SessionEndInput',
     declaration: 'export interface SessionEndInput {\n    reason: \'clear\' | \'logout\' | \'prompt_input_exit\' | \'resume\' | \'other\';\n    sessionId: string;\n}',
   },
@@ -10104,7 +10122,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionInjectMessage',
-    declaration: 'export interface SessionInjectMessage {\n    readonly kind: \'user\' | \'thinking\' | \'assistant\';\n    readonly text: string;\n}',
+    declaration: 'export type SessionInjectMessage = {\n    readonly kind: \'user\' | \'thinking\' | \'assistant\';\n    readonly text: string;\n} | {\n    readonly kind: \'tool-call\';\n    readonly tool: string;\n    readonly arguments: string;\n} | {\n    readonly kind: \'tool-result\';\n    readonly call: number;\n    readonly text: string;\n    readonly isError?: boolean;\n};',
   },
   {
     name: 'SessionInjectRequest',
@@ -10112,7 +10130,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionInjectValue',
-    declaration: 'export interface SessionInjectValue {\n    readonly seqs: readonly number[];\n    readonly started: boolean;\n}',
+    declaration: 'export interface SessionInjectValue {\n    readonly seqs: readonly number[];\n    readonly callSeqs?: readonly number[];\n    readonly resultSeqs?: readonly number[];\n    readonly started: boolean;\n}',
   },
   {
     name: 'SessionInspection',
@@ -10180,11 +10198,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionMessageProjection',
-    declaration: 'export interface SessionMessageProjection<T extends SessionEventType = SessionEventType> {\n    type: T;\n    project(event: SessionEvent<T>, context: SessionMessageProjectionContext): ReadonlyMap<SessionSeq, Message>;\n}',
+    declaration: 'export interface SessionMessageProjection<T extends SessionEventType = SessionEventType> {\n    type: T;\n    project(event: SessionEvent<T>, context: SessionMessageProjectionContext): ReadonlyMap<SessionSeq, Message | null>;\n}',
   },
   {
     name: 'SessionMessageProjectionContext',
-    declaration: 'export interface SessionMessageProjectionContext {\n    nodes: readonly SessionSeq[];\n    events: readonly SessionEvent[];\n    baseSeq: SessionLogOffset;\n    messages: ReadonlyMap<SessionSeq, Message>;\n}',
+    declaration: 'export interface SessionMessageProjectionContext {\n    nodes: readonly SessionSeq[];\n    events: readonly SessionEvent[];\n    baseSeq: SessionLogOffset;\n    messages: ReadonlyMap<SessionSeq, Message | null>;\n}',
   },
   {
     name: 'SessionObservation',

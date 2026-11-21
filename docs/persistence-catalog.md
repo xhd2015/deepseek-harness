@@ -49,6 +49,7 @@ The [format references](persistence-changes/historical-formats/README.md) cover 
 | `event:job/settled` | event | `edd37b1e4974af648633014435572089b1e8fb71910468a0767a7e28fdd22abf` | [`{ type: "job/settled" }`](#persistence-type-sha256-edd37b1e4974af648633014435572089b1e8fb71910468a0767a7e28fdd22abf) |
 | `event:llm/retry` | event | `525254db03b1d1e6b74cf55aced52817568331ac1f96c0818728910b6692e336` | [`{ type: "llm/retry" }`](#persistence-type-sha256-525254db03b1d1e6b74cf55aced52817568331ac1f96c0818728910b6692e336) |
 | `event:llm/retry-started` | event | `48e5c9861f16ac07e78cb7b5ae9dabdf7bb85c58baed5a51b4ad275050ea58e3` | [`{ type: "llm/retry-started" }`](#persistence-type-sha256-48e5c9861f16ac07e78cb7b5ae9dabdf7bb85c58baed5a51b4ad275050ea58e3) |
+| `event:message/edit` | event | `9423ae4dcbf49c305ce7bcadd07dd9d270aac6566e41b9aaca1e2244a0b9e0aa` | [`{ type: "message/edit" }`](#persistence-type-sha256-9423ae4dcbf49c305ce7bcadd07dd9d270aac6566e41b9aaca1e2244a0b9e0aa) |
 | `event:model/selection` | event | `35203ba7ad5ef6f97d556b85df20ae98f04f09c65748cecdf8eefdb8b6405ffc` | [`{ type: "model/selection" }`](#persistence-type-sha256-35203ba7ad5ef6f97d556b85df20ae98f04f09c65748cecdf8eefdb8b6405ffc) |
 | `event:permission/preset` | event | `5c45bf4c544a7211dcd8ba6ba7e5f1bc39b49e7a9df9d5cbdc8e87c22771b37b` | [`{ type: "permission/preset" }`](#persistence-type-sha256-5c45bf4c544a7211dcd8ba6ba7e5f1bc39b49e7a9df9d5cbdc8e87c22771b37b) |
 | `event:plan/mode` | event | `a7cf43ce7c2a4c038feed1885cd7a00d5c6ee2d90a7e0d56b46f78a3e1ca327f` | [`{ type: "plan/mode" }`](#persistence-type-sha256-a7cf43ce7c2a4c038feed1885cd7a00d5c6ee2d90a7e0d56b46f78a3e1ca327f) |
@@ -711,6 +712,35 @@ Source: [`packages/llm/llm-retry/src/types.ts:9`](../packages/llm/llm-retry/src/
 ```
 
 Source: [`packages/llm/llm-retry/src/types.ts:11`](../packages/llm/llm-retry/src/types.ts)
+
+### `message/*`
+
+<a id="messageedit--log-only"></a>
+
+#### `message/edit` — log-only
+
+```ts persistence-catalog
+/**
+ * Rewrites the model-visible content of existing surface messages, or removes
+ * them from the surface, without changing any message's identity: the surface
+ * node keeps its original seq. Model requests and derived history read the
+ * projected result, so an edit that happens while a turn runs takes effect on
+ * the next step rather than mid-step.
+ *
+ * Each target must name a current surface node. A target that a later
+ * compaction shadowed is skipped rather than refused: the edit was valid when
+ * it was written, and a compaction must not turn committed history into a log
+ * that refuses to load.
+ *
+ * This event is NOT ignorable. A reader that skips it would show the
+ * pre-edit text as if the edit never happened, which is a wrong history rather
+ * than a rejected one, so a build that cannot interpret it must refuse the log.
+ * @messageProjection
+ */
+'message/edit': { edits: readonly MessageEdit[] }
+```
+
+Source: [`packages/core/session/src/types.ts:457`](../packages/core/session/src/types.ts)
 
 ### `model/*`
 
@@ -2219,6 +2249,14 @@ SHA-256: `4ae007ed190a72c92138b22d059b83208079c7551ca13fb59ae8cf5e23693964`
 SHA-256: `68141cbe3994a5ffcd064c07c75996538437fd9dbf77ce8a2927e89ec577fabe`
 
 `"max-tokens"`
+
+<a id="persistence-type-sha256-a5d48369149f45768c3c51d5eb52210254e1ff5a00a8235a05a90b39d66e29cc"></a>
+
+### `"message/edit"`
+
+SHA-256: `a5d48369149f45768c3c51d5eb52210254e1ff5a00a8235a05a90b39d66e29cc`
+
+`"message/edit"`
 
 <a id="persistence-type-sha256-2765e9119edf5816ac1ab4c95c5ee32c90403f3742962eff11544f7752d59d2e"></a>
 
@@ -4350,6 +4388,31 @@ One of:
 - [`UserMessage`](#persistence-type-sha256-b72ba9c86f4510fc61b7ef4c47005f5f43786cb09915d3ca1e4134fc4503a6ea)
 - [`SystemMessage`](#persistence-type-sha256-04c12e59a9ed4d7a59b642223a9bdd3b4303c1d27873c72c5e487760892bbb08)
 - [`AssistantMessage`](#persistence-type-sha256-fa87537f4a9c1e25602990a8bf686b383e9e00352ec8946e16ae24ba7c1625be)
+
+<a id="persistence-type-sha256-db44ea20704359e0c9a9b8067275bba115cdbaf719089bacc7c332cf4b2cb0d6"></a>
+
+<a id="persistence-type-messageedit"></a>
+
+<a id="persistence-type-packagescoresessionsrctypestsmessageedit"></a>
+
+### `MessageEdit`
+
+SHA-256: `db44ea20704359e0c9a9b8067275bba115cdbaf719089bacc7c332cf4b2cb0d6`
+
+Sources: [`packages/core/session/src/types.ts:466`](../packages/core/session/src/types.ts)
+
+One of:
+
+- [`{ deleted, seq }`](#persistence-type-sha256-813c6ee3dff7b3f47e109491c77b60fbb589111b58f67a45a982b9bf5f2d0a62)
+- [`{ seq, text }`](#persistence-type-sha256-8ef5057e9c7a74dbc22a928561f490f69235ce1523b4cb3bf4fc6e139ecb9844)
+
+<a id="persistence-type-sha256-d52284c692b760ac1f58d41f4680b816c6f532eee63865ae9ff5f32319696168"></a>
+
+### `MessageEdit[]`
+
+SHA-256: `d52284c692b760ac1f58d41f4680b816c6f532eee63865ae9ff5f32319696168`
+
+Array of [`MessageEdit`](#persistence-type-sha256-db44ea20704359e0c9a9b8067275bba115cdbaf719089bacc7c332cf4b2cb0d6).
 
 <a id="persistence-type-sha256-7c6129b6961cf4b2a030f36c78d2b0a5be38617651a9b81322e054ee512bee06"></a>
 
@@ -6556,6 +6619,19 @@ Sources: [`packages/llm/llm-retry/src/types.ts:30`](../packages/llm/llm-retry/sr
 | `step` | required | `number` |
 | `turn` | required | `number` |
 
+<a id="persistence-type-sha256-813c6ee3dff7b3f47e109491c77b60fbb589111b58f67a45a982b9bf5f2d0a62"></a>
+
+### `{ deleted, seq }`
+
+SHA-256: `813c6ee3dff7b3f47e109491c77b60fbb589111b58f67a45a982b9bf5f2d0a62`
+
+Sources: [`packages/core/session/src/types.ts:473`](../packages/core/session/src/types.ts)
+
+| Property | Presence | Type |
+|---|---|---|
+| `deleted` | required | `true` |
+| `seq` | required | `number` |
+
 <a id="persistence-type-sha256-83079c8a3f733ac3fa603eefa0fbb4737ca4d8b69e7e2e7298b60f9ac4098693"></a>
 
 ### `{ description, name }`
@@ -6607,6 +6683,18 @@ Sources: [`packages/experimental/liveshare/src/host/viewer-principal.ts:29`](../
 | `providerId` | required | `string` |
 | `subjectId` | required | `string` |
 | `tenantId` | required | `string` |
+
+<a id="persistence-type-sha256-038ed8a6dda78f26ae421b3980f40bd427d395a94a9fa771d1a2dd0bcb27a326"></a>
+
+### `{ edits }`
+
+SHA-256: `038ed8a6dda78f26ae421b3980f40bd427d395a94a9fa771d1a2dd0bcb27a326`
+
+Sources: [`packages/core/session/src/types.ts:457`](../packages/core/session/src/types.ts)
+
+| Property | Presence | Type |
+|---|---|---|
+| `edits` | required | [`MessageEdit[]`](#persistence-type-sha256-d52284c692b760ac1f58d41f4680b816c6f532eee63865ae9ff5f32319696168) |
 
 <a id="persistence-type-sha256-c2a13242efc3bea4b36a843ddf1524ff4d33c765a71b582fa1fdbfa4fa148434"></a>
 
@@ -7625,7 +7713,7 @@ SHA-256: `db06ef35b27a38425046b2228fa6bce9582abe140d781d363137eb2f4d233a1c`
 
 SHA-256: `8f1062573ea9184129dfdec43df1e8136eb5808746fd809bf6b539f3fd11362e`
 
-Sources: [`packages/api/session-controller/src/types.ts:394`](../packages/api/session-controller/src/types.ts)
+Sources: [`packages/api/session-controller/src/types.ts:548`](../packages/api/session-controller/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -8435,6 +8523,19 @@ Sources: [`packages/web/web-search-deepseek/src/provider.ts:65`](../packages/web
 | `content` | required | [`tuple (1 positions)`](#persistence-type-sha256-8f6d609794bf5afc01d7ccf3e03811d32f4b8047f58a2c9a98db0154c2ad7cb9) |
 | `role` | required | `"user"` |
 
+<a id="persistence-type-sha256-8ef5057e9c7a74dbc22a928561f490f69235ce1523b4cb3bf4fc6e139ecb9844"></a>
+
+### `{ seq, text }`
+
+SHA-256: `8ef5057e9c7a74dbc22a928561f490f69235ce1523b4cb3bf4fc6e139ecb9844`
+
+Sources: [`packages/core/session/src/types.ts:467`](../packages/core/session/src/types.ts)
+
+| Property | Presence | Type |
+|---|---|---|
+| `seq` | required | `number` |
+| `text` | required | `string` |
+
 <a id="persistence-type-sha256-8bb8c3751a6ce64b61aba1ec7ae798c00a5803c4d868a0430873216c6569ed52"></a>
 
 ### `{ sessionFormatVersion?, sessionId, throughSeq }`
@@ -9042,6 +9143,22 @@ SHA-256: `48e5c9861f16ac07e78cb7b5ae9dabdf7bb85c58baed5a51b4ad275050ea58e3`
 | `seq` | required | `number` |
 | `time` | required | `number` |
 | `type` | required | `"llm/retry-started"` |
+
+<a id="persistence-type-sha256-9423ae4dcbf49c305ce7bcadd07dd9d270aac6566e41b9aaca1e2244a0b9e0aa"></a>
+
+<a id="persistence-type-eventmessageedit"></a>
+
+### `{ type: "message/edit" }`
+
+SHA-256: `9423ae4dcbf49c305ce7bcadd07dd9d270aac6566e41b9aaca1e2244a0b9e0aa`
+
+| Property | Presence | Type |
+|---|---|---|
+| `data` | required | [`{ edits }`](#persistence-type-sha256-038ed8a6dda78f26ae421b3980f40bd427d395a94a9fa771d1a2dd0bcb27a326) |
+| `ignorable` | optional | `true` |
+| `seq` | required | `number` |
+| `time` | required | `number` |
+| `type` | required | `"message/edit"` |
 
 <a id="persistence-type-sha256-35203ba7ad5ef6f97d556b85df20ae98f04f09c65748cecdf8eefdb8b6405ffc"></a>
 
