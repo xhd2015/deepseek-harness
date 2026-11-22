@@ -257,18 +257,11 @@ function requestHeaderDiagnostic(error: unknown): string {
     : 'the contributing plugin threw a non-Error value; throw an Error with a safe diagnostic'
 }
 
-/** OpenCode Go's required conversation-routing header. */
-const OPENCODE_SESSION_HEADER = 'x-opencode-session'
-
-/**
- * Whether this route talks to OpenCode (catalog `opencode` / `opencode-go`, or
- * an llm-proxy export such as `llm-proxy-opencode`). Those upstreams key
- * prompt cache on {@link OPENCODE_SESSION_HEADER}; the durable Session id is
- * the stable value.
- */
-function usesOpenCodeSessionHeader(provider: string): boolean {
-  return provider === 'opencode' || provider === 'opencode-go' || /(?:^|-)opencode(?:-|$)/.test(provider)
-}
+/** Identifies this harness on inference requests so a proxy can route without provider-specific names. */
+const AGENT_RUNNER_HEADER = 'x-agent-runner'
+/** Durable Session id for proxies that map it onto an upstream conversation header. */
+const DSH_SESSION_HEADER = 'x-dsh-session-id'
+const AGENT_RUNNER = 'dsh'
 
 /** Prepare request-owned headers without allowing contributors to replace attribution. */
 function requestHeaders(
@@ -281,8 +274,9 @@ function requestHeaders(
     const initial = new Headers()
     // Profile aliases overwrite case-insensitively; the Headers constructor appends them.
     for (const [name, value] of Object.entries(configured ?? {})) initial.set(name, value)
-    if (options.sessionId !== undefined && usesOpenCodeSessionHeader(options.provider) && !initial.has(OPENCODE_SESSION_HEADER)) {
-      initial.set(OPENCODE_SESSION_HEADER, String(options.sessionId))
+    if (!initial.has(AGENT_RUNNER_HEADER)) initial.set(AGENT_RUNNER_HEADER, AGENT_RUNNER)
+    if (options.sessionId !== undefined && !initial.has(DSH_SESSION_HEADER)) {
+      initial.set(DSH_SESSION_HEADER, String(options.sessionId))
     }
     const request: PiAiRequestHeaderContext = Object.freeze({
       provider: options.provider,
