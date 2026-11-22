@@ -49,6 +49,8 @@ import type {
   SessionSetDraftRequest,
   SessionFollowFrame,
   SessionFollowRequest,
+  SessionCompactIntoNewRequest,
+  SessionCompactIntoNewValue,
   SessionForkRequest,
   SessionForkValue,
   SessionEditRequest,
@@ -508,6 +510,16 @@ export class SessionController extends TypertRemoteService {
    * @param request - source Session, optional exact inclusive event boundary, and migration preflight choice.
    * @returns the new Session identity.
    */
+  /**
+   * Reset one Session into a new one seeded with its compacted context.
+   * @param request - source Session identity and optional child cwd.
+   * @returns the child identity and whether a compaction ran.
+   */
+  @Remote('compactIntoNew')
+  compactIntoNew(request: SessionCompactIntoNewRequest): Promise<SessionCompactIntoNewValue> {
+    return this.commands.compactIntoNew(request)
+  }
+
   @Remote('fork')
   async fork(request: SessionForkRequest): Promise<SessionForkValue> {
     if (request.allowMigration === false && this.ctx.sessions.get(request.sessionId) === undefined) {

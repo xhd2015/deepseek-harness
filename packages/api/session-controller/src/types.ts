@@ -182,6 +182,12 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'session/observation-ended': Record<string, never>
     /** No state arrived before the deadline; a timeout after a state returns its value instead. */
     'session/wait-timeout': Record<string, never>
+    /** A turn is in progress; a reset needs an idle Session. */
+    'session/running': { readonly sessionId: SessionId }
+    /** The deployment composes no compaction service, so a compacted reset is unavailable. */
+    'session/compaction-unavailable': Record<string, never>
+    /** Compaction failed; no Session was created. */
+    'session/compaction-failed': { readonly reason: string }
     'session/provider-credentials-unavailable': Record<string, never>
     'session/provider-models-unavailable': { readonly provider: string }
     'session/model-unavailable': { readonly provider: string; readonly model: string }
@@ -388,6 +394,22 @@ export interface SessionForkRequest {
 /** Identity of a newly forked Session. */
 export interface SessionForkValue {
   readonly sessionId: SessionId
+}
+
+/** Reset one Session into a new one seeded with its compacted context. */
+export interface SessionCompactIntoNewRequest {
+  readonly sessionId: SessionId
+  /** Child working directory; omission copies the source header cwd. */
+  readonly cwd?: string
+}
+
+/** Identity of the Session created from a compacted context. */
+export interface SessionCompactIntoNewValue {
+  readonly sessionId: SessionId
+  /** False when the source had no compactable history; the child then starts empty. */
+  readonly compacted: boolean
+  /** Surface tokens the compaction removed, when it ran. */
+  readonly compactedTokens?: number
 }
 
 /** Session prompt request. */

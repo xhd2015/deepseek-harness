@@ -122,6 +122,7 @@ export const VIEWER_ENDPOINT_CLASSES = {
   'account/watchExpiry': 'owner-only', // owner account and sign-in; the served page never reads it
   'commands/execute': 'owner-only', // owner executes a slash command
   'job/kill': 'owner-only', // owner background jobs
+  'session/compactIntoNew': 'owner-only', // owner resets a Session into a compacted seed
   'session/create': 'owner-only', // owner creates a Session
   'session/initializeDefaultModel': 'owner-only', // owner initializes a Session default model
   'session/refreshModelCatalog': 'owner-only', // a forced provider round-trip is not a viewer action

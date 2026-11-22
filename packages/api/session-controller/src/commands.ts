@@ -19,6 +19,9 @@ import {
 } from '@deepseek-ai/dsh-llm'
 import type { MessageId, MessageSource } from '@deepseek-ai/dsh-llm'
 import { buildForkSeed } from '@deepseek-ai/dsh-session/fork'
+import type {} from '@deepseek-ai/dsh-compaction'
+import { buildCompactedSeed } from './compacted-seed.ts'
+import { isSessionRunning } from './list.ts'
 import { SessionLogOffset, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import { SessionQueryError, type SessionObservation } from '@deepseek-ai/dsh-session-query'
@@ -43,6 +46,8 @@ import type {
   SessionCancelValue,
   SessionCreateRequest,
   SessionCreateValue,
+  SessionCompactIntoNewRequest,
+  SessionCompactIntoNewValue,
   SessionForkRequest,
   SessionForkValue,
   SessionEditRequest,
@@ -404,6 +409,77 @@ export class SessionCommandController {
       }
     }
     return { sessionId: childId }
+  }
+
+  /**
+   * Reset one Session into a new one seeded with its compacted context.
+   *
+   * The source is compacted first, then only its post-compaction surface is
+   * materialized as the child's log, so the child starts at the compacted size
+   * instead of copying the source history. The source stays readable.
+   * @param request - source Session identity and optional child cwd.
+   * @returns the child identity and whether a compaction ran.
+   */
+  async compactIntoNew(request: SessionCompactIntoNewRequest): Promise<SessionCompactIntoNewValue> {
+    let observed: SessionObservation
+    try {
+      observed = await this.ctx.sessionQuery.observeSession(request.sessionId)
+    } catch (error) {
+      if (error instanceof SessionQueryError && error.code === 'SESSION_QUERY_SESSION_NOT_FOUND') {
+        throw new RemoteError('session/not-found', `session "${request.sessionId}" not found`, { sessionId: request.sessionId })
+      }
+      throw new RemoteError('gateway/internal', `compacted reset source unavailable: ${String(error)}`, {})
+    }
+    using source = observed
+    if (isSessionRunning(this.ctx, request.sessionId)) {
+      throw new RemoteError('session/running', 'session is running; wait for the current turn before resetting', { sessionId: request.sessionId })
+    }
+    // The Agent interface is minimal on purpose; the resolved instance carries
+    // the Agent-scoped Session the seed is read from.
+    const agent = await this.resolveAgent(request.sessionId) as Agent & { session: Session }
+    // Reset compacts by seeding: the surface's compact-checkpoint (written by
+    // automatic compaction) is kept whole, and older turns are reduced below.
+    // No `/compact` call: with no context pressure it retains nothing and would
+    // swallow the turns this seed exists to keep.
+    const checkpoint = source.events.some(
+      event => event.type === 'user/message'
+        && (event.data.source as { kind: string }).kind === 'compact-checkpoint',
+    )
+    const seed = buildCompactedSeed(source.events, agent.session.surface.nodes)
+    const cwd = this.forkChildCwd(request.cwd, source.header.cwd)
+    let workspace: Workspace | undefined
+    try {
+      workspace = request.cwd === undefined ? await this.forkWorkspace(source.header) : this.forkWorkspaceAt(cwd)
+    } catch {
+      throw new RemoteError('gateway/internal', 'failed to resolve the compacted reset workspace', {})
+    }
+    const childId = brandString<SessionId>(`session-${randomUUID()}`)
+    const composition = await this.agents.composeAgent(this.agents.presetForObservation(source))
+    const { provider, model } = this.ctx.agentDefaultModel.currentSelection()
+    try {
+      await this.ctx.agents.create({
+        sessionId: childId,
+        seed,
+        inheritedEventCount: SessionLogOffset(Math.max(0, seed.length - 1)),
+        meta: {
+          ...(cwd === undefined ? {} : { cwd }),
+          isSeeded: true,
+          ...(composition.agentPreset === undefined ? {} : { agentPreset: composition.agentPreset }),
+        },
+        agentOptions: { provider, model },
+        setup: composition.setup,
+      })
+    } catch (error) {
+      throw new RemoteError('gateway/internal', `failed to create the compacted session: ${String(error)}`, {})
+    }
+    if (workspace !== undefined) {
+      try {
+        await workspace.attachSession(childId)
+      } catch {
+        throw new RemoteError('session/workspace-attach-failed', `session "${childId}" was created but could not attach to workspace "${workspace.id}"`, { sessionId: childId, workspaceId: workspace.id })
+      }
+    }
+    return { sessionId: childId, compacted: checkpoint }
   }
 
   /**
