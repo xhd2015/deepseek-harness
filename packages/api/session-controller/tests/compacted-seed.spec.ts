@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { MessageId, UserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, SessionSeq } from '@deepseek-ai/dsh-session'
 import { buildCompactedSeed } from '../src/compacted-seed.ts'
 
@@ -7,7 +8,9 @@ type EventOf<T extends SessionEvent['type']> = Extract<SessionEvent, { type: T }
 function event<T extends SessionEvent['type']>(type: T, seq: number, data: EventOf<T>['data']): SessionEvent {
   return { type, seq: seq as SessionSeq, time: seq * 10, data } as EventOf<T>
 }
-const user = (id: string, text: string, kind = 'user') => ({ id, role: 'user', content: [{ type: 'text', text }], source: { kind } })
+function user(id: string, text: string, kind = 'user'): UserMessage {
+  return { id: id as MessageId, role: 'user', content: [{ type: 'text', text }], source: { kind } as UserMessage['source'] }
+}
 const assistant = (id: string, text: string) => ({ id, role: 'assistant', content: [{ type: 'text', text }], source: { kind: 'model', provider: 'p', model: 'm' } })
 const result = (id: string, text: string) => ({ id, role: 'tool', content: [{ type: 'text', text }], source: { kind: 'tool', toolCallId: 'c1' }, toolCallId: 'c1' })
 
@@ -31,7 +34,7 @@ describe('buildCompactedSeed', () => {
     const users = seed.filter(e => e.type === 'user/message')
     // checkpoint + last 11 turns; turns 1 is dropped.
     expect(users).toHaveLength(12)
-    expect(users[0].type === 'user/message' ? users[0].data.content[0] : undefined).toMatchObject({ text: 'SUMMARY OF OLDER WORK' })
+    expect(users[0]?.type === 'user/message' ? users[0].data.content[0] : undefined).toMatchObject({ text: 'SUMMARY OF OLDER WORK' })
     const texts = seed.filter(e => e.type === 'user/message').map(e => e.type === 'user/message' ? (e.data.content[0] as { text: string }).text : '')
     expect(texts).not.toContain('question 1')
     expect(texts).toContain('question 2')
