@@ -169,6 +169,12 @@ export interface ConnectionHandle {
    * its authority is one the deployment named as settings-trusted.
    */
   readonly settingsTrusted: boolean
+  /**
+   * Whether this carrier serves a browser document, the only composition that
+   * shares the origin-wide mux. A Node Client and an in-process Host serve no
+   * page, so they keep Connection's own HTTP call instead of a socket.
+   */
+  readonly servesPage: boolean
   /** Current Remote event generation and the Host facts carried by its opening frame. */
   readonly generation: ConnectionGenerationState
   /** Current recovery lifecycle for connection-specific consumers. */
@@ -288,6 +294,7 @@ export function installConnection(ctx: Context, options: ConnectionInstallOption
     openWebSocket: path => openConnectionWebSocket(path, transport?.createWebSocket, transport?.streamBaseUrl),
     isLoopback,
     settingsTrusted: isLoopback || matchesSettingsAuthority(pageLocation, options.settingsTrustedHosts ?? []),
+    servesPage: pageLocation !== undefined,
     generation: {
       getSnapshot: () => generation,
       subscribe: (listener) => {

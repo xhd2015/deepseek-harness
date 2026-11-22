@@ -99,6 +99,10 @@ async function bench(call: ConnectionHandle['rpc']['call'], beforeMount?: (ctx: 
   await ctx.plugin(TypertRegistry).await()
   ctx.provide('connection', {
     interactions: 'answer', isLoopback: true, settingsTrusted: true,
+    // This harness drives Connection's RPC directly, the way an in-process
+    // composition does, so it serves no page and the Gateway keeps unary calls
+    // on `rpc.call` instead of joining the mux a page would share.
+    servesPage: false,
     openWebSocket: () => { throw new Error('This test uses in-process RPC') },
     generation: { getSnapshot: () => undefined, subscribe: () => () => {} },
     state: { getSnapshot: () => undefined, subscribe: () => () => {} },

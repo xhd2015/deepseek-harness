@@ -215,12 +215,13 @@ class ClientRemoteService extends Service implements ClientRemote {
     // compare by reference, so a fresh object is minted only when the fact
     // itself changed. isLoopback and settingsTrusted are fixed for the page lifetime.
     const home = this.connection.generation.getSnapshot()?.host.home
-    if (this.hostFacts === undefined || this.hostFacts.home !== home) {
-      this.hostFacts = {
-        home,
-        isLoopback: this.connection.isLoopback,
-        settingsTrusted: this.connection.settingsTrusted,
-      }
+    const isLoopback = this.connection.isLoopback
+    const settingsTrusted = this.connection.settingsTrusted
+    if (this.hostFacts === undefined
+      || this.hostFacts.home !== home
+      || this.hostFacts.isLoopback !== isLoopback
+      || this.hostFacts.settingsTrusted !== settingsTrusted) {
+      this.hostFacts = { home, isLoopback, settingsTrusted }
     }
     return this.hostFacts
   }
@@ -281,7 +282,7 @@ class ClientRemoteService extends Service implements ClientRemote {
     // Only a page that shares the origin-wide mux worker rides it for unary
     // calls; every other carrier — the in-process Host and a non-page Client —
     // keeps Connection's HTTP call, which needs no socket of its own.
-    if (connection.rpc.open !== undefined || binaryResult || !muxWorkerAvailable()) {
+    if (connection.rpc.open !== undefined || binaryResult || !connection.servesPage) {
       return connection.rpc.call(apiPrefix(), endpoint, payload, signal)
     }
     return parseMuxUnaryResult(await this.streams.call(endpoint, payload, signal))
@@ -812,15 +813,6 @@ const REMOTE_NAMESPACE_FIELDS = new Set(['ctx', 'empty', 'invokeRemote', 'method
 
 function remoteServiceKey(namespace: string): string {
   return `remote.${namespace}`
-}
-
-/**
- * Whether this Client runs in a page, the only realm that rides the mux for
- * unary calls. A Node Client keeps Connection's HTTP call.
- * @returns true when a document supplies the page's base URL.
- */
-function muxWorkerAvailable(): boolean {
-  return typeof document !== 'undefined'
 }
 
 function endpointOf(descriptor: Pick<InvocationDescriptor, 'namespace' | 'method'>): string {
