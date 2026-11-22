@@ -257,6 +257,19 @@ function requestHeaderDiagnostic(error: unknown): string {
     : 'the contributing plugin threw a non-Error value; throw an Error with a safe diagnostic'
 }
 
+/** OpenCode Go's required conversation-routing header. */
+const OPENCODE_SESSION_HEADER = 'x-opencode-session'
+
+/**
+ * Whether this route talks to OpenCode (catalog `opencode` / `opencode-go`, or
+ * an llm-proxy export such as `llm-proxy-opencode`). Those upstreams key
+ * prompt cache on {@link OPENCODE_SESSION_HEADER}; the durable Session id is
+ * the stable value.
+ */
+function usesOpenCodeSessionHeader(provider: string): boolean {
+  return provider === 'opencode' || provider === 'opencode-go' || /(?:^|-)opencode(?:-|$)/.test(provider)
+}
+
 /** Prepare request-owned headers without allowing contributors to replace attribution. */
 function requestHeaders(
   configured: Readonly<Record<string, string>> | undefined,
@@ -268,6 +281,9 @@ function requestHeaders(
     const initial = new Headers()
     // Profile aliases overwrite case-insensitively; the Headers constructor appends them.
     for (const [name, value] of Object.entries(configured ?? {})) initial.set(name, value)
+    if (options.sessionId !== undefined && usesOpenCodeSessionHeader(options.provider) && !initial.has(OPENCODE_SESSION_HEADER)) {
+      initial.set(OPENCODE_SESSION_HEADER, String(options.sessionId))
+    }
     const request: PiAiRequestHeaderContext = Object.freeze({
       provider: options.provider,
       model: options.model,

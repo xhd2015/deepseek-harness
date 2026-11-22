@@ -214,6 +214,29 @@ describe('PiAiAdapter provider routing', () => {
     expect(server.headers[1]).not.toHaveProperty('x-opencode-session')
   })
 
+  it('sends the OpenCode session header for an llm-proxy OpenCode route', async () => {
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    ctx.llm.registerAdapter(['llm-proxy-opencode'], adapterOf({
+      'llm-proxy-opencode': {
+        apiKeyEnv: 'PI_TEST_KEY',
+        baseURL: `${server.url}/v1`,
+        api: 'openai-completions',
+        models: [{ id: 'kimi-k2.7-code' }],
+      },
+    }))
+
+    await assemble(ctx, {
+      provider: 'llm-proxy-opencode',
+      model: 'kimi-k2.7-code',
+      messages: [],
+      sessionId: 'dsh-session' as never,
+    })
+
+    expect(server.headers[0]?.['x-opencode-session']).toBe('dsh-session')
+  })
+
   it('uses a dynamic request effort and reports unsupported efforts before network I/O', async () => {
     const server = await mockServer([{ events: textEvents }, { events: textEvents }])
     const ctx = await harness(server.url, { reasoning: 'max' })
