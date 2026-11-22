@@ -554,9 +554,10 @@ export function resolveProfiles(
       if (source.models !== undefined && source.models.length > 0) {
         throw new Error(`llm-pi-ai: provider "${provider}" sets modelListingMode: dynamic beside a models list`)
       }
-      const { apiKeyEnv, retryPolicy, models: _models, displayName: _displayName, ...rest } = source
+      const { apiKeyEnv, retryPolicy, models: _models, displayName: _displayName, requestImageMaxBytes, ...rest } = source
       resolved.set(provider, {
         ...rest,
+        ...requestImageMaxBytes === undefined ? {} : { maxImageBytes: requestImageMaxBytes },
         provider,
         displayName,
         ...apiKeyEnv === undefined ? {} : { apiKeyEnv: credentialRef(apiKeyEnv) },
@@ -564,8 +565,8 @@ export function resolveProfiles(
         maxRequestImageBytes,
         maxRequestImages,
         imageOffloadCountQuantum,
+        requestImageBudgetCount,
         requestImagePixelBudget,
-        requestImageMaxBytes,
         retryPolicy: resolveRetryPolicy(retryPolicy, `llm-pi-ai: provider "${provider}" retryPolicy`),
         ...rest.headers === undefined ? {} : { headers: { ...rest.headers } },
         ...rest.thinkingBudgets === undefined ? {} : { thinkingBudgets: { ...rest.thinkingBudgets } },

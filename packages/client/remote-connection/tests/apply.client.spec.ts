@@ -98,7 +98,7 @@ async function bench(call: ConnectionHandle['rpc']['call'], beforeMount?: (ctx: 
   onTestFinished(() => ctx.fiber.dispose())
   await ctx.plugin(TypertRegistry).await()
   ctx.provide('connection', {
-    interactions: 'answer', isLoopback: true,
+    interactions: 'answer', isLoopback: true, settingsTrusted: true,
     openWebSocket: () => { throw new Error('This test uses in-process RPC') },
     generation: { getSnapshot: () => undefined, subscribe: () => () => {} },
     state: { getSnapshot: () => undefined, subscribe: () => () => {} },
