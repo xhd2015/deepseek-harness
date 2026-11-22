@@ -27,24 +27,24 @@ id: 2026-11-18-thinking-cap-auto-continue
 baseline: false
 changes:
   - root: "event:agent/inbox/spliced"
-    previous: "2026-11-05-timeline-priority-notice"
-    after: "8b2803fdcce1c5ab6280690030edcef89a19487259e5ea78eef1331938bfdb6c"
+    previous: "2026-11-19-cua-input-notices"
+    after: "1c3268e7ef74bd59a6bf574494d18bc4041272b12c61582d3970345bc16df93c"
     decision: same-version
   - root: "event:developer/message"
-    previous: "2026-11-05-timeline-priority-notice"
-    after: "d273e5479fa562015a653c16ad98d64ec8e67e452f271062d386340911a3973b"
+    previous: "2026-11-19-cua-input-notices"
+    after: "e07afabe760ba54dfc26e6e4efd47e2cb886e0943e5251dd0821f5c932e1f14d"
     decision: same-version
   - root: "event:session/thinking-cap-auto-continue"
     previous: null
     after: "dd91d27c73c092df79ec5a54b350165a702d40a62ec248d7fedead5ffaa27973"
     decision: same-version
   - root: "event:session/title-llm-request"
-    previous: "2026-11-05-timeline-priority-notice"
-    after: "f7699a6af053ba0304c36c0c4bb4489bb2e97ac81d7d10216dc5fe92b8baa00c"
+    previous: "2026-11-19-cua-input-notices"
+    after: "e598e9d3d4f314ed210bad0aaea57e76d613bd90695c10aa877443ee4b0c17ca"
     decision: same-version
   - root: "event:user/message"
-    previous: "2026-11-05-timeline-priority-notice"
-    after: "1b0bf99d7aa93189641496a161b94c173474c1145c77daa7132d666f46d8ea8c"
+    previous: "2026-11-19-cua-input-notices"
+    after: "6848caacca8b74da207b24d9e4753ebdaf9352cf414177b8121fd0142c472f53"
     decision: same-version
 ```
 
