@@ -18,6 +18,7 @@ import {
 } from '@deepseek-ai/dsh-api-session-controller/src/client/sessions/facets.ts'
 import type { SessionRequestId } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
+import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { ObservableSnapshot, SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -323,7 +324,7 @@ export class TestSessions implements ISessions {
 
   /** Calls observed on the service-level face, newest last. */
   readonly calls: {
-    method: 'create' | 'refreshProjections' | 'refresh' | 'search' | 'fork'
+    method: 'create' | 'createWithInput' | 'refreshProjections' | 'refresh' | 'search' | 'fork'
     args: unknown[]
   }[] = []
 
@@ -628,6 +629,18 @@ export class TestSessions implements ISessions {
   }
 
   /** Create through the installed test behavior and require a catalogued fixture. */
+  async createWithInput(
+    opts: Parameters<ISessions['createWithInput']>[0],
+  ): Promise<RemoteResult<{ sessionId: SessionId; inputError?: string }>> {
+    this.calls.push({ method: 'createWithInput', args: [opts] })
+    if (this.createStub === undefined) {
+      throw new Error('test sessions: createWithInput is not stubbed — call stubCreate() first')
+    }
+    const id = await this.createStub(opts)
+    this.require(id)
+    return { ok: true, value: { sessionId: id } }
+  }
+
   async create(opts?: Parameters<ISessions['create']>[0]): Promise<SessionId> {
     this.calls.push({ method: 'create', args: [opts] })
     if (this.createStub === undefined) {

@@ -958,6 +958,23 @@ resolveAgent(sessionId: SessionId): Promise<ApiSessionAgentResult>
 @Remote('create') create(request: SessionCreateRequest): Promise<SessionCreateValue>
 
 /**
+ * Create a Session with its first input already in place: a draft pending in
+ * the composer, or a prompt submitted, together with that input's images.
+ *
+ * This composes `create` with the draft store or `prompt` rather than reaching
+ * into the Agent, so a Session created here is indistinguishable from one
+ * created by its own RPC and given input by the next. A draft admits no
+ * prompt: the images are stored and left pending, and submitting remains the
+ * composer's own act. Nothing is rolled back when the input fails: the Session
+ * id is already published, so the caller retries the input against it instead
+ * of leaking a second Session.
+ * @param request - where to create, which input, and that input's images.
+ * @param signal - caller cancellation before any input is written.
+ * @returns the created Session, and why its input failed when it did.
+ */
+@Remote('createWithInput') async createWithInput( request: SessionCreateWithInputRequest, signal: AbortSignal, ): Promise<SessionCreateWithInputValue>
+
+/**
  * Read durable composer text without resuming the Session or changing its transcript.
  * @param request - Session identity.
  * @returns saved text, or empty text when no draft exists.
@@ -1048,11 +1065,16 @@ workspaceDesktop(): { name: string; available: boolean; fileManager: 'finder' | 
 @Remote('rename') rename(request: SessionRenameRequest): Promise<SessionRenameValue>
 
 /**
- * Fork one cold-readable exact event prefix into a new Session. An omitted
- * boundary selects the latest completed-turn prefix; an open cut receives
- * synthetic fork closers.
- * @param request - source Session, optional exact inclusive event boundary, and migration preflight choice.
- * @returns the new Session identity.
+ * Reset one Session into a new one seeded with its compacted context.
+ * @param request - source Session identity and optional child cwd.
+ * @returns the child identity and whether a compaction ran.
+ */
+@Remote('compactIntoNew') compactIntoNew(request: SessionCompactIntoNewRequest): Promise<SessionCompactIntoNewValue>
+
+/**
+ * Copy a Session's history into a new child Session, optionally compacted.
+ * @param request - source Session identity, child cwd, and whether a migration may be skipped.
+ * @returns the child identity and whether a compaction ran.
  */
 @Remote('fork') async fork(request: SessionForkRequest): Promise<SessionForkValue>
 

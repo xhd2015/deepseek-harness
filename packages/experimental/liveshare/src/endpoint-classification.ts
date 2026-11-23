@@ -124,6 +124,7 @@ export const VIEWER_ENDPOINT_CLASSES = {
   'job/kill': 'owner-only', // owner background jobs
   'session/compactIntoNew': 'owner-only', // owner resets a Session into a compacted seed
   'session/create': 'owner-only', // owner creates a Session
+  'session/createWithInput': 'owner-only', // owner creates a Session and leaves its first input
   'session/initializeDefaultModel': 'owner-only', // owner initializes a Session default model
   'session/refreshModelCatalog': 'owner-only', // a forced provider round-trip is not a viewer action
   'session/openWorkspacePath': 'owner-only', // owner opens a Workspace path

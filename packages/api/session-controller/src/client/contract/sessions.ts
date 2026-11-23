@@ -5,6 +5,7 @@
  * explicit act of widening what features may do to the sessions domain.
  */
 import type { Context } from '@deepseek-ai/cordis'
+import type { EncodedImageAttachment } from '@deepseek-ai/dsh-attachment'
 import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
@@ -103,6 +104,25 @@ export interface ISessions {
    * @param opts - target workspace or directory, an optional blank Session to reuse, and an optional Agent preset.
    * @returns the catalogued identity the Host created or reused; retain it before borrowing its binding.
    */
+  /**
+   * Create a Session with its first input already in place.
+   *
+   * A draft is left unsent in the composer; a prompt is submitted. An input that
+   * fails does not discard the Session: the identity comes back with
+   * `inputError`, so a caller retries the input instead of creating a second one.
+   * @param opts - where to create, the draft or prompt, and the prompt's images.
+   * @returns the created or reused Session, and why its input failed when it did.
+   */
+  createWithInput(opts: {
+    workspaceId?: WorkspaceId
+    cwd?: string
+    sessionId?: SessionId
+    agentPreset?: string
+    draft?: string
+    draftImages?: readonly EncodedImageAttachment[]
+    prompt?: string
+    images?: readonly EncodedImageAttachment[]
+  }): Promise<RemoteResult<{ sessionId: SessionId; inputError?: string }>>
   create(opts?: {
     workspaceId?: WorkspaceId
     cwd?: string

@@ -3423,6 +3423,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the created or reused Session identity and its preset when configured.',
       },
       {
+        signature: '@Remote(\'createWithInput\') async createWithInput( request: SessionCreateWithInputRequest, signal: AbortSignal, ): Promise<SessionCreateWithInputValue>',
+        description: 'Create a Session with its first input already in place: a draft pending in the composer, or a prompt submitted, together with that input\'s images.\n\nThis composes `create` with the draft store or `prompt` rather than reaching into the Agent, so a Session created here is indistinguishable from one created by its own RPC and given input by the next. A draft admits no prompt: the images are stored and left pending, and submitting remains the composer\'s own act. Nothing is rolled back when the input fails: the Session id is already published, so the caller retries the input against it instead of leaking a second Session.',
+        parameters: [{ name: 'request', description: 'where to create, which input, and that input\'s images.' }, { name: 'signal', description: 'caller cancellation before any input is written.' }],
+        returns: 'the created Session, and why its input failed when it did.',
+      },
+      {
         signature: '@Remote(\'getDraft\') getDraft(request: SessionDraftRequest): Promise<SessionDraftValue>',
         description: 'Read durable composer text without resuming the Session or changing its transcript.',
         parameters: [{ name: 'request', description: 'Session identity.' }],
@@ -3503,10 +3509,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the accepted title and durable event sequence.',
       },
       {
+        signature: '@Remote(\'compactIntoNew\') compactIntoNew(request: SessionCompactIntoNewRequest): Promise<SessionCompactIntoNewValue>',
+        description: 'Reset one Session into a new one seeded with its compacted context.',
+        parameters: [{ name: 'request', description: 'source Session identity and optional child cwd.' }],
+        returns: 'the child identity and whether a compaction ran.',
+      },
+      {
         signature: '@Remote(\'fork\') async fork(request: SessionForkRequest): Promise<SessionForkValue>',
-        description: 'Fork one cold-readable exact event prefix into a new Session. An omitted boundary selects the latest completed-turn prefix; an open cut receives synthetic fork closers.',
-        parameters: [{ name: 'request', description: 'source Session, optional exact inclusive event boundary, and migration preflight choice.' }],
-        returns: 'the new Session identity.',
+        description: 'Copy a Session\'s history into a new child Session, optionally compacted.',
+        parameters: [{ name: 'request', description: 'source Session identity, child cwd, and whether a migration may be skipped.' }],
+        returns: 'the child identity and whether a compaction ran.',
       },
       {
         signature: '@Remote(\'prompt\') async prompt(request: SessionPromptRequest, signal: AbortSignal): Promise<SessionPromptValue>',
@@ -9925,6 +9937,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type SessionChangeRequestsListener = (changeRequests: readonly SessionChangeRequest[]) => void;',
   },
   {
+    name: 'SessionCompactIntoNewRequest',
+    declaration: 'export interface SessionCompactIntoNewRequest {\n    readonly sessionId: SessionId;\n    readonly cwd?: string;\n}',
+  },
+  {
+    name: 'SessionCompactIntoNewValue',
+    declaration: 'export interface SessionCompactIntoNewValue {\n    readonly sessionId: SessionId;\n    readonly compacted: boolean;\n    readonly compactedTokens?: number;\n}',
+  },
+  {
     name: 'SessionControlBaseline',
     declaration: 'export interface SessionControlBaseline {\n    readonly projections: Readonly<Record<SessionId, SessionProjectionBaseline>>;\n}',
   },
@@ -9941,12 +9961,20 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionCreateValue {\n    readonly sessionId: SessionId;\n    readonly agentPreset?: string;\n    readonly modelSelection?: ModelSelection;\n}',
   },
   {
+    name: 'SessionCreateWithInputRequest',
+    declaration: 'export interface SessionCreateWithInputRequest extends SessionCreateRequest {\n    readonly draft?: string;\n    readonly draftImages?: readonly EncodedImageAttachment[];\n    readonly prompt?: string;\n    readonly images?: readonly EncodedImageAttachment[];\n}',
+  },
+  {
+    name: 'SessionCreateWithInputValue',
+    declaration: 'export interface SessionCreateWithInputValue extends SessionCreateValue {\n    readonly inputError?: string;\n}',
+  },
+  {
     name: 'SessionDraftRequest',
     declaration: 'export interface SessionDraftRequest {\n    readonly sessionId: SessionId;\n}',
   },
   {
     name: 'SessionDraftValue',
-    declaration: 'export interface SessionDraftValue {\n    readonly text: string;\n}',
+    declaration: 'export interface SessionDraftValue {\n    readonly text: string;\n    readonly attachments?: readonly ImageAttachmentRef[];\n}',
   },
   {
     name: 'SessionEditChange',
@@ -10430,7 +10458,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionSetDraftRequest',
-    declaration: 'export interface SessionSetDraftRequest extends SessionDraftRequest {\n    readonly text: string;\n}',
+    declaration: 'export interface SessionSetDraftRequest extends SessionDraftRequest {\n    readonly text: string;\n    readonly images?: readonly EncodedImageAttachment[];\n}',
   },
   {
     name: 'SessionSetThinkingCapAutoContinueRequest',

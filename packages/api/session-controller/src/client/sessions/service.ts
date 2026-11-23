@@ -1,5 +1,6 @@
 /** Client catalog and source-labelled ownership of exact Session generations. */
 import type { Context, Fiber } from '@deepseek-ai/cordis'
+import type { EncodedImageAttachment } from '@deepseek-ai/dsh-attachment'
 import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
 import { SessionSeq, type SessionId } from '@deepseek-ai/dsh-session/types'
 import { workspaceTitleOf } from '@deepseek-ai/dsh-util-workspace-path'
@@ -453,6 +454,26 @@ export class ClientSessions implements ISessions {
    * @returns the created or reused session id.
    * @throws {SessionCreateError} with the requested id.
    */
+  /**
+   * Create a Host Session with its first input, publishing the row first.
+   * @param opts - where to create, the draft or prompt, and the prompt's images.
+   * @returns the created Session id, and why its input failed when it did.
+   */
+  async createWithInput(opts: {
+    workspaceId?: WorkspaceId
+    cwd?: string
+    sessionId?: SessionId
+    agentPreset?: string
+    draft?: string
+    draftImages?: readonly EncodedImageAttachment[]
+    prompt?: string
+    images?: readonly EncodedImageAttachment[]
+  }): Promise<RemoteResult<{ sessionId: SessionId; inputError?: string }>> {
+    const result = await this.manager.createWithInput(opts)
+    if (result.ok) this.projectList()
+    return result
+  }
+
   async create(opts: {
     workspaceId?: WorkspaceId
     cwd?: string

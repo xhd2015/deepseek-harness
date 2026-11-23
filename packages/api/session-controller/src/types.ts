@@ -3,7 +3,7 @@
 import type {} from '@deepseek-ai/dsh-agent/types'
 import type { NativeFileApplication } from '@deepseek-ai/dsh-native-command/types'
 import type {
-  ImageAttachmentLimits, ImageAttachmentRef, ImageMediaType,
+  EncodedImageAttachment, ImageAttachmentLimits, ImageAttachmentRef, ImageMediaType,
 } from '@deepseek-ai/dsh-attachment'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { LlmAttemptId, MessageId } from '@deepseek-ai/dsh-llm/types'
@@ -326,6 +326,49 @@ export interface SessionCreateValue {
   readonly modelSelection?: ModelSelection
 }
 
+/**
+ * Create a Session and leave its first input already in place.
+ *
+ * Creation and delivery are two RPCs (`create` then `setDraft` or `prompt`), and
+ * every caller that wants the second has to repeat the first, remember the id
+ * between them, and invent its own answer for "the Session exists but the input
+ * did not land". This names that combination once so a caller cannot get the
+ * ordering wrong, and so a caller outside the browser does not have to shell out
+ * to the CLI to get it.
+ *
+ * The two inputs are alternatives, not a sequence: `draft` (with `draftImages`)
+ * leaves the composer holding what the user has not sent, `prompt` (with
+ * `images`) submits a message. Naming both is refused rather than resolved,
+ * because "which of these ran" would otherwise be a thing every caller has to
+ * remember.
+ */
+export interface SessionCreateWithInputRequest extends SessionCreateRequest {
+  /** Composer text to leave unsent. Omitted or empty stores no draft. */
+  readonly draft?: string
+  /** Images to leave pending in the composer beside `draft`. */
+  readonly draftImages?: readonly EncodedImageAttachment[]
+  /** First prompt text to submit. Omitted submits nothing. */
+  readonly prompt?: string
+  /**
+   * Images belonging to `prompt`, in authoring order. Refused without a prompt:
+   * an image is part of a message, and there is no message to attach it to.
+   */
+  readonly images?: readonly EncodedImageAttachment[]
+}
+
+/** Result of creating a Session together with its first input. */
+export interface SessionCreateWithInputValue extends SessionCreateValue {
+  /**
+   * Why the input did not land, when the Session was created anyway.
+   *
+   * The Session is not rolled back: its identity is already published and a
+   * caller may hold it. This mirrors what the CLI reports when a created
+   * Session's prompt fails, and it lets the caller retry the input against an
+   * id it already has instead of creating a second Session.
+   */
+  readonly inputError?: string
+}
+
 /** Identity of a Session whose composer draft is read without Agent activation. */
 export interface SessionDraftRequest {
   readonly sessionId: SessionId
@@ -334,11 +377,23 @@ export interface SessionDraftRequest {
 /** Exact composer text to save; empty text clears the durable record. */
 export interface SessionSetDraftRequest extends SessionDraftRequest {
   readonly text: string
+  /**
+   * Images to leave pending in the composer alongside the text. Their bytes are
+   * admitted into the deployment attachment store, so the composer shows them
+   * without the caller having to upload them again.
+   */
+  readonly images?: readonly EncodedImageAttachment[]
 }
 
-/** Durable text-only composer draft, absent from the Session transcript. */
+/**
+ * Durable composer draft, absent from the Session transcript: the text, and the
+ * images waiting beside it. A draft never admits a prompt — submitting is the
+ * composer's own act.
+ */
 export interface SessionDraftValue {
   readonly text: string
+  /** Pending images, in authoring order; omitted when the draft holds none. */
+  readonly attachments?: readonly ImageAttachmentRef[]
 }
 
 /** Session model-selection request. */
