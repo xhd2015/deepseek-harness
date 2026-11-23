@@ -23,6 +23,11 @@
       "队列里已经有待处理工作时不再追加续写。"
     ]
   },
+  "backend": {
+    "apis": [
+      "session/setThinkingCapAutoContinue"
+    ]
+  },
   "review": {
     "status": "pending",
     "by": "agent"
