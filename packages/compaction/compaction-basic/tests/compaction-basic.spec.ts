@@ -18,7 +18,7 @@ import {
   resolveTargetPolicy,
 } from '@deepseek-ai/dsh-compaction-basic/src/config.ts'
 import type { CompactionResult } from '@deepseek-ai/dsh-compaction'
-import LlmRuntime, { createUserMessage, type ToolCallId, CONTEXT_WINDOW_EXCEEDED_CODE, createSystemMessage, createToolResultMessage, LlmAdapter , createMessage } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createUserMessage, type ToolCallId, CONTEXT_WINDOW_EXCEEDED_CODE, createSystemMessage, createToolResultMessage, LlmAdapter , createMessage, LlmError } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed } from '@deepseek-ai/dsh-llm'
 import type {
   ContentBlock,
@@ -2308,6 +2308,75 @@ describe('model-switch pressure', () => {
     await expect(request(ctx, conversation(4), { provider: 'small', model: 'small' }, controller.signal))
       .rejects.toBe(cancelled)
     expect(adapter.lastOptions).toBeUndefined()
+  })
+
+  it('reports an unconfigured destination model as a model-selection failure', async () => {
+    const { ctx } = harness()
+    vi.spyOn(ctx.llm, 'resolveModelInfo').mockRejectedValueOnce(
+      new LlmError('pi-ai provider "small" has no configured model "missing"', 'UNKNOWN_MODEL'),
+    )
+    const session = conversation(4)
+    const previous = session.requestHeader()
+    const switching = request(ctx, session, { provider: 'small', model: 'missing' })
+
+    await expect(switching).rejects.toMatchObject({ code: 'UNKNOWN_MODEL' })
+    await expect(switching).rejects.toThrow('Cannot switch to small/missing')
+    await expect(switching).rejects.toThrow('select a model this provider configures')
+    await expect(switching).rejects.not.toThrow('context compaction failed')
+    expect(session.requestHeader()).toEqual(previous)
+    expect(session.snapshotEvents().filter(event => event.type === 'compaction/start')).toHaveLength(0)
+  })
+
+  it.each([
+    ['NO_ADAPTER', 'select a model from a provider this deployment serves'],
+    ['INVALID_CONFIG', 'select a model this provider configures'],
+    ['INVALID_MODEL_INFO', 'select another model for this provider'],
+    ['INVALID_MODEL_CONTEXT', 'select another model for this provider'],
+    ['INVALID_MODEL_MAX_TOKENS', 'select another model for this provider'],
+    ['INVALID_MODEL_REASONING', 'select another model for this provider'],
+  ] as const)('keeps the %s destination failure code and its model-selection advice', async (code, advice) => {
+    const { ctx } = harness()
+    vi.spyOn(ctx.llm, 'resolveModelInfo').mockRejectedValueOnce(
+      new LlmError(`destination lookup refused (${code})`, code),
+    )
+    const session = conversation(4)
+    const previous = session.requestHeader()
+    const switching = request(ctx, session, { provider: 'small', model: 'small' })
+
+    await expect(switching).rejects.toMatchObject({ code })
+    await expect(switching).rejects.toThrow(advice)
+    await expect(switching).rejects.not.toThrow('context compaction failed')
+    expect(session.requestHeader()).toEqual(previous)
+  })
+
+  it('reports a transient destination lookup failure without claiming a summary ran', async () => {
+    const { ctx } = harness()
+    vi.spyOn(ctx.llm, 'resolveModelInfo').mockRejectedValueOnce(
+      new LlmError('destination lookup timed out', 'TRANSPORT'),
+    )
+    const session = conversation(4)
+    const previous = session.requestHeader()
+    const switching = request(ctx, session, { provider: 'small', model: 'small' })
+
+    await expect(switching).rejects.toMatchObject({ code: 'MODEL_SWITCH_COMPACTION_FAILED' })
+    await expect(switching).rejects.toThrow("cannot check the destination model's capacity")
+    await expect(switching).rejects.toThrow('destination lookup timed out')
+    await expect(switching).rejects.not.toThrow('context compaction failed')
+    expect(session.requestHeader()).toEqual(previous)
+  })
+
+  it('keeps a compaction failure when the summary call itself hits an unknown model', async () => {
+    const { ctx } = harness({}, {
+      kind: 'error', failure: { code: 'UNKNOWN_MODEL', message: 'no summary model configured' },
+    })
+    const session = conversation(4)
+    const previous = session.requestHeader()
+    const switching = request(ctx, session, { provider: 'small', model: 'small' })
+
+    await expect(switching).rejects.toMatchObject({ code: 'MODEL_SWITCH_COMPACTION_FAILED' })
+    await expect(switching).rejects.toThrow('no summary model configured')
+    await expect(switching).rejects.toThrow('context compaction failed')
+    expect(session.requestHeader()).toEqual(previous)
   })
 
   it('removes the switch check when the contributing plugin is unloaded', async () => {

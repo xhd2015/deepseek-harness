@@ -11,6 +11,7 @@ import type { CompactionBudget, CompactionResult, CompactionTrigger } from '@dee
 import type { EpochHeader, Session, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
 import { CONTEXT_WINDOW_EXCEEDED_CODE, LlmError } from '@deepseek-ai/dsh-llm'
+import type { LlmCallConfig, LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-token-meter/src/projection.ts'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
@@ -62,6 +63,79 @@ function completeRoute(route: { provider?: string; model?: string } | undefined)
 /** Resolve the exact provider/model durably routed for the latest request. */
 function routedTarget(session: Session): SummaryRoute | undefined {
   return completeRoute(session.requestHeader()?.config)
+}
+
+/**
+ * Explanation to offer when the destination model cannot be used. Every code
+ * here comes from resolving the model the switch names — a model the provider
+ * does not configure, a provider no adapter owns, a rejected configuration
+ * entry, or metadata the adapter returned invalid — so the remedy is a
+ * different model, never a larger context window.
+ * @param code - failure code raised while resolving the destination model.
+ * @returns the advice sentence, or `undefined` for every other failure.
+ */
+function switchTargetAdvice(code: string): string | undefined {
+  switch (code) {
+    case 'UNKNOWN_MODEL':
+    case 'INVALID_CONFIG':
+      return 'select a model this provider configures.'
+    case 'NO_ADAPTER':
+      return 'select a model from a provider this deployment serves.'
+    case 'INVALID_MODEL_INFO':
+    case 'INVALID_MODEL_CONTEXT':
+    case 'INVALID_MODEL_MAX_TOKENS':
+    case 'INVALID_MODEL_REASONING':
+      return 'select another model for this provider.'
+    default:
+      return undefined
+  }
+}
+
+/**
+ * Report a destination that failed to resolve before any compaction work.
+ * A recognized model-selection failure keeps its own code and explains the
+ * model choice; any other lookup failure (transport, timeout, discovery)
+ * keeps the switch-compaction code but says the capacity check did not run,
+ * since no summary was attempted.
+ * @param config - the proposed request route.
+ * @param error - the failure raised while resolving that route.
+ * @returns the error to surface for the failed switch.
+ */
+function switchResolutionFailure(config: LlmCallConfig, error: unknown): LlmError {
+  const message = error instanceof Error ? error.message : String(error)
+  const advice = error instanceof LlmError ? switchTargetAdvice(error.code) : undefined
+  if (error instanceof LlmError && advice !== undefined) {
+    return LlmError.fromFailure({
+      ...error.failure,
+      message: `Cannot switch to ${config.provider}/${config.model}: ${message}. `
+        + `The previous request model is preserved; ${advice}`,
+    }, { cause: error })
+  }
+  return new LlmError(
+    `Cannot switch to ${config.provider}/${config.model}: cannot check the destination model's `
+    + `capacity: ${message}. The previous request model is preserved; `
+    + 'retry or select a model with a larger context window.',
+    'MODEL_SWITCH_COMPACTION_FAILED',
+    { cause: error },
+  )
+}
+
+/**
+ * Report a switch whose compaction phase failed: the destination resolved and
+ * the switch was priced, but the history could not be brought below its
+ * threshold (or the summary call itself failed).
+ * @param config - the proposed request route.
+ * @param error - the failure raised during compaction.
+ * @returns the error to surface for the failed switch.
+ */
+function switchCompactionFailure(config: LlmCallConfig, error: unknown): LlmError {
+  const message = error instanceof Error ? error.message : String(error)
+  return new LlmError(
+    `Cannot switch to ${config.provider}/${config.model}: context compaction failed: ${message}. `
+    + 'The previous request model is preserved; retry or select a model with a larger context window.',
+    'MODEL_SWITCH_COMPACTION_FAILED',
+    { cause: error },
+  )
 }
 
 /**
@@ -206,19 +280,24 @@ export class BasicCompactionEngine extends CompactionEngine {
       const previous = agent.session.requestHeader()
       if (signal.aborted || previous === undefined || config.provider === '' || config.model === ''
         || (previous.config.provider === config.provider && previous.config.model === config.model)) return config
+      const header = { ...previous, config }
+      // Resolve the destination before pricing it, in its own failure scope: a
+      // model this route does not serve is a model-selection failure, never
+      // evidence that a summary ran. Only the compaction phase below may claim
+      // a compaction failure.
+      let info: LlmResolvedModelInfo
       try {
-        const header = { ...previous, config }
-        const result = await this.compactPressure(agent, header, signal, true)
+        info = await this.ctx.llm.resolveModelInfo(config.provider, config.model, signal)
+      } catch (error: unknown) {
+        signal.throwIfAborted()
+        throw switchResolutionFailure(config, error)
+      }
+      try {
+        const result = await this.compactPressure(agent, header, signal, true, info)
         if (result !== null) logResult(result, 'model switch')
       } catch (error: unknown) {
         signal.throwIfAborted()
-        const message = error instanceof Error ? error.message : String(error)
-        throw new LlmError(
-          `Cannot switch to ${config.provider}/${config.model}: context compaction failed: ${message}. `
-          + 'The previous request model is preserved; retry or select a model with a larger context window.',
-          'MODEL_SWITCH_COMPACTION_FAILED',
-          { cause: error },
-        )
+        throw switchCompactionFailure(config, error)
       }
       return config
     }, { prepend: true })
@@ -369,19 +448,24 @@ export class BasicCompactionEngine extends CompactionEngine {
     }
   }
 
-  /** Price the proposed header; switch checks require history below its threshold. */
+  /**
+   * Price the proposed header; switch checks require history below its threshold.
+   * @param resolved - destination metadata a caller already resolved, so a
+   * switch prices the model it just checked instead of resolving it twice.
+   */
   private async compactPressure(
     agent: Agent,
     header: EpochHeader,
     signal: AbortSignal,
     requireBelowThreshold: boolean,
+    resolved?: LlmResolvedModelInfo,
   ): Promise<CompactionResult | null> {
     const target = header.config
     const policy = resolveTargetPolicy(this.config, target)
     const meter = this.ctx.tokenMeter
     let measurement = meter.measure(agent.session, header)
     const prune = this.ctx.get('toolResultPruner')
-    const info = await this.ctx.llm.resolveModelInfo(target.provider, target.model, signal)
+    const info = resolved ?? await this.ctx.llm.resolveModelInfo(target.provider, target.model, signal)
     assertNoActiveCompaction(agent.session, 'automatic pressure compaction')
     const targetKey = `${target.provider}/${target.model}`
     if (info.context === undefined) {
