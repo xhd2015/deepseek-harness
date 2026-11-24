@@ -15,7 +15,7 @@ import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import LocalAttachmentStore from '@deepseek-ai/dsh-attachment-local'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, type SessionHeader } from '@deepseek-ai/dsh-session'
 import Storage from '@deepseek-ai/dsh-storage'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
@@ -38,7 +38,13 @@ async function harness(root: string, headers: readonly SessionHeader[] = []) {
   await ctx.plugin(AgentRegistry)
   ctx.provide('sessionPersistence', testSessionPersistence(ctx, {
     list: async () => [...headers],
-    inspect: async () => ({ meta: headers[0], events: [] }),
+    inspect: async () => {
+      // Only a Session this harness was given has a header to report; an
+      // identity it never listed stays unreadable rather than gaining an
+      // invented one.
+      const meta = headers[0]
+      return meta === undefined ? undefined : { meta, events: [] }
+    },
   }) as never)
   installSessionReadTestServices(ctx)
   ctx.provide('agentDefaultModel', {
@@ -104,8 +110,8 @@ describe('creating a Session with its first input', () => {
       expect(created).toEqual({ sessionId })
       await expect(ctx.sessionController.getDraft({ sessionId })).resolves.toEqual({ text: 'staged, not sent' })
       // A draft is not a turn: the transcript holds no user message.
-      const events = ctx.sessions.get(sessionId)?.events ?? []
-      expect(events.filter(event => event.type === 'user/message')).toHaveLength(0)
+      using observed = await ctx.sessionQuery.observeSession(sessionId)
+      expect(observed.events.filter(event => event.type === 'user/message')).toHaveLength(0)
     })
   })
 
@@ -209,8 +215,8 @@ describe('a draft that carries images', () => {
       const stored = await ctx.attachments.readImage(ref!)
       expect(Buffer.from(stored.data).equals(Buffer.from(PNG_1X1, 'base64'))).toBe(true)
       // A draft admits no prompt, so the transcript still holds no message.
-      const events = ctx.sessions.get(sessionId)?.events ?? []
-      expect(events.filter(event => event.type === 'user/message')).toHaveLength(0)
+      using observed = await ctx.sessionQuery.observeSession(sessionId)
+      expect(observed.events.filter(event => event.type === 'user/message')).toHaveLength(0)
     })
   })
 

@@ -161,6 +161,7 @@ class FakeSessions implements ISessions {
   readonly binding = vi.fn<ISessions['binding']>(sessionId =>
     this.retained.findLast(item => item.reference.sessionId === sessionId
       && item.release.mock.calls.length === 0)?.reference.binding)
+  declare readonly createWithInput: ISessions['createWithInput']
   declare readonly using: ISessions['using']
   declare readonly retainInfo: ISessions['retainInfo']
   declare readonly searchResultLimit: ISessions['searchResultLimit']
