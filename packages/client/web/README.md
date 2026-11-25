@@ -92,7 +92,7 @@ The boot kernel delegates manifest entry creation to Client Modules so live grap
 | [`src/mount.ts`](src/mount.ts) | `mountClient`: renderer handoff through a `uiRenderer` dependency fiber |
 | [`src/boot-page.ts`](src/boot-page.ts) | Framework-free boot page: spinner, per-entry status, failure rendering |
 | [`src/platform.ts`](src/platform.ts) | `PLATFORM_MODULES` / `PRELOADED_CLIENT_EXTERNALS`: the implicit external baseline |
-| [`src/seed.ts`](src/seed.ts) | Static module table handed to the loader at boot |
+| [`src/seed.ts`](src/seed.ts) | Static module table handed to the loader at boot: `getStaticModules` for served `staticLinked` artifacts, `getSourceStaticModules` for an in-process shell that compiles the same packages from source |
 | [`src/window-drag/regions.ts`](src/window-drag/regions.ts) | The darwin app-region composition model, and the interactive selector `base.css` subtracts |
 | [`src/base.css`](src/base.css) | Page defaults and native drag regions; inert subtrees neither add nor subtract drag rectangles |
 | [`src/window-drag/recall.ts`](src/window-drag/recall.ts) | The shell's one window drag-rect watcher (electron/electron#32341): measure the marked rows per frame and pulse the recall mark while they move |

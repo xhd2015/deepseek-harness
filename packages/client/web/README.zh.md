@@ -92,7 +92,7 @@ kind: "package-library"
 | [`src/mount.ts`](src/mount.ts) | `mountClient`：经 `uiRenderer` 依赖 fiber 完成渲染器交接 |
 | [`src/boot-page.ts`](src/boot-page.ts) | 无框架启动页：spinner、逐 entry 状态、失败渲染 |
 | [`src/platform.ts`](src/platform.ts) | `PLATFORM_MODULES` / `PRELOADED_CLIENT_EXTERNALS`：隐式 external 基座 |
-| [`src/seed.ts`](src/seed.ts) | 启动时交给 loader 的静态模块表 |
+| [`src/seed.ts`](src/seed.ts) | 启动时交给 loader 的静态模块表：`getStaticModules` 供加载 `staticLinked` 产物的被服务外壳，`getSourceStaticModules` 供从源码编译同一批包的同进程外壳 |
 | [`src/window-drag/regions.ts`](src/window-drag/regions.ts) | darwin app-region 组合模型，以及 `base.css` 减除的交互元素选择器 |
 | [`src/base.css`](src/base.css) | 页面基础样式与原生窗口拖拽区域；inert 子树不参与拖拽区域计算 |
 | [`src/window-drag/recall.ts`](src/window-drag/recall.ts) | 外壳唯一的窗口拖拽矩形 watcher（electron/electron#32341）：逐帧测量被打标行，并在它们移动期间脉冲 recall 标记 |
