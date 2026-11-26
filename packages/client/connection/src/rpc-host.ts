@@ -27,7 +27,7 @@ import type {
 } from './rpc.ts'
 
 const INVALID_REQUEST_RPC_ID = brandString<RpcIdType>('invalid-request')
-const CHANNEL_PATTERN = /^\/[A-Za-z0-9._~-]+$/
+const CHANNEL_PATTERN = /^\/[A-Za-z0-9._~-]+(?:\/[A-Za-z0-9._~-]+)*$/
 const ENDPOINT_SEGMENT_PATTERN = /^[A-Za-z0-9_$.-]+$/
 
 interface ConnectionRpcInterceptor {
@@ -65,18 +65,23 @@ export class HostConnectionService extends Service implements HostConnectionHand
   private readonly fetchRoutes = new Map<string, RegisteredFetchRoute>()
 
   readonly allowsRemoteAuthorities: boolean
+  /** Absolute HTTP prefix of the shared API channel (`/api` or a nested prefix). */
+  readonly apiPath: string
 
   /**
    * Provide the Host half over the active HTTP server.
    * @param ctx - owning Connection plugin context.
    * @param trustedHosts - deployment authorities accepted by the Host/Origin fence.
+   * @param apiPath - absolute HTTP prefix of the shared API channel.
    */
   constructor(
     ctx: Context,
     private readonly trustedHosts: readonly string[],
+    apiPath: string = API_PATH,
   ) {
     super(ctx, 'connection')
     this.owner = ctx
+    this.apiPath = apiPath
     this.authentication = ctx['connection.authentication']
     this.browserPeer = new Peer(ctx, { principal: { kind: 'owner' } })
     ctx.effect(() => async () => {
@@ -132,7 +137,7 @@ export class HostConnectionService extends Service implements HostConnectionHand
   /** Check the deployment's request-source policy without credential verification. */
   private isTrustedRequest(request: ConnectionTrustRequest): boolean {
     const carrier = this.owner.get('webServer')
-    return isTrustedApiRequest(request, this.trustedHosts, carrier?.host, carrier?.protocol ?? 'http:')
+    return isTrustedApiRequest(request, this.trustedHosts, carrier?.hosts ?? carrier?.host, carrier?.protocol ?? 'http:')
   }
 
   /**
@@ -141,7 +146,7 @@ export class HostConnectionService extends Service implements HostConnectionHand
    * @returns Fetch handler that selects one owner or returns 404.
    */
   createSharedFetchHandler(
-    channel: '/api',
+    channel: string,
   ): ConnectionFetchHandler {
     return {
       requestBodyMode: ({ method, url }) => {
@@ -171,7 +176,7 @@ export class HostConnectionService extends Service implements HostConnectionHand
     owner: Context,
     route: ConnectionFetchRoute,
   ): () => Promise<void> {
-    assertFetchRoute(route)
+    assertFetchRoute(route, this.apiPath)
     const registered: RegisteredFetchRoute = {
       methods: new Set(route.methods),
       requestBody: route.requestBody,
@@ -191,7 +196,7 @@ export class HostConnectionService extends Service implements HostConnectionHand
     channel: string,
     handler: ConnectionRpcHandler,
   ): () => Promise<void> {
-    assertChannel(channel)
+    assertChannel(channel, this.apiPath)
     const fetchHandler = rpcFetchHandler(channel, handler)
     const route: WebRoute = {
       kind: 'prefix',
@@ -215,7 +220,7 @@ export class HostConnectionService extends Service implements HostConnectionHand
     matches: ConnectionRpcEndpointMatcher,
     handler: ConnectionRpcHandler,
   ): () => Promise<void> {
-    if (channel !== API_PATH) {
+    if (channel !== this.apiPath) {
       throw new Error(`connection: invalid shared RPC channel ${JSON.stringify(channel)}`)
     }
     const interceptor: ConnectionRpcInterceptor = {
@@ -325,14 +330,14 @@ function fullResponse(rpcId: RpcIdType, result: Awaited<ReturnType<ConnectionRpc
   return new Response(parts)
 }
 
-function assertChannel(channel: string): void {
-  if (!CHANNEL_PATTERN.test(channel) || channel === '/api') {
+function assertChannel(channel: string, apiPath: string): void {
+  if (!CHANNEL_PATTERN.test(channel) || channel === apiPath) {
     throw new Error(`connection: invalid or reserved RPC channel ${JSON.stringify(channel)}`)
   }
 }
 
-function assertFetchRoute(route: ConnectionFetchRoute): void {
-  if (endpointFromPath(API_PATH, route.path) === undefined) {
+function assertFetchRoute(route: ConnectionFetchRoute, apiPath: string): void {
+  if (endpointFromPath(apiPath, route.path) === undefined) {
     throw new Error(`connection: invalid exact Fetch route ${JSON.stringify(route.path)}`)
   }
   if (route.methods.length === 0) {

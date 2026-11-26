@@ -80,7 +80,7 @@ The kernel owns exactly three things: the module system, the Cordis Loader, and 
 
 The boot page is plain DOM with local CSS whose fallback fonts and colors match the theme tokens that arrive during loading. `internal/status` events drive one spinner node; a failed entry is not drawn before the audit, because it may be optional. Hydration preserves the node and animation phase through the application commit, and `fail()` renders the thrown reason. React mounting, slot rendering, and assembly live in `ui-renderer`; `ui-layout` owns the assembled browser-title projection.
 
-The boot kernel delegates manifest entry creation to Client Modules so live graph synchronization owns the same entry identities after startup. The initial activation audit rejects only required entries; later page-local failures appear in Settings → Plugins → Plugin list.
+The boot kernel delegates manifest entry creation to Client Modules so live graph synchronization owns the same entry identities after startup. The initial activation audit rejects only required entries; later page-local failures appear in the synchronization notice at the top of the Plugins page.
 
 ### Source map
 
@@ -92,7 +92,7 @@ The boot kernel delegates manifest entry creation to Client Modules so live grap
 | [`src/mount.ts`](src/mount.ts) | `mountClient`: renderer handoff through a `uiRenderer` dependency fiber |
 | [`src/boot-page.ts`](src/boot-page.ts) | Framework-free boot page: spinner, per-entry status, failure rendering |
 | [`src/platform.ts`](src/platform.ts) | `PLATFORM_MODULES` / `PRELOADED_CLIENT_EXTERNALS`: the implicit external baseline |
-| [`src/seed.ts`](src/seed.ts) | Static module table handed to the loader at boot |
+| [`src/seed.ts`](src/seed.ts) | Static module table handed to the loader at boot: `getStaticModules` for served `staticLinked` artifacts, `getSourceStaticModules` for an in-process shell that compiles the same packages from source |
 | [`src/window-drag/regions.ts`](src/window-drag/regions.ts) | The darwin app-region composition model, and the interactive selector `base.css` subtracts |
 | [`src/base.css`](src/base.css) | Page defaults and native drag regions; inert subtrees neither add nor subtract drag rectangles |
 | [`src/window-drag/recall.ts`](src/window-drag/recall.ts) | The shell's one window drag-rect watcher (electron/electron#32341): measure the marked rows per frame and pulse the recall mark while they move |
@@ -130,7 +130,7 @@ None; this package neither assembles nor sends a provider request.
 
 These limits define what the boot kernel does not support. They are current package constraints, not a task backlog.
 
-- **Optional boot failures start console-only** — an optional plugin that fails during the initial boot, including one whose creation the Loader rejects, appears in the console warning; Settings → Plugins → Plugin list lists it only after a later graph synchronization reconciles it.
+- **Optional boot failures start console-only** — an optional plugin that fails during the initial boot, including one whose creation the Loader rejects, appears in the console warning; the Plugins page's synchronization notice lists it only after a later graph synchronization reconciles it.
 
 <a id="dev-note"></a>
 ### Dev Note

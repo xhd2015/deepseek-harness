@@ -60,6 +60,7 @@ import { brandString } from '@deepseek-ai/dsh-brand'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { requestImageTarget, toPiContext } from './context.ts'
+import { resolveImageRequestBudget } from './image-policy.ts'
 import { conversationUpdates, createModels, getSupportedThinkingLevels } from './models.ts'
 import { toStreamChunks } from './stream.ts'
 import { bindThinkingToPrefix } from './prefix-binding.ts'
@@ -128,6 +129,17 @@ export interface PiAiAdapterOptions {
    * conversion because its stored replay state is unusable by this build.
    */
   onReplayDegrade?: (detail: { provider: string; model: string; reason: string }) => void
+  /**
+   * Wait for live listings to finish their first probe before an operation
+   * reads a configuration snapshot: discovery, resolution, and `prepareCall`.
+   * The snapshot taken afterwards stays frozen for that call.
+   */
+  awaitLiveCatalog?: () => Promise<void>
+  /**
+   * Re-probe live listings immediately. Used by {@link PiAiAdapter.refreshListing}
+   * so a selector can force a gateway round-trip.
+   */
+  refreshLiveCatalog?: () => Promise<void>
   /**
    * Observe one request that sent replayed assistant messages without their
    * signed Anthropic thinking because the request prefix changed or was never
@@ -245,6 +257,12 @@ function requestHeaderDiagnostic(error: unknown): string {
     : 'the contributing plugin threw a non-Error value; throw an Error with a safe diagnostic'
 }
 
+/** Identifies this harness on inference requests so a proxy can route without provider-specific names. */
+const AGENT_RUNNER_HEADER = 'x-agent-runner'
+/** Durable Session id for proxies that map it onto an upstream conversation header. */
+const DSH_SESSION_HEADER = 'x-dsh-session-id'
+const AGENT_RUNNER = 'dsh'
+
 /** Prepare request-owned headers without allowing contributors to replace attribution. */
 function requestHeaders(
   configured: Readonly<Record<string, string>> | undefined,
@@ -256,6 +274,10 @@ function requestHeaders(
     const initial = new Headers()
     // Profile aliases overwrite case-insensitively; the Headers constructor appends them.
     for (const [name, value] of Object.entries(configured ?? {})) initial.set(name, value)
+    if (!initial.has(AGENT_RUNNER_HEADER)) initial.set(AGENT_RUNNER_HEADER, AGENT_RUNNER)
+    if (options.sessionId !== undefined && !initial.has(DSH_SESSION_HEADER)) {
+      initial.set(DSH_SESSION_HEADER, String(options.sessionId))
+    }
     const request: PiAiRequestHeaderContext = Object.freeze({
       provider: options.provider,
       model: options.model,
@@ -288,9 +310,9 @@ export class PiAiAdapter extends LlmAdapter {
 
   override imageRequestTarget(provider: string, model: string, image: ImageAttachmentRef) {
     const snapshot = this.current()
-    this.modelOf(snapshot, provider, model)
+    const selected = this.modelOf(snapshot, provider, model)
     const profile = this.profileOf(snapshot, provider)
-    return requestImageTarget(image, { maxPixels: profile.requestImagePixelBudget, maxBytes: profile.requestImageMaxBytes })
+    return requestImageTarget(image, resolveImageRequestBudget(selected, profile))
   }
 
   /**
@@ -343,8 +365,22 @@ export class PiAiAdapter extends LlmAdapter {
     return this.current().profiles.get(provider)?.retryPolicy
   }
 
+  /**
+   * Served models first, then the ones this route's configuration refuses.
+   * A refused entry has no materialized model, so the id the document names is
+   * its label, and it holds no position in the adapter's own catalog order.
+   */
+  /**
+   * Re-probe every live listing this adapter owns.
+   * @returns after those probes settle.
+   */
+  override refreshListing(): Promise<void> {
+    return this.config.refreshLiveCatalog?.() ?? Promise.resolve()
+  }
+
   override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
     return Promise.resolve().then(async () => {
+      await this.config.awaitLiveCatalog?.()
       const snapshot = this.current()
       const profile = this.profileOf(snapshot, provider)
       try { await this.config.resolveApiKey(provider, profile) }
@@ -353,12 +389,15 @@ export class PiAiAdapter extends LlmAdapter {
         if (error instanceof LlmError && error.code === 'MISSING_CREDENTIAL') return []
         throw error
       }
-      return snapshot.models.getModels(provider).map(model => ({
+      const served: LlmModelInfo[] = snapshot.models.getModels(provider).map(model => ({
         provider,
         id: model.id,
         name: model.name,
         inputModalities: [...model.input],
       }))
+      const refused: LlmModelInfo[] = [...profile.modelErrors]
+        .map(([id, reason]) => ({ provider, id, name: id, unavailable: reason }))
+      return [...served, ...refused]
     })
   }
 
@@ -367,7 +406,8 @@ export class PiAiAdapter extends LlmAdapter {
     model: string,
     _signal?: AbortSignal,
   ): Promise<LlmResolvedModelInfo> {
-    return Promise.resolve().then(() => {
+    return Promise.resolve().then(async () => {
+      await this.config.awaitLiveCatalog?.()
       const snapshot = this.current()
       return this.modelInfo(snapshot, provider, model)
     })
@@ -393,14 +433,20 @@ export class PiAiAdapter extends LlmAdapter {
   }
 
   override prepareCall(provider: string, model: string, _signal?: AbortSignal): Promise<PreparedAdapterCall> {
-    const snapshot = this.current()
-    return Promise.resolve({
-      model: this.modelInfo(snapshot, provider, model),
-      stream: options => this.streamWithSnapshot(options, snapshot),
+    return Promise.resolve().then(async () => {
+      await this.config.awaitLiveCatalog?.()
+      const snapshot = this.current()
+      return {
+        model: this.modelInfo(snapshot, provider, model),
+        stream: (options: GenerateOptions) => this.streamWithSnapshot(options, snapshot),
+      }
     })
   }
 
   stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+    // The snapshot is read before the generator's first await, so a request
+    // finishes under the configuration it started with. Waiting for live
+    // listings belongs to `prepareCall`, the path a model call takes.
     return this.streamWithSnapshot(options, this.current())
   }
 
@@ -462,10 +508,7 @@ export class PiAiAdapter extends LlmAdapter {
           maxRequestImageBytes: profile.maxRequestImageBytes,
           maxRequestImages: profile.maxRequestImages,
           imageOffloadCountQuantum: profile.imageOffloadCountQuantum,
-          requestImagePolicy: {
-            maxPixels: profile.requestImagePixelBudget,
-            maxBytes: profile.requestImageMaxBytes,
-          },
+          requestImagePolicy: resolveImageRequestBudget(model, profile),
         }, onReplayDegrade, updates.systemPromptUpdate === 'in-history', prefixDigests)
       const manualThinking = model.reasoning && reasoning !== undefined && reasoning !== 'off'
         && (model as Model<'anthropic-messages'>).compat?.forceAdaptiveThinking !== true

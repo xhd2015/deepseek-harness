@@ -14,14 +14,12 @@ import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync }
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { FiberState, type Context } from '@deepseek-ai/cordis'
-import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import {
   boot,
   readProfilePatches,
   createRuntimeResolution,
   initProfile,
   installFailLoud,
-  loadOverlayPatches,
   loadProfile,
   reportSkippedBundles,
   PluginPackages,
@@ -36,6 +34,7 @@ import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { installProxyFromEnvironment } from '@deepseek-ai/dsh-http-proxy'
 import { DSH_LAUNCH_ENVIRONMENT_KEY, type LaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
 import { provideCmdline, type AppReady } from '@deepseek-ai/dsh-cmdline'
+import type { ModelListingDynamicSpec } from './model-listing-dynamic.ts'
 import { createProcessShutdown, type ProcessShutdown } from './process-shutdown.ts'
 
 const NAME = 'dsh'
@@ -204,8 +203,8 @@ interface ComposedProfile {
   profile: Profile
   /** Immutable runtime resolution computed before any plugin imports. */
   resolution: RuntimeResolution
-  /** Command-line overlay contents, frozen for this invocation. */
-  overlays: PatchOptions[]
+  /** Absolute command-line overlay files, in argv order. */
+  overlayPaths: string[]
 }
 
 /**
@@ -231,8 +230,7 @@ async function composeProfile(
   if (resolvedProfile !== undefined) writeFileSync(join(profile.dir, PROFILE_ROOT_FILENAME), PROFILE_ROOT_CONFIG)
   const resolutionOptions = { installAnchor: resolvedProfile?.installAnchor ?? INSTALL_ANCHOR, profile }
   const resolution = await createRuntimeResolution(resolutionOptions)
-  const overlays = patchFiles.flatMap(file => loadOverlayPatches(NAME, resolve(file)))
-  return { profile, resolution, overlays }
+  return { profile, resolution, overlayPaths: patchFiles.map(file => resolve(file)) }
 }
 
 /** An application-owned profile and its independent installation fallback. */
@@ -255,6 +253,8 @@ export interface RunProfileOptions {
   fromDefaultProfile?: string | undefined
   /** `--patch` overlay paths, in argv order. */
   patchFiles: readonly string[]
+  /** `--model-listing-dynamic` shells, in argv order. */
+  modelListingDynamic?: readonly ModelListingDynamicSpec[]
   /** The invocation's inner arguments, handed to the tree through `ctx.cmdlineArgs`. */
   args: readonly string[]
   /** Application-owned package runtime, scoped to plugin package operations. */
@@ -331,7 +331,7 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
       installAnchor: options.resolvedProfile?.installAnchor ?? INSTALL_ANCHOR,
       startedBundles: composed.profile.layers.map(layer => layer.packageName),
       cwd: process.cwd(), home: resolveDshHome(),
-      overlays: composed.overlays, telemetryDisabledEnv: process.env.DSH_TELEMETRY_DISABLED,
+      overlayPaths: composed.overlayPaths, telemetryDisabledEnv: process.env.DSH_TELEMETRY_DISABLED,
     }
     const ctx = await boot(NAME, rootConfig, readProfilePatches(NAME, profileContext, composed.profile), async (hostCtx) => {
       app.current = hostCtx
@@ -349,6 +349,10 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
         exit: code => void shutdown.shutdown(code),
         ready: appReady.service,
       })
+      const listings = options.modelListingDynamic ?? []
+      if (listings.length > 0) {
+        hostCtx.provide('modelListingDynamic' as never, { get: () => listings } as never)
+      }
     })
     app.current = ctx
     if (!signalShutdown.signal.aborted

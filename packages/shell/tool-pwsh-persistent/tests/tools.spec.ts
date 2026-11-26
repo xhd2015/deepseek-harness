@@ -57,6 +57,7 @@ async function agent(ctx: Context, cwd: string | undefined): Promise<Agent> {
     cancel() {},
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
+    pause: () => false, resumePaused: () => false,
   }
   await ctx.agents.register(value)
   return value
@@ -324,9 +325,9 @@ async function setup(
   const ctx = new Context()
   provideWorkingDirectoryFixture(ctx)
   contexts.push(ctx)
+  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
-  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(NativeToolExecutor)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(TerminalSessionService)
@@ -797,9 +798,9 @@ describe('tool-pwsh-persistent', () => {
     const ctx = new Context()
     provideWorkingDirectoryFixture(ctx)
     contexts.push(ctx)
+    await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
-    await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(TerminalSessionService)

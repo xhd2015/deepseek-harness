@@ -41,6 +41,7 @@ function stubAgent(ctx: Context, rawId: string): Agent {
     cancel() {},
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
+    pause: () => false, resumePaused: () => false,
   }
   agentScopeDisposers.set(agent, async () => { await scopeFiber.dispose() })
   return agent

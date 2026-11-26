@@ -29,11 +29,15 @@ function platform(id: string, exports: Record<string, unknown>): DshClientModule
   return { id, factory: () => exports }
 }
 
+/** Registers one owned Client library the way the calling shell serves it. */
+type LibraryRegistration = (id: string, namespace: Record<string, unknown>) => DshClientModuleManifest
+
 /**
- * Supply shared third-party identities and package-generated manifests through one protocol.
+ * Build the table once so both modes seed the same ids in `PLATFORM_MODULES` order.
+ * @param library - registration for the owned Client libraries, which differ by mode.
  * @returns Initial module registrations; JavaScript and metadata factories are not evaluated here.
  */
-export function getStaticModules(): readonly DshClientModuleManifest[] {
+function registrations(library: LibraryRegistration): readonly DshClientModuleManifest[] {
   return Object.values({
     'react': platform('react', React),
     'react/jsx-runtime': platform('react/jsx-runtime', ReactJsxRuntime),
@@ -42,9 +46,32 @@ export function getStaticModules(): readonly DshClientModuleManifest[] {
     '@deepseek-ai/cordis': platform('@deepseek-ai/cordis', Cordis),
     'zod': platform('zod', Zod),
     '@tanstack/react-virtual': platform('@tanstack/react-virtual', ReactVirtual),
-    '@deepseek-ai/dsh-client-store': compiledModule('@deepseek-ai/dsh-client-store', ClientStore),
-    '@deepseek-ai/dsh-client-ui-slots': compiledModule('@deepseek-ai/dsh-client-ui-slots', UiSlots),
-    '@deepseek-ai/dsh-client-ui-primitives': compiledModule('@deepseek-ai/dsh-client-ui-primitives', UiPrimitives),
-    '@deepseek-ai/dsh-client-ui-dockkit': compiledModule('@deepseek-ai/dsh-client-ui-dockkit', UiDockkit),
+    '@deepseek-ai/dsh-client-store': library('@deepseek-ai/dsh-client-store', ClientStore),
+    '@deepseek-ai/dsh-client-ui-slots': library('@deepseek-ai/dsh-client-ui-slots', UiSlots),
+    '@deepseek-ai/dsh-client-ui-primitives': library('@deepseek-ai/dsh-client-ui-primitives', UiPrimitives),
+    '@deepseek-ai/dsh-client-ui-dockkit': library('@deepseek-ai/dsh-client-ui-dockkit', UiDockkit),
   } satisfies Record<PlatformModule, DshClientModuleManifest>)
+}
+
+/**
+ * Supply shared third-party identities and package-generated manifests through one protocol.
+ *
+ * This is the served shell's table: the owned Client libraries arrive as `staticLinked` artifacts, so
+ * their manifest — and the compiled stylesheets it carries — is the style delivery channel.
+ * @returns Initial module registrations; JavaScript and metadata factories are not evaluated here.
+ */
+export function getStaticModules(): readonly DshClientModuleManifest[] {
+  return registrations(compiledModule)
+}
+
+/**
+ * Supply the same table to an in-process assembly that compiles those libraries from source.
+ *
+ * Such a shell bundles their JavaScript and styles in one graph, so no package-generated manifest
+ * exists and the stylesheet text a served shell installs from `meta` already arrives through it.
+ * Source namespaces export no manifest, which is why {@link getStaticModules} refuses them.
+ * @returns Registrations whose factories return the imported source namespaces unchanged.
+ */
+export function getSourceStaticModules(): readonly DshClientModuleManifest[] {
+  return registrations(platform)
 }

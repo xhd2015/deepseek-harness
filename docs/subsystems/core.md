@@ -46,7 +46,7 @@ interface AgentHandle {
 }
 ```
 
-`CreateAgentOptions` carries the shared identity and everything a fresh agent needs before publication: session metadata (`meta` — validated `cwd`, fork lineage, the `isSeeded` marker, origin classification, delegation depth, and `agentPreset`), the exact fork cut in sibling field `inheritedEventCount`, an optional `seed` replay prefix, per-agent `AgentOptions`, a creation-only cancellation `signal`, and `setup`. `ResumeAgentOptions` is the persisted-identity counterpart: `resumeSessionId`, `agentOptions`, `signal`, and `setup`. The `setup` callback (`AgentSetup`) receives `(agentCtx, agent)` after Session store entry and completed `session/created`, before Agent registration: the context owns scoped registrations, while the explicit Agent supplies the exact child Session without a reverse property on the Context. Everything registered through `agentCtx` exists before `agent/created` and the first prompt assembly. Setup may return a synchronous commit invoked immediately before publication; a setup rejection, commit throw, or owner disposal unwinds the transaction, removes the Session, and preserves restored pending input and already stored events.
+`CreateAgentOptions` carries the shared identity and everything a fresh agent needs before publication: session metadata (`meta` — validated `cwd`, fork lineage, the `isSeeded` marker, origin classification, delegation depth, and `agentPreset`), the exact fork cut in sibling field `inheritedEventCount`, an optional `seed` history and, for a fork, the `parentSource` it shares the first `endSeq` seed events with, per-agent `AgentOptions`, a creation-only cancellation `signal`, and `setup`. `ResumeAgentOptions` is the persisted-identity counterpart: `resumeSessionId`, `agentOptions`, `signal`, and `setup`. The `setup` callback (`AgentSetup`) receives `(agentCtx, agent)` after Session store entry and completed `session/created`, before Agent registration: the context owns scoped registrations, while the explicit Agent supplies the exact child Session without a reverse property on the Context. Everything registered through `agentCtx` exists before `agent/created` and the first prompt assembly. Setup may return a synchronous commit invoked immediately before publication; a setup rejection, commit throw, or owner disposal unwinds the transaction, removes the Session, and preserves restored pending input and already stored events.
 
 `AgentFactory` is the creation interface behind the registry: the loop registers its factory via `ctx.agents.setFactory()`, so consumers use `ctx.agents` without depending on the concrete loop package. The registry passes creation options and the caller Context to the factory; the caller Context owns the returned handle's lifetime. The exact `create`/`resume` signatures and rollback contracts are in the [generated section](#ctxagents--agentregistry) below.
 
@@ -83,6 +83,22 @@ interface Agent {
    * @param options - cancellation options; `keepInbox` preserves pending work.
    */
   cancel(cause: AgentCancelCause, options?: CancelOptions): void
+
+  /**
+   * Suspend the live turn without ending the session: the stream is aborted,
+   * the partial output is kept out of model-visible history, and the turn
+   * closes with the `paused` hook reason. Pending inbox work is kept.
+   * @returns whether a live turn was suspended.
+   */
+  pause(): boolean
+
+  /**
+   * Continue a paused session with no new input. The model sees the durable
+   * history as it stood before the stream was cut, and no user message is
+   * inserted for the continuation.
+   * @returns whether a paused session was resumed.
+   */
+  resumePaused(): boolean
 
   /**
    * Resolve after the current whole-agent activity reaches quiescence. This
@@ -141,6 +157,43 @@ interface Agent {
    * @param message - identified injected context and the source that supplied it.
    */
   inject(message: UserMessage): void
+
+  /**
+   * Inject one batch of transcript events and make the driver act on them.
+   *
+   * The whole batch lands in a single `Session.append` call: one contiguous
+   * seq run, one durability commit, all-or-nothing. Nothing goes through the
+   * inbox, so `user` messages keep their authored position inside the batch
+   * instead of arriving at a step boundary.
+   *
+   * After the commit the driver is told there is work to do even though the
+   * inbox is untouched: an idle agent opens a turn, a running agent takes one
+   * more step. That is what makes "inject, then run" one call rather than an
+   * inject followed by a queued prompt.
+   * @param messages - ordered batch; each entry is a `user`, `thinking`
+   * (reasoning) or `assistant` (text) transcript event.
+   * @returns the committed seqs in batch order, and whether a run was started.
+   * Optional: a test double or a foreign driver may not implement batch
+   * injection at all, and callers must degrade explicitly rather than assume
+   * it exists. The shipped loop driver always provides it.
+   * @throws when the batch is empty, a text is blank, or an assistant event
+   * has no provider/model route.
+   */
+  injectBatch?(messages: readonly InjectedMessage[]): InjectedBatchResult
+
+  /**
+   * Commit one batch of changes to already-produced messages as a single
+   * transcript event, then let the driver act on the edited history.
+   *
+   * The commit is the transaction: a change that names no current surface
+   * message throws before anything is written. Message identity is preserved,
+   * so a client keyed by seq keeps its rows.
+   * @param edits - ordered rewrites and removals.
+   * @returns the committed record seq and whether a run was started.
+   * @throws when the batch is empty, a rewrite is blank, or a removal is
+   * malformed.
+   */
+  editBatch?(edits: readonly InjectedMessageEdit[]): InjectedEditResult
 }
 ```
 

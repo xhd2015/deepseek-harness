@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { syncedConfig } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply as applyMenus, inject as injectMenus } from '@deepseek-ai/dsh-client-ui-context-menu/client'
 
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
@@ -83,7 +84,13 @@ async function bench(nodes: ToolResultNode[]) {
   const runtime = await SlotTestRuntime.create()
   runtime.ctx.provide('fileDrag', { actions: { prepare: async () => ({ start: () => true, release: () => {} }), reportFailure: () => {} }, read: () => undefined } satisfies import('@deepseek-ai/cordis').Context['fileDrag'])
   const openWorkspacePath = vi.fn(async () => ({ ok: true, value: { opened: true } }))
-  runtime.remote.provideNamespaces({ session: { openWorkspacePath } })
+  runtime.remote.provideNamespaces({
+    session: {
+      openWorkspacePath,
+      getDraft: async () => ({ ok: true, value: { text: '' } }),
+      setDraft: async ({ text }: { text: string }) => ({ ok: true, value: { text } }),
+    },
+  })
   runtime.ctx.provide('configForms', { developerTools: { enabled: createSnapshotStore(true) }, get: () => stubConfigForm().scope } as never)
   const layout = { openDetails: vi.fn(), closeDetails: vi.fn() }
   runtime.ctx.provide('connection', { state: createSnapshotStore('connected') } as never)
@@ -100,7 +107,7 @@ async function bench(nodes: ToolResultNode[]) {
   runtime.ctx.provide('locale', locale)
   runtime.slots.installLocale(locale)
   runtime.ctx.provide('shortcuts', { catalog: createSnapshotStore([]) })
-  await runtime.mount({ inject: [...injectMenus], apply: applyMenus })
+  await runtime.mount({ inject: [...injectMenus], apply: applyMenus }, syncedConfig({ resolutionTimeoutMs: 1000 }))
   await runtime.sessions.add({
     id: SID,
     summary: { title: 'S', displayTitle: 'S', cwd: '/w' },
@@ -110,9 +117,9 @@ async function bench(nodes: ToolResultNode[]) {
       prompt: vi.fn<ISession['prompt']>(async () => ({ ok: true, value: { accepted: true } })),
     },
   })
-  await runtime.sessions.retainFor(runtime.ctx, SID, { source: 'mainView' }).ready
+  await runtime.sessions.retainFor(runtime.ctx, SID, { source: 'mainView', facets: { conversation: true } }).ready
   await runtime.root.declare(LAYOUT_CHILDREN, AppRoot)
-  await runtime.mount({ inject: [...injectConversation], apply: applyConversation })
+  await runtime.mount({ inject: [...injectConversation], apply: applyConversation }, syncedConfig({ busyEnter: 'queue', maxConcurrentFileUploads: 2 }))
   await runtime.mount({ inject: [...injectChat], apply: applyChat })
   await runtime.mount({ inject: [...injectTool], apply: applyTool })
   return { runtime, slots: runtime.slots, layout, openWorkspacePath, sidebarRight }
@@ -290,7 +297,7 @@ describe('keyed toolview hole through the real machinery', () => {
     const view = b.runtime.renderRoot()
     view.getByText('src/a.ts').click()
     await vi.waitFor(() => {
-      expect(b.sidebarRight.openResource).toHaveBeenCalledWith('dsh-resource://file/session/s1/src/a.ts')
+      expect(b.sidebarRight.openResource).toHaveBeenCalledWith('dsh-resource://file/session/s1//w/src/a.ts')
     })
     // Nothing on this path reaches the local machine any more.
     expect(b.openWorkspacePath).not.toHaveBeenCalled()
@@ -365,6 +372,8 @@ describe('registrant declaration injection', () => {
     runtime.remote.provideNamespaces({
       session: {
         openWorkspacePath: vi.fn(async () => ({ ok: true, value: { opened: true } })),
+        getDraft: async () => ({ ok: true, value: { text: '' } }),
+        setDraft: async ({ text }: { text: string }) => ({ ok: true, value: { text } }),
       },
     })
     runtime.ctx.provide('configForms', { developerTools: { enabled: createSnapshotStore(true) }, get: () => stubConfigForm().scope } as never)
@@ -381,7 +390,7 @@ describe('registrant declaration injection', () => {
     runtime.ctx.provide('locale', locale)
     runtime.slots.installLocale(locale)
     runtime.ctx.provide('shortcuts', { catalog: createSnapshotStore([]) })
-    await runtime.mount({ inject: [...injectMenus], apply: applyMenus })
+    await runtime.mount({ inject: [...injectMenus], apply: applyMenus }, syncedConfig({ resolutionTimeoutMs: 1000 }))
     await runtime.root.declare(LAYOUT_CHILDREN, AppRoot)
 
     // Third-party posture, mounted BEFORE ui-conversation. Plugin apply runs,
@@ -403,7 +412,7 @@ describe('registrant declaration injection', () => {
     expect(runtime.slots.entries('tool.call.toolview')).toHaveLength(0)
 
     // Mounting the package declares the slot and activates the waiting entry.
-    await runtime.mount({ inject: [...injectConversation], apply: applyConversation })
+    await runtime.mount({ inject: [...injectConversation], apply: applyConversation }, syncedConfig({ busyEnter: 'queue', maxConcurrentFileUploads: 2 }))
     await runtime.mount({ inject: [...injectChat], apply: applyChat })
     await runtime.mount({ inject: [...injectTool], apply: applyTool })
     expect(runtime.slots.entries('tool.call.toolview').map(e => e.options.key))

@@ -5,9 +5,42 @@ import type { AttachmentId } from '@deepseek-ai/dsh-attachment/types'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-api-remotes/client'
 import {
-  displayFailure, emptyAssistantBlock, toAssistantBlock, toAssistantBlocks,
+  ciphertextReasoning, displayFailure, emptyAssistantBlock, toAssistantBlock, toAssistantBlocks,
   isTokenDelta,
 } from '../src/client/conversation-nodes/event-projection.ts'
+
+describe('ciphertextReasoning', () => {
+  const replay = (encryptedContent: string, extra: Record<string, unknown> = {}): unknown => ({
+    type: 'reasoning',
+    thinkingSignature: JSON.stringify({
+      type: 'reasoning', encrypted_content: encryptedContent, ...extra,
+    }),
+  })
+
+  it('separates an OpenAI Fernet blob from other ciphertext', () => {
+    expect(ciphertextReasoning(replay('gAAAAABm'))).toBe('codex')
+    expect(ciphertextReasoning(replay('c2VhbGVk'))).toBe('opaque')
+  })
+
+  it('returns null for readable content or a non-reasoning replay', () => {
+    expect(ciphertextReasoning(replay('gAAAAABm', { summary: [{ type: 'summary_text', text: 'readable' }] })))
+      .toBeNull()
+    expect(ciphertextReasoning(replay('gAAAAABm', { content: [{ type: 'text', text: 'readable' }] })))
+      .toBeNull()
+    expect(ciphertextReasoning(undefined)).toBeNull()
+    expect(ciphertextReasoning({ type: 'text' })).toBeNull()
+    expect(ciphertextReasoning({ type: 'reasoning', thinkingSignature: 'not json' })).toBeNull()
+  })
+
+  it('keeps the hint off a segment that carries real text', () => {
+    expect(toAssistantBlock({ type: 'reasoning', text: 'actual thinking' }, replay('c2VhbGVk')))
+      .toEqual({ kind: 'reasoning', text: 'actual thinking' })
+    expect(toAssistantBlock({ type: 'reasoning', text: '' }, replay('c2VhbGVk')))
+      .toEqual({ kind: 'reasoning', text: '', opaque: true })
+    expect(toAssistantBlock({ type: 'reasoning', text: '' }, replay('gAAAAABm')))
+      .toEqual({ kind: 'reasoning', text: '', encrypted: true })
+  })
+})
 
 describe('toAssistantBlock', () => {
   it('classifies the four block shapes', () => {

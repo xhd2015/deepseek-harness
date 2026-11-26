@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-09-20-web-runner-composer-drafts.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-20-web-runner-composer-drafts.md
+/agent-note-web-runner-launch-and-durable-composer-drafts:
+  en: 5e5b97de02fbc283
+  zh: efcaad1bcb804100
+/agent-note-web-runner-launch-and-durable-composer-drafts/problem:
+  en: 793fb9b2ae39b23b
+  zh: 1dafe36b191be34c
+/agent-note-web-runner-launch-and-durable-composer-drafts/decision:
+  en: 454b1ff08dee1b08
+  zh: d336f5c4bab078a8
+/agent-note-web-runner-launch-and-durable-composer-drafts/alternatives-considered:
+  en: 860dc70ae98a14c8
+  zh: 4eb57d4b5af989ce
+/agent-note-web-runner-launch-and-durable-composer-drafts/consequences:
+  en: fd3236a3bf112be8
+  zh: 197f91a727d46f54
+/agent-note-web-runner-launch-and-durable-composer-drafts/verification:
+  en: e249922ac1ee265a
+  zh: dc0a155c1af45603

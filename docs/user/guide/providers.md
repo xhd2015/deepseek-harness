@@ -6,7 +6,7 @@ This guide assumes you started the Web UI through the [root README](../../../REA
 
 ## Configure DeepSeek
 
-Open **Settings → Models**. The DeepSeek card exposes one API-key field; enter the key and save it.
+Open **Settings → Models**. The DeepSeek API card exposes one API-key field; enter the key and save it.
 
 ![The Models page: the DeepSeek card, with Add model provider below it](providers-models-page.png)
 
@@ -51,7 +51,7 @@ If a saved default names a provider that was deleted, the composer displays **Se
 The generated [plugin configuration catalog](../../config-catalog.md) lists every supported field and default for every plugin; [`dsh-llm-pi-ai`](../../config-catalog.md#deepseek-aidsh-llm-pi-ai) is the provider section this page configures. The [`dsh-llm-pi-ai`](../../../packages/llm/llm-pi-ai/README.md) and [`dsh-llm-deepseek`](../../../packages/llm/llm-deepseek/README.md) references own direct `cordis.patch.yml` configuration, catalog resolution, reasoning controls, credentials, and adapter errors.
 
 ::: tip Additional settings
-The Models page exposes the API key, display name, base URL, API protocol, and each model's id, display name, context window, max output tokens, and input types, plus the reasoning levels of a model on a custom model API provider. Configure the reasoning levels of a built-in provider's models, request-compatibility switches, headers, timeouts, and retry policy in `$DSH_HOME/profiles/<profile>/cordis.patch.yml`, the same document the page writes. Edit it directly, or, when the browser runs on the same machine as the server, open it with **Open configuration file** in the Settings header; the adapters re-read it on the next request, so nothing needs a restart. The subsections below cover the fields most gateways need.
+The Models page exposes the API key, display name, base URL, API protocol, and each model's id, display name, context window, max output tokens, and input types, plus the reasoning levels of a model on a built-in or custom model API provider. Configure request-compatibility switches, headers, timeouts, and retry policy in `$DSH_HOME/profiles/<profile>/cordis.patch.yml`, the same document the page writes. Edit it directly, or, when the browser runs on the same machine as the server, open it with **Open configuration file** in the Settings header; the adapters re-read it on the next request, so nothing needs a restart. The subsections below cover the fields most gateways need.
 
 For the standard Web UI launch with `dsh web`, `<profile>` is `web`, so the path is `$DSH_HOME/profiles/web/cordis.patch.yml`. If you launch a custom profile, use the name selected at startup instead.
 :::
@@ -80,7 +80,7 @@ These examples show config fields inside a profile patch. A Cordis config overri
 
 Pi-ai's `input` accepts `text` and `image` and applies to that model alone. An explicit nonempty selection takes priority. An omitted or empty `input` inherits the installed catalog's input types, then the route's `defaultInput`, which defaults to `[text]`. The checkboxes display these inherited values without saving an override when you merely open the row.
 
-DeepSeek treats an omitted `inputModalities` as text-only and rejects an empty list. Clearing Image also removes that model's `imagePixelBudget` and `imageMaxBytes`, because DeepSeek rejects image limits on a text-only model. Set those limits again if you later enable images and need custom limits.
+DeepSeek treats an omitted `inputModalities` as text-only and rejects an empty list. Clearing Image also removes that model's `imagePixelBudget` and `imageTargetBytes`, because DeepSeek rejects image limits on a text-only model. Set those limits again if you later enable images and need custom limits.
 
 To restore inheritance after editing the checkboxes, remove the model's `input` or `inputModalities` field from `cordis.patch.yml`. **Restore defaults** removes the entire model-catalog override, including other model edits, so use it only when you want to restore the whole catalog.
 
@@ -135,7 +135,7 @@ A model that needs a newer DeepSeek Harness fails with `CLIENT_UPGRADE_REQUIRED`
 
 The model picker offers an **Effort** menu for a model that declares reasoning levels. A built-in provider's models inherit their levels from the installed catalog, and DeepSeek's models keep the adapter's levels. A model you enter by hand declares none until you add them, so until then the Effort entry does not appear in the menu and the endpoint's own default decides whether the model thinks.
 
-On a custom model API provider, declare the levels in **Settings → Models**: edit the provider, open **Customized settings**, expand the model's **Model options**, and turn on **Reasoning levels**. The rows start with off, low, medium, and high. Each row pairs a level with the **API value** sent for it, which defaults to the level name; change it only where the model provider's API documentation spells the level differently. Add or delete rows to match what the endpoint supports, keep at least one level besides off, and save. Turning the switch off removes the declaration.
+On a built-in or custom model API provider, declare the levels in **Settings → Models**: edit the provider, open **Customized settings**, expand the model's **Model options**, and turn on **Reasoning levels**. The rows start with off, low, medium, and high. Each row pairs a level with the **API value** sent for it, which defaults to the level name; change it only where the model provider's API documentation spells the level differently. Add or delete rows to match what the endpoint supports, keep at least one level besides off, and save. Levels declared for a built-in provider's model replace the ones it inherits. Turning the switch off removes the declaration, and a built-in provider's model then inherits its levels again.
 
 The page writes `reasoningEfforts` in `$DSH_HOME/profiles/<profile>/cordis.patch.yml`, where you can also declare the levels directly:
 
@@ -156,7 +156,7 @@ The page writes `reasoningEfforts` in `$DSH_HOME/profiles/<profile>/cordis.patch
               max: max
 ```
 
-Each key is a level the menu offers, and its value is the spelling sent on the wire as `reasoning_effort`, so `max: xhigh` renames a level for a gateway with its own vocabulary. Only `off` may stay empty, because for most endpoints not thinking is the parameter's absence. The route's `reasoning` is the level used while a session has picked none; choosing an effort in the picker saves it, with the model, as the default for new sessions.
+Each key is a level the menu offers, and its value is the spelling sent on the wire as `reasoning_effort`, so `max: xhigh` renames a level for a gateway with its own vocabulary. The keys are pi-ai's own levels — `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` — and a key outside that set refuses that one model rather than the whole section: the route keeps serving its other models, the model picker lists the refused one disabled with the reason, and the Models page shows the same text on its row. Only `off` may stay empty, because for most endpoints not thinking is the parameter's absence. The route's `reasoning` is the level used while a session has picked none; choosing an effort in the picker saves it, with the model, as the default for new sessions.
 
 An `off` left empty sends nothing, which only stops a model that thinks on request; an `off` given a value sends that value as `reasoning_effort` instead. A model that thinks unless told not to — DeepSeek V4 behind an OpenAI-compatible gateway, for example — needs `compat.thinkingFormat: deepseek`, which makes `off` send `thinking: {type: disabled}` and every other level send `thinking: {type: enabled}` beside the effort:
 
@@ -224,7 +224,7 @@ Every switch, its accepted values, and the protocols that take it are listed und
 - **Fetching available models reports neither a `data` array nor a `models` object** — The endpoint's listing is in a format discovery does not read. Enter the models by hand.
 - **The gateway refuses every request although the key and URL are right** — Its request shape differs from OpenAI's. Start with `compat.supportsDeveloperRole: false` and `compat.maxTokensField: max_tokens` on the route.
 - **Only reasoning models fail** — pi-ai sends their system prompt as the `developer` role, which the gateway rejects. Set `compat.supportsDeveloperRole: false`.
-- **The Effort menu does not appear for a model you entered by hand** — It declares no levels. On a custom model API provider, turn on **Reasoning levels** in the model's **Model options**; elsewhere, add `reasoningEfforts` to the model in `cordis.patch.yml`.
+- **The Effort menu does not appear for a model you entered by hand** — It declares no levels. Turn on **Reasoning levels** in the model's **Model options**, or add `reasoningEfforts` to the model in `cordis.patch.yml`.
 - **`off` does not stop a DeepSeek model from thinking** — An empty `off` sends no reasoning field at all, and an endpoint that thinks by default keeps thinking. Set `compat.thinkingFormat: deepseek` on the model or the route.
 - **A compat switch is refused as having no value** — A key written with nothing after the colon. Give it a value, or remove the key to keep the installed catalog's.
 - **An image is refused before sending** — The model declares no image modality. Give a custom provider's model `input: [text, image]`; on DeepSeek's own route, select an image-capable entry from the configured catalog (`deepseek-flash` by default) and confirm that your gateway serves that model with image input.

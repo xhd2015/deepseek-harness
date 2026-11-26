@@ -6,6 +6,7 @@
     "tsBuildInfoFile": "lib/tsconfig.client.tsbuildinfo"
   },
   "files": [
+    "src/client/AutoContinueToast.tsx",
     "src/client/CopyToast.tsx",
     "src/client/Dialog.tsx",
     "src/client/controller.ts",

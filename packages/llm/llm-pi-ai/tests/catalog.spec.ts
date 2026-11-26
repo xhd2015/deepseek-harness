@@ -767,6 +767,39 @@ describe('per-model reasoning efforts', () => {
     expect(declare({ high: null })).toThrow(/only "off" may leave it empty/)
     expect(declare({ high: '' })).toThrow(/must not be an empty string/)
   })
+
+  /**
+   * A stored document's reasoning map, including a level the TS type cannot
+   * name; resolution reports it, so the fixture builds it through a record.
+   * @returns the widened map with one unknown level.
+   */
+  function unknownLevelEfforts(): NonNullable<LlmPiAi.PiAiModelProfile['reasoningEfforts']> {
+    const efforts: Record<string, string> = { low: 'low' }
+    efforts.ultra = 'ultra'
+    return efforts as NonNullable<LlmPiAi.PiAiModelProfile['reasoningEfforts']>
+  }
+
+  it('refuses the one model naming an unknown level and keeps its siblings served', () => {
+    // A document value, not a typed one: the settings schema admits any key so
+    // resolution can report the misspelling, which the TS type cannot name.
+    const providers = declared([
+      { id: 'acme-typo', reasoningEfforts: unknownLevelEfforts() },
+      { id: 'acme-ok', reasoningEfforts: { low: 'low' } },
+    ])
+
+    // Deferred reads — the path a stored document takes — drop the one entry
+    // and remember why, so the route and its other models keep serving.
+    const profile = resolveProfiles(providers, 'deferred').get('acme-gateway')
+    expect(profile?.piProvider?.getModels().map(model => model.id)).toEqual(['acme-ok'])
+    expect([...profile?.modelErrors ?? []]).toEqual([[
+      'acme-typo',
+      'llm-pi-ai: provider "acme-gateway" model "acme-typo" reasoningEfforts names "ultra", which is not a'
+      + ' reasoning level pi-ai knows (off, minimal, low, medium, high, xhigh, max)',
+    ]])
+
+    // A write — the strict path — refuses the same profile at its own value.
+    expect(() => resolveProfiles(providers)).toThrow(/names "ultra"/)
+  })
 })
 
 describe('modelOverrides', () => {

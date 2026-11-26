@@ -191,6 +191,8 @@ async function bench(script: Script, options: BenchOptions = {}): Promise<{
         do { await (activity = idle) } while (activity !== idle)
         options.afterIdle?.()
       },
+      pause: () => false,
+      resumePaused: () => false,
     }
     await createOptions.setup?.(ownerCtx, agent)
     await ctx.agents.register(agent)

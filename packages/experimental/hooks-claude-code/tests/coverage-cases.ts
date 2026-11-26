@@ -85,6 +85,7 @@ function childAgentFixture(ctx: Context, id: SessionId, inject: Agent['inject'])
     cancel: () => {},
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
+    pause: () => false, resumePaused: () => false,
   }
 }
 /** Poll until `predicate` holds or the deadline passes — robust to detached

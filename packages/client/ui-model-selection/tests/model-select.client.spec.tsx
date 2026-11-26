@@ -451,6 +451,53 @@ describe('ModelSelect reasoning effort', () => {
       .map(row => row.textContent)).toEqual(['Max'])
   })
 
+  it('keeps a refused model visible and unselectable, and out of the keyboard order', () => {
+    const reason = 'llm-pi-ai: model "deepseek-v4-pro" reasoningEfforts names "ultra"'
+    const directory = createSnapshotStore<ModelDirectoryState>(state({
+      groups: [{
+        id: 'deepseek-official',
+        name: 'DeepSeek',
+        models: [
+          { id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', reasoning },
+          { id: 'deepseek-v4-pro', name: 'deepseek-v4-pro', unavailable: reason },
+          { id: 'deepseek-v4-lite', name: 'DeepSeek-V4-Lite' },
+        ],
+      }],
+      routable: false,
+      unavailableReason: reason,
+    }))
+    const select = vi.fn().mockResolvedValue(true)
+    render(<ModelSelect
+      locked={false}
+      available
+      directory={directory}
+      load={vi.fn()}
+      select={select}
+      resolveText={resolveText}
+      t={t}
+      renderSlot={renderLabel}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: /选择模型/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /模型/ }))
+    const refused = screen.getByRole('menuitemradio', { name: /deepseek-v4-pro/ })
+    // Listed with the adapter's own text — that is what tells the user which
+    // field to fix — but a disabled button submits nothing.
+    expect((refused as HTMLButtonElement).disabled).toBe(true)
+    expect(refused.textContent).toContain(`配置有误：${reason}`)
+    fireEvent.click(refused)
+    expect(select).not.toHaveBeenCalled()
+
+    // Arrow navigation steps over it rather than parking on a dead row.
+    const flash = screen.getByRole('menuitemradio', { name: /DeepSeek-V4-Flash/ })
+    const lite = screen.getByRole('menuitemradio', { name: /DeepSeek-V4-Lite/ })
+    flash.focus()
+    fireEvent.keyDown(flash, { key: 'ArrowDown' })
+    expect(document.activeElement).toBe(lite)
+    fireEvent.keyDown(lite, { key: 'ArrowUp' })
+    expect(document.activeElement).toBe(flash)
+  })
+
   it('anchors the body portal with CSS and closes only on truly-outside mousedown', () => {
     const measure = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect')
     onTestFinished(() => { measure.mockRestore() })
@@ -474,8 +521,9 @@ describe('ModelSelect reasoning effort', () => {
     expect(menu.style.left).toBe('')
     expect(menu.style.top).toBe('')
     expect(measure).not.toHaveBeenCalled()
-    // Interactions inside the trigger subtree or the portaled card stay open.
-    expect(fireEvent.mouseDown(menu)).toBe(true)
+    // Interactions inside the trigger subtree or the portaled card stay open;
+    // presses on the card keep focus where it is.
+    expect(fireEvent.mouseDown(menu)).toBe(false)
     expect(fireEvent.mouseDown(trigger)).toBe(false)
     fireEvent.blur(trigger, { relatedTarget: menu })
     expect(screen.getByRole('menu')).toBeTruthy()
@@ -591,6 +639,23 @@ describe('ModelSelect keyboard walk', () => {
     expect(select).not.toHaveBeenCalled()
     fireEvent.keyDown(focused!, { key: 'Escape' })
     expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: pane === 'model' ? /^模型/ : /推理等级/ }))
+  })
+
+  it('keeps focus and the card open when non-focusable model pane content is pressed', () => {
+    render(<ModelSelect renderSlot={renderLabel} locked={false} available
+      directory={createSnapshotStore(state({ groups: modelGroups(5) }))}
+      load={vi.fn()} resolveText={resolveText} select={vi.fn()} t={t}
+    />)
+    fireEvent.click(screen.getByRole('button', { name: /选择模型/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /^模型/ }))
+    const search = screen.getByRole('searchbox')
+    const heading = document.querySelector<HTMLElement>('[data-menu-group-heading]')!
+    // false = preventDefault ran, so the browser keeps focus where it was.
+    expect(fireEvent.mouseDown(heading)).toBe(false)
+    expect(fireEvent.mouseDown(screen.getAllByRole('menu')[0]!)).toBe(false)
+    // Text inputs keep their default so the caret can still be placed.
+    expect(fireEvent.mouseDown(search)).toBe(true)
+    expect(screen.getAllByRole('menu').length).toBeGreaterThan(0)
   })
 
   it('↑↓ walk the rows of the shown pane, wrapping, and stay open', () => {

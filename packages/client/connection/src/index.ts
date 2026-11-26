@@ -5,12 +5,13 @@ import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-attachment'
 // Activates the webServer Context merge used below.
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
-import { API_PATH } from './api-path.ts'
+import { API_PATH, assertApiPrefix } from './api-path.ts'
 import { bridge, DEFAULT_MAX_REQUEST_BODY_BYTES } from './http-bridge.ts'
 import { assertTrustedAuthority } from './api-request-trust.ts'
 import { HostConnectionService } from './rpc-host.ts'
 import { ConnectionAuthentication } from './authentication.ts'
 import { ConnectionRecoveryConfigSchema, resolveConnectionConfig, type ConnectionRecoveryConfig } from './recovery-config.ts'
+import type { ConnectionConfig } from './types.ts'
 
 export type {
   AuthenticationProvider,
@@ -49,7 +50,7 @@ export {
 export { HostConnectionService } from './rpc-host.ts'
 export { ConnectionAuthentication } from './authentication.ts'
 
-export { API_PATH } from './api-path.ts'
+export { API_PATH, assertApiPrefix, joinApiPath, readBrowserApiPrefix } from './api-path.ts'
 
 /** Stable Cordis plugin name. */
 export const name = 'client-connection'
@@ -88,25 +89,15 @@ function assertImageBodyCapacity(ctx: Context, maxRequestBodyBytes: number): voi
 /** Services required before providing Connection. */
 export const inject: string[] = []
 
-/** Browser authentication, request limits, and connection recovery configuration. */
-export interface ConnectionConfig {
-  /** Browser recovery timing, injected into each served page. */
-  recovery?: ConnectionRecoveryConfig
-  /**
-   * Authorities this deployment serves beyond loopback: exact `host:port`, or
-   * port-less `host` matching any port. The fence accepts loopback and the
-   * listener's own bind IP independently; other remote authorities require
-   * an entry here. A non-canonical or non-bare authority fails plugin load.
-   */
-  trustedHosts?: string[]
-  /** Maximum buffered JSON body for every `/api` request. Default: 300 MiB. */
-  maxRequestBodyBytes?: number
-}
+export type { ConnectionConfig } from './types.ts'
 
-export const Config: z<ConnectionConfig> = z.object({
-  recovery: ConnectionRecoveryConfigSchema.default({}),
+/** Host request limits and trusted authorities; `recovery` is synced to the browser. */
+export const Config: z<Omit<ConnectionConfig, 'recovery'> & { recovery?: ConnectionRecoveryConfig }, ConnectionConfig> = z.object({
+  recovery: ConnectionRecoveryConfigSchema.default({}).volatile(),
   trustedHosts: z.array(String).default([]),
+  trustedHostsForSettings: z.array(String).default([]),
   maxRequestBodyBytes: z.natural().min(1).default(DEFAULT_MAX_REQUEST_BODY_BYTES),
+  apiPrefix: z.string().default(API_PATH),
 })
 
 /**
@@ -117,13 +108,25 @@ export const Config: z<ConnectionConfig> = z.object({
  * @param config - resolved plugin config (schema defaults applied).
  */
 export function apply(ctx: Context, config?: ConnectionConfig): void {
-  const recovery = resolveConnectionConfig(config?.recovery)
+  // Config boundary: the schema admits a NaN backoff factor, which the synced Config projection cannot carry as lossless
+  // JSON; rejecting it at load keeps a row with an unprojectable recovery value off the graph.
+  resolveConnectionConfig(config?.recovery?.get())
   // The Loader resolves schema defaults; hand-built test contexts may pass none.
   const trustedHosts = config?.trustedHosts ?? []
+  const trustedHostsForSettings = config?.trustedHostsForSettings ?? []
   const maxRequestBodyBytes = config?.maxRequestBodyBytes ?? DEFAULT_MAX_REQUEST_BODY_BYTES
+  // A malformed prefix fails the load here rather than producing a route the
+  // transport cannot address.
+  const apiPath = assertApiPrefix(config?.apiPrefix ?? API_PATH)
   // Config boundary: a malformed entry fails the load loudly here rather than
   // silently authorizing its hostname prefix at request time.
   for (const entry of trustedHosts) assertTrustedAuthority(entry)
+  for (const entry of trustedHostsForSettings) {
+    assertTrustedAuthority(entry)
+    if (!trustedHosts.includes(entry)) {
+      throw new Error(`client-connection: trustedHostsForSettings entry ${JSON.stringify(entry)} is not also a trustedHosts authority`)
+    }
+  }
   assertImageBodyCapacity(ctx, maxRequestBodyBytes)
   new ConnectionAuthentication(ctx)
   ctx.inject(['connection.authentication'], (connectionCtx) => {
@@ -131,19 +134,22 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
     connectionCtx.inject(['webServer'], (webCtx) => {
       assertImageBodyCapacity(webCtx, maxRequestBodyBytes)
       webCtx.on('webserver/index-inject', (table) => {
-        table.push({ kind: 'global', name: '__DSH_CONNECTION_RECOVERY__', value: recovery })
+        // The browser classifies its own page authority, so the deployment's
+        // settings-trusted names travel to the page; the fence list stays Host-side.
+        table.push({ kind: 'global', name: '__DSH_SETTINGS_TRUST__', value: { trustedHosts: trustedHostsForSettings } })
+        table.push({ kind: 'global', name: '__DSH_API_PREFIX__', value: apiPath })
       })
-      const fetchHandler = connection.createSharedFetchHandler(API_PATH)
+      const fetchHandler = connection.createSharedFetchHandler(apiPath)
       const route: WebRoute = {
         kind: 'prefix',
-        path: API_PATH,
+        path: apiPath,
         auth: 'required',
         handler: async (req, res, peer) => {
           if (peer === undefined || res.destroyed) return
           await webCtx.waterfall('connection/request', req, res, () => bridge(req, res, fetchHandler, peer, maxRequestBodyBytes))
         },
       }
-      webCtx.effect(() => webCtx.webServer.register(route), 'client-connection: /api route')
+      webCtx.effect(() => webCtx.webServer.register(route), `client-connection: ${apiPath} route`)
     })
   })
   ctx.inject(['attachments'], (attachmentCtx) => {

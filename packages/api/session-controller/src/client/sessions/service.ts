@@ -1,5 +1,6 @@
 /** Client catalog and source-labelled ownership of exact Session generations. */
 import type { Context, Fiber } from '@deepseek-ai/cordis'
+import type { EncodedImageAttachment } from '@deepseek-ai/dsh-attachment'
 import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
 import { SessionSeq, type SessionId } from '@deepseek-ai/dsh-session/types'
 import { workspaceTitleOf } from '@deepseek-ai/dsh-util-workspace-path'
@@ -15,8 +16,9 @@ import type { SessionFace } from '../contract/session.ts'
 import type {
   AgentContext, ISessions, SessionReference, SessionRetainInfo, SessionRetainOptions, SessionTarget,
 } from '../contract/sessions.ts'
-import type { SessionReferenceSource } from '../index.ts'
+import type { SessionReferenceSource, SessionRetainFacet } from '../index.ts'
 import { createScope, scopeIdentityOf, scopeOf as scopeTagOf } from '../scope.ts'
+import { EMPTY_RETAIN_INFO, heldFacets, shiftRetention } from './facets.ts'
 import { SessionManager } from './manager.ts'
 import type { SessionRemotes } from './remotes.ts'
 import type { SessionListPhase, SessionSearchResultItem, SessionProjectionSnapshot } from './manager.ts'
@@ -159,13 +161,17 @@ function incrementedTitle(title: string): string {
   return `${title} (1)`
 }
 
-/** Source labels are dictionary keys, including names also present on Object.prototype. */
-function freezeRetainedBy(counts: Partial<Record<SessionReferenceSource, number>>): SessionRetainInfo['retainedBy'] {
-  Object.setPrototypeOf(counts, null)
-  return Object.freeze(counts)
+/**
+ * Drop what no remaining reference keeps: the connection when none keeps it, otherwise the older window pages
+ * when no facet computes over them any longer.
+ */
+function releaseConnectionWork(session: Session, before: SessionRetainInfo, after: SessionRetainInfo): void {
+  if ((before.connectionCount ?? 0) > 0 && after.connectionCount === undefined) {
+    void session.disconnect()
+    return
+  }
+  if (before.retainedFacets !== undefined && after.retainedFacets === undefined) session.bufferOlder()
 }
-
-const EMPTY_RETAIN_INFO: SessionRetainInfo = Object.freeze({ referenceCount: 0, retainedBy: freezeRetainedBy({}) })
 
 interface ScopeRecord {
   fiber: Fiber
@@ -299,13 +305,14 @@ export class ClientSessions implements ISessions {
   }
 
   retain(target: SessionTarget, options: SessionRetainOptions): SessionReference {
-    const { source, signal } = options
+    const { source, signal, facets } = options
+    const connected = options.connection !== false
     signal?.throwIfAborted()
     if (this.closed) throw new Error('Session Controller is disposed')
     const id = this.manager.resolveTarget(target)
-    const reference = this.retainScope(id, source)
+    const reference = this.retainScope(id, source, heldFacets(facets), connected)
     try {
-      reference.attachOpening(this.manager.get(id).open(), signal)
+      reference.attachOpening(connected ? this.manager.get(id).open() : Promise.resolve(), signal)
       return reference
     } catch (error) {
       reference.release()
@@ -447,6 +454,26 @@ export class ClientSessions implements ISessions {
    * @returns the created or reused session id.
    * @throws {SessionCreateError} with the requested id.
    */
+  /**
+   * Create a Host Session with its first input, publishing the row first.
+   * @param opts - where to create, the draft or prompt, and the prompt's images.
+   * @returns the created Session id, and why its input failed when it did.
+   */
+  async createWithInput(opts: {
+    workspaceId?: WorkspaceId
+    cwd?: string
+    sessionId?: SessionId
+    agentPreset?: string
+    draft?: string
+    draftImages?: readonly EncodedImageAttachment[]
+    prompt?: string
+    images?: readonly EncodedImageAttachment[]
+  }): Promise<RemoteResult<{ sessionId: SessionId; inputError?: string }>> {
+    const result = await this.manager.createWithInput(opts)
+    if (result.ok) this.projectList()
+    return result
+  }
+
   async create(opts: {
     workspaceId?: WorkspaceId
     cwd?: string
@@ -476,6 +503,7 @@ export class ClientSessions implements ISessions {
   async fork(opts: {
     sessionId: SessionId
     atSeq?: number
+    cwd?: string
     increaseTitle?: boolean
     onCreated?: (childId: SessionId) => void
     allowMigration?: boolean
@@ -486,6 +514,7 @@ export class ClientSessions implements ISessions {
     const result = await this.manager.fork({
       sessionId: opts.sessionId,
       ...(opts.atSeq === undefined ? {} : { atSeq: SessionSeq(opts.atSeq) }),
+      ...(opts.cwd === undefined ? {} : { cwd: opts.cwd }),
       ...(opts.allowMigration === undefined ? {} : { allowMigration: opts.allowMigration }),
     })
     if (!result.ok) throw new SessionForkError(result.error, opts.sessionId)
@@ -517,7 +546,7 @@ export class ClientSessions implements ISessions {
    */
   retainAgentScope(id: SessionId): SessionReference {
     if (this.closed) throw new Error('Session Controller is disposed')
-    return this.retainScope(id, 'gateway')
+    return this.retainScope(id, 'gateway', [], false)
   }
 
   /**
@@ -559,23 +588,25 @@ export class ClientSessions implements ISessions {
     return this.scopes.get(id)?.binding
   }
 
-  private retainScope(id: SessionId, source: SessionReferenceSource): ClientSessionReference {
+  private retainScope(
+    id: SessionId,
+    source: SessionReferenceSource,
+    facets: readonly SessionRetainFacet[],
+    connected: boolean,
+  ): ClientSessionReference {
     const record = this.scopes.get(id) ?? this.materializeScope(id)
-    const previous = record.retention
-    record.retention = Object.freeze({
-      referenceCount: previous.referenceCount + 1,
-      retainedBy: freezeRetainedBy({ ...previous.retainedBy, [source]: (previous.retainedBy[source] ?? 0) + 1 }),
-    })
+    const use = { source, facets, connected }
+    record.retention = shiftRetention(record.retention, use, 1)
     const reference = new ClientSessionReference(id, record, () => {
       if (!record.live) return
-      const count = record.retention.referenceCount - 1
-      const { [source]: sourceCount = 0, ...otherSources } = record.retention.retainedBy
-      const retainedBy = sourceCount > 1 ? { ...otherSources, [source]: sourceCount - 1 } : otherSources
-      record.retention = count === 0
-        ? EMPTY_RETAIN_INFO
-        : Object.freeze({ referenceCount: count, retainedBy: freezeRetainedBy(retainedBy) })
-      if (count === 0) this.retireScope(id, record)
-      else this.publishRetention(id)
+      const before = record.retention
+      record.retention = shiftRetention(before, use, -1)
+      if (record.retention.referenceCount === 0) {
+        this.retireScope(id, record)
+        return
+      }
+      this.publishRetention(id)
+      releaseConnectionWork(record.session, before, record.retention)
     })
     if (this.list.getSnapshot().byId[id] === undefined && this.manager.subagentAddress(id) !== undefined) {
       this.projectList()

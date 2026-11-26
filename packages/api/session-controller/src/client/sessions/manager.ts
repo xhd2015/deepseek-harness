@@ -1,5 +1,6 @@
 /** Host catalog, durable projection caches, and explicitly retained Client instances. */
 
+import type { EncodedImageAttachment } from '@deepseek-ai/dsh-attachment'
 import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
 import { SessionSeq, type SessionId, type SessionSeqCursor } from '@deepseek-ai/dsh-session/types'
 import type { SessionProjectionMap, SessionProjectionViewValues } from '@deepseek-ai/dsh-session-projection/types'
@@ -487,6 +488,47 @@ export class SessionManager {
    * @param opts - target workspace or working directory, an optional blank Session to reuse, and an optional Agent preset.
    * @returns the create result, naming the Session the Host created or reused.
   */
+  /**
+   * Create a Session together with its first input.
+   *
+   * The input is written by the Host in the same request as the creation, so a
+   * caller cannot lose the Session id between the two while still needing it.
+   * @param opts - where to create, the draft or prompt, and the prompt's images.
+   * @returns the created Session id and why its input failed, when it did.
+   */
+  async createWithInput(
+    opts: {
+      workspaceId?: WorkspaceId
+      cwd?: string
+      sessionId?: SessionId
+      agentPreset?: string
+      draft?: string
+      draftImages?: readonly EncodedImageAttachment[]
+      prompt?: string
+      images?: readonly EncodedImageAttachment[]
+    },
+  ): Promise<RemoteResult<{ sessionId: SessionId; inputError?: string }>> {
+    const shared = {
+      ...(opts.sessionId === undefined ? {} : { sessionId: opts.sessionId }),
+      ...(opts.agentPreset === undefined ? {} : { agentPreset: opts.agentPreset }),
+      ...(opts.draft === undefined ? {} : { draft: opts.draft }),
+      ...(opts.draftImages === undefined ? {} : { draftImages: opts.draftImages }),
+      ...(opts.prompt === undefined ? {} : { prompt: opts.prompt }),
+      ...(opts.images === undefined ? {} : { images: opts.images }),
+    }
+    const payload = opts.workspaceId !== undefined
+      ? { workspaceId: opts.workspaceId, ...shared }
+      : { ...(opts.cwd === undefined ? {} : { cwd: opts.cwd }), ...shared }
+    const result = await this.remote.session.createWithInput(payload)
+    if (result.ok) {
+      this.recordMutation({ kind: 'placeholder', summary: { agentAvailable: true,
+        sessionId: result.value.sessionId, updatedAt: Date.now(), running: false, blank: true,
+        ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
+      } })
+    }
+    return result
+  }
+
   async create(
     opts: {
       workspaceId?: WorkspaceId
@@ -536,21 +578,23 @@ export class SessionManager {
    * @returns the fork result (the child session id).
    */
   async fork(
-    opts: { sessionId: SessionId; atSeq?: SessionSeq; allowMigration?: boolean },
+    opts: { sessionId: SessionId; atSeq?: SessionSeq; cwd?: string; allowMigration?: boolean },
   ): Promise<RemoteResult<{ sessionId: SessionId }>> {
     const source = this.summaries.find(s => s.sessionId === opts.sessionId)
     const result = await this.remote.session.fork({
       sessionId: opts.sessionId,
       ...opts.atSeq === undefined ? {} : { atSeq: opts.atSeq },
+      ...opts.cwd === undefined ? {} : { cwd: opts.cwd },
       ...opts.allowMigration === undefined ? {} : { allowMigration: opts.allowMigration },
     })
     const childId = result.ok
       ? result.value.sessionId
       : workspaceAttachSessionId(result.error)
     if (childId !== undefined) {
+      const childCwd = opts.cwd ?? source?.cwd
       this.recordMutation({ kind: 'placeholder', summary: { agentAvailable: true,
         sessionId: childId, updatedAt: Date.now(), running: false, blank: true,
-        ...(source?.cwd !== undefined ? { cwd: source.cwd } : {}),
+        ...(childCwd === undefined ? {} : { cwd: childCwd }),
       } })
     }
     return result

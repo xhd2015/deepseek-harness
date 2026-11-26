@@ -30,6 +30,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
   }
 }
 import { browserCookie, provideBrowserCredentials } from './browser-credentials.ts'
+import { REMOTE_SHARED_MUX_WORKER_PATH } from '../src/shared-mux-worker.ts'
 import TypertGatewayService, {
   TypertGatewayError,
   type Config as GatewayConfig,
@@ -146,7 +147,7 @@ class FeedService extends TypertRemoteService {
   async *swallow(signal: AbortSignal): RemoteStream<string, string> {
     try {
       for await (const item of this.invocation().uplink<string>()) yield item
-    } catch {
+    } catch (_uplinkFailed) {
       // The fixture keeps yielding after the rejected item on purpose.
     }
     yield 'swallowed'
@@ -416,21 +417,27 @@ describe('Typert Remote streams', () => {
     expect(() => { startup.commit() }).not.toThrow()
   })
 
-  it('validates the WebSocket heartbeat timer range, the stream inbox bound, and the compression mode', () => {
+  it('validates the WebSocket heartbeat timer range, the stream inbox and outbox bounds, and the compression mode', () => {
     expect(TypertGatewayService.Config({})).toEqual({
       websocketHeartbeatIntervalMs: 2_000,
       streamInboxBytes: 262_144,
+      streamOutboxBytes: 1_048_576,
       websocketCompression: 'deflate',
     })
     expect(TypertGatewayService.Config({
       websocketHeartbeatIntervalMs: MAX_TIMER_DELAY_MS,
       streamInboxBytes: 1,
+      streamOutboxBytes: 1,
       websocketCompression: 'none',
     })).toEqual({
       websocketHeartbeatIntervalMs: MAX_TIMER_DELAY_MS,
       streamInboxBytes: 1,
+      streamOutboxBytes: 1,
       websocketCompression: 'none',
     })
+    for (const streamOutboxBytes of [0, 1.5]) {
+      expect(() => TypertGatewayService.Config({ streamOutboxBytes })).toThrow()
+    }
     for (const websocketHeartbeatIntervalMs of [0, 1.5, MAX_TIMER_DELAY_MS + 1]) {
       expect(() => TypertGatewayService.Config({ websocketHeartbeatIntervalMs })).toThrow()
     }
@@ -1000,6 +1007,31 @@ describe('Typert Remote streams', () => {
 
     socket.close()
     await once(socket, 'close')
+  })
+
+  it('carries a unary Remote result through the reserved mux operation', async () => {
+    const { ctx } = await setup(true)
+    const socket = new WebSocket(`ws://127.0.0.1:${String(ctx.webServer.port)}/api/remote.mux`, {
+      headers: { cookie: await browserCookie(ctx) },
+    })
+    const frames: Record<string, unknown>[] = []
+    socket.on('message', (data) => { frames.push(JSON.parse(rawText(data)) as Record<string, unknown>) })
+    try {
+      await once(socket, 'open')
+      sendOpen(socket, 'unary', '$invoke', {
+        endpoint: 'feed/unary',
+        payload: { args: { label: 'one' } },
+      })
+      await vi.waitFor(() => {
+        expect(frames).toEqual(expect.arrayContaining([
+          { type: 'item', streamId: 'unary', value: { ok: true, value: 'one' } },
+          { type: 'end', streamId: 'unary' },
+        ]))
+      })
+    } finally {
+      socket.close()
+      await once(socket, 'close')
+    }
   })
 
   it('multiplexes independent streams over one WebSocket and propagates cancellation', async () => {
@@ -1639,6 +1671,33 @@ describe('Typert Remote streams', () => {
 
     await unregister()
     socket.close()
+  })
+
+  it('serves the authenticated SharedWorker artifact from its exact route', async () => {
+    const { ctx } = await setup(true)
+    const origin = `http://127.0.0.1:${String(ctx.webServer.port)}`
+
+    const unauthenticated = await fetch(`${origin}${REMOTE_SHARED_MUX_WORKER_PATH}`)
+    expect(unauthenticated.status).toBe(401)
+
+    const cookie = await browserCookie(ctx)
+    const rejectedMethod = await fetch(`${origin}${REMOTE_SHARED_MUX_WORKER_PATH}`, {
+      method: 'POST', headers: { cookie },
+    })
+    expect(rejectedMethod.status).toBe(405)
+    expect(rejectedMethod.headers.get('allow')).toBe('GET, HEAD')
+
+    const head = await fetch(`${origin}${REMOTE_SHARED_MUX_WORKER_PATH}`, {
+      method: 'HEAD', headers: { cookie },
+    })
+    expect(head.status).toBe(200)
+    expect(head.headers.get('content-type')).toBe('text/javascript; charset=utf-8')
+    expect(await head.text()).toBe('')
+
+    const response = await fetch(`${origin}${REMOTE_SHARED_MUX_WORKER_PATH}`, { headers: { cookie } })
+    expect(response.status).toBe(200)
+    expect(response.headers.get('cache-control')).toBe('no-cache')
+    expect((await response.text()).length).toBeGreaterThan(0)
   })
 
   it('applies Connection trusted-host policy before accepting the Gateway socket', async () => {

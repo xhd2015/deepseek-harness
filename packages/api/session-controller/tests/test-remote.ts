@@ -33,6 +33,9 @@ import {
   type RemoteResult,
 } from '@deepseek-ai/dsh-typert-protocol'
 import RemoteAccessService from '@deepseek-ai/dsh-api-remote-access'
+import Storage from '@deepseek-ai/dsh-storage'
+import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
+import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 import SessionController from '../src/index.ts'
 import type {
   ModelCatalog,
@@ -60,6 +63,11 @@ import type {
   SessionRenameValue,
   SessionSearchRequest,
   SessionSearchValue,
+  SessionSetThinkingCapAutoContinueRequest,
+  SessionSetThinkingCapAutoContinueValue,
+  SessionStatusRequest,
+  SessionStatusValue,
+  SessionSelectDefaultModelRequest,
   SessionSelectModelRequest,
   SessionSelectModelValue,
   SessionProjectionsRequest,
@@ -76,9 +84,15 @@ export interface TestSessionRemote {
   canOpenWorkspacePath(): Promise<RemoteResult<boolean>>
   list(request: SessionListRequest, signal?: AbortSignal): Promise<RemoteResult<SessionListValue>>
   search(request: SessionSearchRequest, signal?: AbortSignal): Promise<RemoteResult<SessionSearchValue>>
+  status(request: SessionStatusRequest): Promise<RemoteResult<SessionStatusValue>>
+  setThinkingCapAutoContinue(
+    request: SessionSetThinkingCapAutoContinueRequest,
+  ): Promise<RemoteResult<SessionSetThinkingCapAutoContinueValue>>
   create(request: SessionCreateRequest): Promise<RemoteResult<SessionCreateValue>>
   selectModel(request: SessionSelectModelRequest): Promise<RemoteResult<SessionSelectModelValue>>
+  selectDefaultModel(request: SessionSelectDefaultModelRequest): Promise<RemoteResult<SessionSelectModelValue>>
   modelCatalog(): Promise<RemoteResult<ModelCatalog>>
+  refreshModelCatalog(): Promise<RemoteResult<ModelCatalog>>
   rename(request: SessionRenameRequest): Promise<RemoteResult<SessionRenameValue>>
   fork(request: SessionForkRequest): Promise<RemoteResult<SessionForkValue>>
   prompt(request: SessionPromptRequest, signal?: AbortSignal): Promise<RemoteResult<SessionPromptValue>>
@@ -222,6 +236,10 @@ export function testSessionPersistence(
 
 /** Concrete point-read query used by Session Controller tests that do not exercise search. */
 class TestSessionQuery extends SessionQueryEngine {
+  initialize(): Promise<void> {
+    return this[Service.init]()
+  }
+
   override searchSessions(): Promise<never> {
     return Promise.reject(new Error('session search is not configured in this test'))
   }
@@ -231,10 +249,14 @@ class TestSessionQuery extends SessionQueryEngine {
   }
 }
 
-/** Install the required projection and point-query services for direct controller tests. */
-export function installSessionReadTestServices(ctx: Context): void {
+/**
+ * Install the required projection and point-query services for direct controller tests.
+ * @param ctx - test context that receives missing services.
+ * @returns when the installed query service has registered its projections.
+ */
+export async function installSessionReadTestServices(ctx: Context): Promise<void> {
   if (ctx.get('sessionProjections') === undefined) new SessionProjectionRegistry(ctx)
-  if (ctx.get('sessionQuery') === undefined) new TestSessionQuery(ctx)
+  if (ctx.get('sessionQuery') === undefined) await new TestSessionQuery(ctx).initialize()
 }
 
 async function installControllers(
@@ -295,8 +317,9 @@ async function installControllers(
       retirePrompt: () => {},
     } as never)
   }
-  installSessionReadTestServices(ctx)
+  await installSessionReadTestServices(ctx)
   if (ctx.get('remoteAccess') === undefined) new RemoteAccessService(ctx)
+  installSessionDraftStorage(ctx)
   const cwd = vi.spyOn(process, 'cwd').mockReturnValue(defaults.cwd)
   class TestController extends SessionController {
     initialize(): Promise<void> {
@@ -325,6 +348,21 @@ async function installControllers(
   }
   installed.set(ctx, controller)
   return controller
+}
+
+/**
+ * Mount an in-memory domain facility for the composer-draft domain, which the
+ * controller opens during initialization. A harness that already mounted one
+ * keeps it.
+ * @param ctx - harness context receiving the facility.
+ */
+function installSessionDraftStorage(ctx: Context): void {
+  if (ctx.get('storageDomain') !== undefined) return
+  const storage = ctx.get('storage') ?? new Storage(ctx)
+  storage.backend.register('memory', new MemoryStorageBackend(new MemoryMediaPool()))
+  const domain = new DomainFacility(ctx, { backend: 'memory', routes: {} })
+  storage.mount('domain', domain)
+  ctx.provide('storageDomain', domain)
 }
 
 /** Build or return the production Session Controller for a direct unit harness. */
@@ -374,9 +412,13 @@ export async function createSessionTestRemote(
       () => direct.search(request, signal),
       signal,
     ),
+    status: request => remoteResult(() => direct.status(request)),
+    setThinkingCapAutoContinue: request => remoteResult(() => direct.setThinkingCapAutoContinue(request)),
     create: request => remoteResult(() => direct.create(request)),
     selectModel: request => remoteResult(() => direct.selectModel(request)),
+    selectDefaultModel: request => remoteResult(() => direct.selectDefaultModel(request)),
     modelCatalog: () => remoteResult(() => direct.modelCatalog()),
+    refreshModelCatalog: () => remoteResult(() => direct.refreshModelCatalog()),
     rename: request => remoteResult(() => direct.rename(request)),
     fork: request => remoteResult(() => direct.fork(request)),
     prompt: (request, signal = new AbortController().signal) => remoteResult(

@@ -9,7 +9,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type { AssistantChatData } from '../contract/chat-nodes.ts'
 import { CHAT_SYNTHETIC_SEQ_OFFSETS, chatNode } from './common.ts'
 import {
-  emptyAssistantBlock, isTokenDelta, toAssistantBlock, toAssistantBlocks,
+  emptyAssistantBlock, isTokenDelta, replayBlocksFromSource, toAssistantBlock, toAssistantBlocks,
 } from './event-projection.ts'
 
 declare module '../contract/chat-nodes.ts' {
@@ -61,7 +61,10 @@ function compactBlocks(blocks: readonly (AssistantBlock | undefined)[]): Assista
 
 function blockIsVisible(block: AssistantBlock | undefined): boolean {
   if (block === undefined || block.kind === 'tool-call') return false
-  if (block.kind === 'text' || block.kind === 'reasoning') return block.text.trim() !== ''
+  if (block.kind === 'text') return block.text.trim() !== ''
+  if (block.kind === 'reasoning') {
+    return block.encrypted === true || block.opaque === true || block.text.trim() !== ''
+  }
   return true
 }
 
@@ -170,12 +173,25 @@ function updateChunk(
   }
 }
 
+/**
+ * Project one settled assistant message, including the replay blocks it stored
+ * beside the content so an encrypted-only reasoning block is recognized.
+ * @param event - settled assistant message event.
+ * @returns Chat blocks in source order.
+ */
+function settledBlocks(event: SessionEvent<'assistant/message'>): AssistantBlock[] {
+  return toAssistantBlocks(
+    event.data.message.content,
+    replayBlocksFromSource(event.data.message.source),
+  )
+}
+
 function settleMessage(
   state: AssistantState,
   match: ConversationMatch,
   event: SessionEvent<'assistant/message'>,
 ): AssistantState {
-  const blocks = toAssistantBlocks(event.data.message.content)
+  const blocks = settledBlocks(event)
   const visibleByIndex = blocks.map(blockIsVisible)
   return {
     ...state,
@@ -212,7 +228,7 @@ function finalNode(
       time: event.time,
       turn: state.turn,
       step: state.step,
-      blocks: toAssistantBlocks(event.data.message.content),
+      blocks: settledBlocks(event),
       usage: event.data.usage,
       timing: {
         stepStartTime: context.start?.event.time ?? null,

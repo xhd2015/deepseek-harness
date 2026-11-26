@@ -103,6 +103,7 @@ function stubAgent(id: string, delegationDepth = 0, origin?: 'subagent'): Agent 
     send() {}, followup() {}, steer() {}, inject() {}, cancel() {},
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
+    pause: () => false, resumePaused: () => false,
   }
   return agent
 }
@@ -110,6 +111,7 @@ function stubAgent(id: string, delegationDepth = 0, origin?: 'subagent'): Agent 
 describe('ask_user_question tool', () => {
   it('keeps the blocking legacy tool when apply receives no config', async () => {
     const ctx = new Context()
+    await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(NativeToolExecutor)
@@ -134,6 +136,7 @@ describe('ask_user_question tool', () => {
 
   it('falls back to the 120 second wait when apply receives a row without a timeout', async () => {
     const ctx = new Context()
+    await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(NativeToolExecutor)
@@ -684,6 +687,7 @@ describe('ask_user_question tool', () => {
 
   it('unregisters the tool when its plugin fiber is disposed', async () => {
     const ctx = new Context()
+    await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(NativeToolExecutor)

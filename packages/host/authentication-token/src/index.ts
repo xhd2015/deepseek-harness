@@ -12,15 +12,21 @@ export const name = 'host-authentication-token'
 /** Services owning request admission and the persistent signing key. */
 export const inject = ['connection', 'connection.authentication', 'credentials']
 
-/** Default browser and API cookie lifetime. */
+/** Default browser and API cookie lifetime, and the credential bypass. */
 export interface Config {
   /** Absolute cookie lifetime in days; default 30. */
   cookieMaxAgeDays: number
+  /**
+   * Skip process-token and cookie checks. Host and Origin trust still apply,
+   * so enable it only behind an outer proxy that authenticates the caller.
+   */
+  disableAuth?: boolean
 }
 
-/** Validate cookie lifetime before preparing the token implementation. */
+/** Validate cookie lifetime and the credential bypass before activating. */
 export const Config: z<Config> = z.object({
   cookieMaxAgeDays: z.natural().min(1).default(30),
+  disableAuth: z.boolean().default(false),
 })
 
 /**
@@ -29,7 +35,7 @@ export const Config: z<Config> = z.object({
  * @param config - validated browser and API cookie lifetime.
  */
 export async function apply(ctx: Context, config: Config): Promise<void> {
-  const auth = await BrowserAuth.create(ctx[Context.root], ctx.credentials, config.cookieMaxAgeDays)
+  const auth = await BrowserAuth.create(ctx[Context.root], ctx.credentials, config.cookieMaxAgeDays, config.disableAuth)
   const peer = ctx.connection.createPeer({ principal: { kind: 'owner' } })
   const apiPeers = new Map<PeerScope['id'], PeerScope>()
   ctx.connection.authentication.register({

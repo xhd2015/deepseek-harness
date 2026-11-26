@@ -9,6 +9,7 @@
  * itself, and a released limit must all be refused before anything runs.
  */
 
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import {
   existsSync,
   mkdirSync,
@@ -71,6 +72,7 @@ function standInAgent(id: SessionId, cwd: string): Omit<Agent, 'ctx'> {
     inject: () => {},
     cancel: () => {},
     whenIdle: () => Promise.resolve(),
+    pause: () => false, resumePaused: () => false,
     runMaintenance: task => task(new AbortController().signal),
   }
 }
@@ -137,6 +139,7 @@ beforeEach(async () => {
 
   ctx = new Context()
   provideWorkingDirectoryFixture(ctx, root)
+  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(NativeToolExecutor)

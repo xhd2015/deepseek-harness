@@ -17,9 +17,13 @@ async function setup(options: { origin?: string; ssh?: 'SSH_CONNECTION' | 'SSH_T
     { source: 'process', values: options.ssh === undefined ? {} : { [options.ssh]: 'remote-launch' } },
     { source: 'project-env', path: '/project/.env', values: { SSH_TTY: 'project-setting' } },
   ]))
-  if (options.settle !== undefined) ctx.provide('loader', { await: options.settle, entries: () => [] } as never)
-  const server: Pick<WebServer, 'host' | 'protocol' | 'registerFallback'> = {
-    host: '127.0.0.1', protocol: 'http:', registerFallback: () => () => {},
+  if (options.settle !== undefined) ctx.provide('loader', { await: options.settle, entries: () => [], root: { data: [] } } as never)
+  const server: Pick<WebServer, 'host' | 'protocol' | 'registerFallback' | 'getOrigin'> = {
+    host: '127.0.0.1',
+    protocol: 'http:',
+    registerFallback: () => () => {},
+    // The startup record pairs the opened entry with the local origin.
+    getOrigin: () => 'http://127.0.0.1:3080',
   }
   ctx.provide('webServer', server as WebServer)
   const baseUrl = () => options.origin ?? 'http://127.0.0.1:3080/'
@@ -229,7 +233,7 @@ it('prints all contributed entries and opens only the first eligible entry', asy
     'dsh web: opening the default browser; pass --no-open to disable',
   ])
   expect(open).toHaveBeenCalledOnce()
-  expect(open).toHaveBeenCalledWith('https://web.test/?token=first', expect.any(AbortSignal))
+  expect(open).toHaveBeenCalledWith('https://web.test/?token=first', expect.any(AbortSignal), undefined)
 })
 
 it.each(['absent', 'not-openable'] as const)('does not invent a browser URL when entries are %s', async (mode) => {

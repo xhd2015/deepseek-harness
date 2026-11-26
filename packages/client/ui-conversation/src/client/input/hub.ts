@@ -9,7 +9,7 @@ import type { PlanProjection } from '@deepseek-ai/dsh-plan-mode/types'
 import type { GoalProjection } from '@deepseek-ai/dsh-goal/types'
 import type { Context } from '@deepseek-ai/cordis'
 import type {
-  ISessions, SessionBinding, SessionFace,
+  ISessions, SessionBinding, SessionFace, SessionReference, SessionSnapshot,
 } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId, SessionSeq } from '@deepseek-ai/dsh-session/types'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-locale/client'
@@ -17,8 +17,8 @@ import type { InboxState } from '@deepseek-ai/dsh-agent/types'
 import type { ModelSelectionProjection } from '@deepseek-ai/dsh-agent/types'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type {
-  DraftAttachmentId, DraftAttachmentSerializationResult, DraftInitializationOptions, DraftInitializationResult, InputTriggerController,
-  SessionInputResolver, SessionInput, SubmitOutcome,
+  DraftAttachmentId, DraftAttachmentSerializationResult, DraftInitializationOptions, DraftInitializationResult, InputState,
+  InputTriggerController, SessionInputResolver, SessionInput, SubmitOutcome,
 } from '../contract/input.ts'
 import type { ComposerKeyboard } from '../contract/draft-editor.ts'
 import type { ComposerBlocks } from '../contract/composer-blocks.ts'
@@ -27,6 +27,8 @@ import type { PopupDismissFace } from './facade.ts'
 import { SessionInputShell } from './facade.ts'
 import { reportMessageSubmission } from './submission-analytics.ts'
 import { readConversationDraft } from '../stores.ts'
+import { DraftPersistence } from './draft-persistence.ts'
+import type {} from '@deepseek-ai/dsh-api-remotes/client'
 
 /** Structural command face for per-session popup resolution. */
 interface CommandFace {
@@ -54,9 +56,48 @@ interface ConversationAttachmentFace {
   releaseDraftAttachment(id: DraftAttachmentId): void
 }
 
+declare module '@deepseek-ai/dsh-api-session-controller/client' {
+  interface SessionReferenceSourceMap {
+    /** A Session whose composer draft holds attachments, kept without its event connection. */
+    draft: unknown
+  }
+}
+
+/** Whether a draft must keep its Session: it holds browser-owned attachments that nothing can restore. */
+function draftNeedsHold(input: InputState, session: SessionSnapshot): boolean {
+  return input.attachmentIds.length > 0 && !session.removed
+}
+
+/** Per-Session marker that a page unload discarded the draft's browser-owned attachments. */
+const UNLOAD_MARK_PREFIX = 'dsh.composer-draft-attachments-unloaded'
+
+/** Record that an unloading page held draft attachments for these Sessions. */
+function writeUnloadMarks(sessionIds: readonly SessionId[]): void {
+  try {
+    for (const sessionId of sessionIds) localStorage.setItem(`${UNLOAD_MARK_PREFIX}.${sessionId}`, '1')
+  } catch (error) {
+    console.error('conversation draft attachment unload marks could not be saved; a reload cannot report the loss', error)
+  }
+}
+
+/** Remove one Session's unload marker. @returns whether the marker was present. */
+function takeUnloadMark(sessionId: SessionId): boolean {
+  try {
+    const key = `${UNLOAD_MARK_PREFIX}.${sessionId}`
+    const marked = localStorage.getItem(key) !== null
+    localStorage.removeItem(key)
+    return marked
+  } catch (error) {
+    console.error('conversation draft attachment unload mark could not be read', error)
+    return false
+  }
+}
+
 /** Session-addressed input facade registry (SessionInputResolver face + composer-layer extras). */
 export class InputHub implements SessionInputResolver {
   private readonly shells = new WeakMap<SessionBinding, SessionInputShell>()
+  private readonly drafts = new Map<SessionId, DraftPersistence>()
+
 
   /**
    * @param ctx - client root context (services resolved lazily per call — boot order stays free).
@@ -65,7 +106,23 @@ export class InputHub implements SessionInputResolver {
   constructor(
     private readonly rootCtx: Context,
     private readonly t: TranslateNS<'conversation'>,
-  ) {}
+  ) {
+    // An unloading page discards the attachments of every draft that holds its Session.
+    rootCtx.effect(() => {
+      const onHide = (): void => { writeUnloadMarks(this.draftHeldSessions()) }
+      // A back-forward cache restore keeps the drafts, so the marks just written are stale.
+      const onShow = (event: PageTransitionEvent): void => {
+        if (!event.persisted) return
+        for (const sessionId of this.draftHeldSessions()) takeUnloadMark(sessionId)
+      }
+      window.addEventListener('pagehide', onHide)
+      window.addEventListener('pageshow', onShow)
+      return () => {
+        window.removeEventListener('pagehide', onHide)
+        window.removeEventListener('pageshow', onShow)
+      }
+    }, 'conversation.input: draft attachment unload marks')
+  }
 
   /**
    * Resolve the facade for one session-scope ctx (SessionInputResolver face).
@@ -99,7 +156,7 @@ export class InputHub implements SessionInputResolver {
   shellFor(binding: SessionBinding): SessionInputShell {
     const existing = this.shells.get(binding)
     if (existing !== undefined) return existing
-    const { session, ctx: actx } = binding
+    const { sessionId: id, session, ctx: actx } = binding
     const shell = new SessionInputShell({
       actx,
       submissionState: () => {
@@ -125,14 +182,11 @@ export class InputHub implements SessionInputResolver {
       inputTriggers: () => this.controller(actx),
       popup: () => this.popup(actx),
       inbox: session.projections.faceOf('inbox') as ObservableSnapshot<InboxState | undefined>,
+      events: binding.eventSource,
       defaultSink: (text, attachmentIds, mode, signal, accept) => this.sink(session, text, attachmentIds, mode, signal, accept),
       quoteRemoveLabel: () => this.t('quote.remove'),
-      quoteInsertionAllowed: () => {
-        const state = session.getSnapshot()
-        return !state.removed && (state.subagent === null
-          || state.subagent.address.mode === 'continuable')
-          && this.conversation().blocks.storeFor(session.sessionId).getSnapshot() === undefined
-      },
+      session: () => session.getSnapshot(),
+      composerBlock: () => this.conversation().blocks.storeFor(session.sessionId).getSnapshot(),
       steerQueue: () => { void this.steerQueue(session, shell) },
       commandAttachments: {
         serialize: async (ids) => {
@@ -166,14 +220,20 @@ export class InputHub implements SessionInputResolver {
         actx.on('slash/input-insert-text', req =>
           shell.insertText(req.text, req.span, req.continue === true) ? true : undefined),
       ]
-      return () => {
+      return async () => {
         for (const off of offs) off()
+        const persistence = this.drafts.get(id)
+        this.drafts.delete(id)
+        const drained = persistence?.dispose()
         const drafts = shell.dispose()
         this.shells.delete(binding)
+        // The draft hold keeps this scope while the draft has attachments, so teardown releases them for good.
         const conversation = this.rootCtx.get('conversation') as ConversationAttachmentFace | undefined
         for (const attachmentId of drafts) conversation?.releaseDraftAttachment(attachmentId)
+        await drained
       }
     }, 'conversation.input: session shell')
+    actx.effect(() => this.holdDraft(binding, shell), 'conversation.input: draft hold')
     actx.inject(['inputTriggers'], (scope) => {
       scope.effect(() => {
         shell.refreshLexiconSubscription()
@@ -181,7 +241,102 @@ export class InputHub implements SessionInputResolver {
       }, 'conversation.input: reference catalogs')
     })
     shell.setDraft(readConversationDraft(binding.sessionId))
+    // A reload discarded the browser-owned attachments; say so instead of dropping them silently.
+    if (takeUnloadMark(binding.sessionId)) shell.notify('error', this.t('attachments.unavailable'))
     return shell
+  }
+
+  /**
+   * Hold the Session without its event connection while its draft has attachments, so leaving the recent views
+   * keeps the scope, and with it the shell and its attachments.
+   * @returns disposer releasing the hold.
+   */
+  private holdDraft(binding: SessionBinding, shell: SessionInputShell): () => void {
+    const sessions = this.sessions()
+    let reference: SessionReference | undefined
+    const release = (): void => {
+      const held = reference
+      reference = undefined
+      held?.release()
+    }
+    const sync = (): void => {
+      const needed = draftNeedsHold(shell.snapshot, binding.session.getSnapshot())
+      if (needed === (reference !== undefined)) return
+      if (!needed) {
+        release()
+        return
+      }
+      const target = sessions.subagentAddress(binding.sessionId) ?? binding.sessionId
+      reference = sessions.retain(target, { source: 'draft', connection: false })
+    }
+    const stops = [shell.state.subscribe(sync), binding.session.subscribe(sync)]
+    sync()
+    return () => {
+      for (const stop of stops) stop()
+      release()
+    }
+  }
+
+  /** Sessions a draft reference currently holds. */
+  private draftHeldSessions(): SessionId[] {
+    const sessions = this.sessions()
+    // byId also lists retained subagent Sessions outside the Host list.
+    return (Object.keys(sessions.list.getSnapshot().byId) as SessionId[])
+      .filter(id => (sessions.retainInfo(id).getSnapshot().retainedBy.draft ?? 0) > 0)
+  }
+
+  /**
+   * Bind browser-local recovery and start durable text synchronization once per input.
+   * @param id - Session whose composer is mounted.
+   * @param write - synchronous browser-local draft persistence.
+   * @param hasLocalChanges - whether browser recovery includes text not yet acknowledged by the Host.
+   * @param acknowledge - mark the matching browser-local value as saved.
+   * @returns the local mirror disposer; Host synchronization lasts until scope disposal.
+   * @param onLoaded - runs after the initial Host draft read settles, when requested.
+   */
+  bindDraftMirror(
+    id: SessionId, write: (text: string) => void, hasLocalChanges: boolean, acknowledge: (text: string) => void,
+    onLoaded?: () => void,
+  ): () => void {
+    const shell = this.shell(id)
+    const push = (): void => { write(shell.state.getSnapshot().draft) }
+    const unmirror = shell.state.subscribe(push)
+    let persistence = this.drafts.get(id)
+    if (persistence === undefined) {
+      const remote = this.rootCtx.get('remote')
+      if (remote === undefined) throw new Error('conversation.input: remote service unavailable')
+      persistence = new DraftPersistence({
+        state: shell.state,
+        hasLocalChanges,
+        acknowledge,
+        read: async () => {
+          const result = await remote.session.getDraft({ sessionId: id })
+          if (!result.ok) throw new Error(result.error.message)
+          return result.value.text
+        },
+        write: async (text) => {
+          const result = await remote.session.setDraft({ sessionId: id, text })
+          if (!result.ok) throw new Error(result.error.message)
+        },
+        adopt: (text) => {
+          write(text)
+          shell.setDraft(text)
+        },
+        failed: () => { shell.notify('error', this.t('draft.persistenceFailed')) },
+      })
+      this.drafts.set(id, persistence)
+    }
+    if (onLoaded !== undefined) void persistence.whenLoaded.then(onLoaded)
+    return unmirror
+  }
+
+  /**
+   * Host draft hydrate for one Session, when persistence has started.
+   * @param id - Session id.
+   * @returns a promise that settles after the initial Host read, or `undefined`.
+   */
+  draftLoaded(id: SessionId): Promise<void> | undefined {
+    return this.drafts.get(id)?.whenLoaded
   }
 
   /**

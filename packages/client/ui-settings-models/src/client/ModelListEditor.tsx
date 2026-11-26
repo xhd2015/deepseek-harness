@@ -75,9 +75,8 @@ export interface ModelListEditorProps {
   /** Installed provider whose catalog supplies defaults without endpoint I/O. */
   catalogProvider?: string | undefined
   /**
-   * Reasoning levels a hand-declared route's rows may declare in
-   * `reasoningEfforts`, in escalation order; absent or empty shows no
-   * reasoning control, leaving a catalog model's levels to the catalog.
+   * Reasoning levels the rows may declare in `reasoningEfforts`, in
+   * escalation order; absent or empty shows no reasoning control.
    */
   reasoningLevels?: readonly string[] | undefined
   /** Whether the route's protocol accepts only {@link reasoningLevels}, each sent under its own name. */
@@ -101,6 +100,12 @@ export interface ModelListEditorProps {
   probeBlocked?: keyof typeof en | undefined
   /** The Host operations whose interrogation answers the fetch action. */
   operations: ModelsOperations
+  /**
+   * Why the adapter refuses each model, keyed by model id. The row stays
+   * editable — the refused field is usually the one the message names — and the
+   * text sits under it so the refusal is readable where the fix goes.
+   */
+  modelErrors?: Record<string, string>
   /** Section copy. */
   t: (key: keyof typeof en) => string
   /** Disable every control (read-only deployment or a pending write). */
@@ -155,7 +160,7 @@ function adopt(candidate: LlmDiscoveredModel): ModelDraft {
  * @returns the model-list editor.
  */
 export function ModelListEditor(props: ModelListEditorProps): ReactNode {
-  const { models, onChange, probe, operations, t, disabled, onBusyChange } = props
+  const { models, onChange, probe, operations, t, disabled, onBusyChange, modelErrors } = props
   const { catalogProvider } = props
   const [busy, setBusy] = useState(false)
   useEffect(() => { onBusyChange(busy) }, [busy, onBusyChange])
@@ -363,6 +368,7 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
             expanded={expanded}
             disabled={disabled}
             t={t}
+            refusal={modelErrors?.[textOf(model, 'id')]}
             contextWindow={{
               value: capacityText(model, index, 'contextWindow'),
               placeholder: CAPACITY_HINT.contextWindow,

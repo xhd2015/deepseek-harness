@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { createUserMessage, type ToolCallId , createMessage, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed } from '@deepseek-ai/dsh-llm'
 import { brandString } from '@deepseek-ai/dsh-brand'
@@ -128,6 +128,49 @@ describe('tool-pairing boundaries', () => {
 
     expect(after(session, 'tool/result', 0)).toBe(false)
     expect(after(session, 'tool/result', 1)).toBe(true)
+  })
+
+  it('a later cut is balanced after an ended step left unanswered tool-calls', () => {
+    const session = Session.create(brandString<SessionId>('ended-orphan-calls'))
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'checkpoint' }],
+      source: { kind: 'compaction-basic' },
+    }), SURFACE)
+    session.append('turn/start', { turn: 1 })
+    session.append('step/start', { turn: 1, step: 1 })
+    session.append('assistant/message', {
+      stream: [],
+      turn: 1,
+      step: 1,
+      message: createMessage({
+        role: 'assistant',
+        content: [
+          { type: 'tool-call', id: brandString<ToolCallId>('orphan-a'), name: 'read', arguments: '{}' },
+          { type: 'tool-call', id: brandString<ToolCallId>('orphan-b'), name: 'read', arguments: '{}' },
+        ],
+        source: {
+          kind: 'model',
+          ...{ provider: 'mock', model: 'mock' },
+        },
+      }),
+    }, SURFACE)
+    session.append('tool/call', {
+      turn: 1, step: 1, callId: brandString<ToolCallId>('orphan-a'), name: 'read', arguments: '{}',
+    })
+    session.append('step/end', { turn: 1, step: 1 })
+    session.append('turn/end', {
+      turn: 1,
+      reason: { kind: 'error', error: { message: "Cannot read properties of undefined (reading 'prepare')", code: 'UNKNOWN' } },
+    })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'later history' }],
+      source: { kind: 'user' },
+    }), SURFACE)
+
+    expect(after(session, 'user/message', 0)).toBe(true)
+    expect(before(session, 'assistant/message')).toBe(true)
+    expect(before(session, 'user/message', 1)).toBe(true)
+    expect(after(session, 'user/message', 1)).toBe(true)
   })
 
   it('keeps neutral nodes inside an open pair unbalanced and free nodes balanced', () => {
@@ -356,10 +399,11 @@ describe('tool-pairing cache refresh', () => {
       },
     ]
     const nodes: SessionSeqType[] = [SessionSeq(0), SessionSeq(1)]
-    const session = {
-      eventAt: (seq: number) => events[seq],
-      surface: { nodes, replaceGeneration: 0 },
-    } as unknown as Session
+    const session = Session.create(brandString<SessionId>('regressing-surface'), events)
+    const surface = vi.spyOn(session, 'surface', 'get').mockReturnValue({
+      nodes, replaceGeneration: 0, contentGeneration: 0, systemNodes: [],
+    })
+    onTestFinished(() => { surface.mockRestore() })
     expect(toolPairingBalancedAfter(session, nodes[1]!)).toBe(true)
     nodes.pop()
     expect(toolPairingBalancedAfter(session, nodes[0]!)).toBe(true)
@@ -400,27 +444,23 @@ describe('tool-pairing corrupt surfaces', () => {
 
   it('throws when a current surface seq has no matching event or indexes the wrong event', () => {
     const missingSeq = SessionSeq(1)
-    const missing = {
-      eventAt: (seq: number) => [{
-        type: 'user/message', seq: SessionSeq(0), time: 0,
-        data: createUserMessage({
-          content: [], source: { kind: 'user' },
-        }), surfaceOp: 'append',
-      } satisfies SessionEvent][seq],
-      surface: { nodes: [missingSeq], replaceGeneration: 0 },
-    } as unknown as Session
+    const missing = Session.create(brandString<SessionId>('missing-event'))
+    missing.append('user/message', createUserMessage({
+      content: [], source: { kind: 'user' },
+    }), SURFACE)
+    const missingSurface = vi.spyOn(missing, 'surface', 'get').mockReturnValue({
+      nodes: [missingSeq], replaceGeneration: 0, contentGeneration: 0, systemNodes: [],
+    })
+    onTestFinished(() => { missingSurface.mockRestore() })
     expect(() => toolPairingBalancedBefore(missing, missingSeq)).toThrow(/no matching session event/)
 
     const mismatchedSeq = SessionSeq(0)
-    const mismatched = {
-      eventAt: (seq: number) => [{
-        type: 'user/message', seq: SessionSeq(99), time: 0,
-        data: createUserMessage({
-          content: [], source: { kind: 'user' },
-        }), surfaceOp: 'append',
-      } satisfies SessionEvent][seq],
-      surface: { nodes: [mismatchedSeq], replaceGeneration: 0 },
-    } as unknown as Session
+    const mismatched = Session.create(brandString<SessionId>('mismatched-event'))
+    const event = mismatched.append('user/message', createUserMessage({
+      content: [], source: { kind: 'user' },
+    }), SURFACE)
+    const eventAt = vi.spyOn(mismatched, 'eventAt').mockReturnValue({ ...event, seq: SessionSeq(99) })
+    onTestFinished(() => { eventAt.mockRestore() })
     expect(() => toolPairingBalancedBefore(mismatched, mismatchedSeq)).toThrow(/no matching session event/)
   })
 })

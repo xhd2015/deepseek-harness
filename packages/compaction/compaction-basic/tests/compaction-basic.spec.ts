@@ -3,7 +3,9 @@ import { Context } from '@deepseek-ai/cordis'
 import type { AttachmentId } from '@deepseek-ai/dsh-attachment/types'
 import BasicCompactionEngine from '@deepseek-ai/dsh-compaction-basic'
 import type { BasicCompactionConfig } from '@deepseek-ai/dsh-compaction-basic'
-import { selectCompactableRange } from '@deepseek-ai/dsh-compaction-basic/src/region.ts'
+import {
+  checkpointOnlyRangePrice, retainTokensForSummarizer, selectCompactableRange,
+} from '@deepseek-ai/dsh-compaction-basic/src/region.ts'
 import { answeredRouteProjectionDefinition } from '@deepseek-ai/dsh-compaction-basic/src/answered-route.ts'
 import { frameSummary } from '@deepseek-ai/dsh-compaction-basic/src/summarizer.ts'
 import type { SummarizationInput, SummaryResult } from '@deepseek-ai/dsh-compaction-basic/src/summarizer.ts'
@@ -16,7 +18,7 @@ import {
   resolveTargetPolicy,
 } from '@deepseek-ai/dsh-compaction-basic/src/config.ts'
 import type { CompactionResult } from '@deepseek-ai/dsh-compaction'
-import LlmRuntime, { createUserMessage, type ToolCallId, CONTEXT_WINDOW_EXCEEDED_CODE, createSystemMessage, createToolResultMessage, LlmAdapter , createMessage } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createUserMessage, type ToolCallId, CONTEXT_WINDOW_EXCEEDED_CODE, createSystemMessage, createToolResultMessage, LlmAdapter , createMessage, LlmError } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed } from '@deepseek-ai/dsh-llm'
 import type {
   ContentBlock,
@@ -213,6 +215,91 @@ function toolConversation(): Session {
   return session
 }
 
+/**
+ * Checkpoint, then an ended failed step whose assistant tool-calls have no
+ * results, then a later closed paired step. Overflow must still be able to
+ * shadow that later history.
+ */
+function endedOrphanCallsThenPairedTail(): {
+  session: Session
+  checkpointSeq: SessionSeq
+  laterUserSeq: SessionSeq
+} {
+  const session = Session.create(brandString<SessionId>('ended-orphan-then-tail'))
+  const orphanIds = [brandString<ToolCallId>('orphan-a'), brandString<ToolCallId>('orphan-b')] as const
+  const laterCallId = brandString<ToolCallId>('later-paired')
+
+  session.append('turn/start', { turn: 1 })
+  const checkpoint = session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text: 'checkpoint '.repeat(40) }],
+    source: { kind: 'compaction-basic' },
+  }), { surfaceOp: 'append' })
+  session.append('step/start', { turn: 1, step: 1 })
+  session.append('request/header', {
+    header: { config: { provider: MODEL, model: MODEL } },
+    reason: 'initial',
+  })
+  session.append('assistant/message', {
+    stream: [],
+    turn: 1,
+    step: 1,
+    message: createMessage({
+      role: 'assistant',
+      content: orphanIds.map(id => ({ type: 'tool-call' as const, id, name: 'read', arguments: '{}' })),
+      source: {
+        kind: 'model',
+        ...{ provider: MODEL, model: MODEL },
+      },
+    }),
+  }, { surfaceOp: 'append' })
+  session.append('tool/call', {
+    turn: 1, step: 1, callId: orphanIds[0], name: 'read', arguments: '{}',
+  })
+  session.append('step/end', { turn: 1, step: 1 })
+  session.append('turn/end', {
+    turn: 1,
+    reason: { kind: 'error', error: { message: "Cannot read properties of undefined (reading 'prepare')", code: 'UNKNOWN' } },
+  })
+
+  session.append('turn/start', { turn: 2 })
+  const laterUser = session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text: 'later history '.repeat(80) }],
+    source: { kind: 'user' },
+  }), { surfaceOp: 'append' })
+  session.append('step/start', { turn: 2, step: 1 })
+  session.append('assistant/message', {
+    stream: [],
+    turn: 2,
+    step: 1,
+    message: createMessage({
+      role: 'assistant',
+      content: [
+        { type: 'text', text: 'calling later '.repeat(80) },
+        { type: 'tool-call', id: laterCallId, name: 'read', arguments: '{}' },
+      ],
+      source: {
+        kind: 'model',
+        ...{ provider: MODEL, model: MODEL },
+      },
+    }),
+  }, { surfaceOp: 'append' })
+  session.append('tool/call', { turn: 2, step: 1, callId: laterCallId, name: 'read', arguments: '{}' })
+  session.append('tool/result', {
+    turn: 2,
+    step: 1,
+    message: createToolResultMessage({
+      callId: laterCallId,
+      content: [{ type: 'text', text: 'later result '.repeat(80) }],
+      isError: false,
+    }),
+  }, { surfaceOp: 'append' })
+  session.append('step/end', { turn: 2, step: 1 })
+  session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
+  session.append('turn/start', { turn: 3 })
+
+  return { session, checkpointSeq: checkpoint.seq, laterUserSeq: laterUser.seq }
+}
+
 /** One closed routed tool step followed by an open turn for rewrite events. */
 function oversizedToolResult(chars = 3_000, withCompactablePrompt = false): Session {
   const session = Session.create(brandString<SessionId>(`oversized-tool-${chars}`))
@@ -396,8 +483,11 @@ describe('compact configuration and defaults', () => {
       model: 'shared-id',
     })
 
+    // The 600-token headroom exceeds the 500-token slack under the 0.5 ratio,
+    // so the ratio ceiling — not the headroom — decides where pressure starts.
     expect(resolveCompactSpec(small, 1_000, 0)).toMatchObject({
-      thresholdTokens: 400,
+      thresholdTokens: 500,
+      headroomTokens: 500,
       retainTokens: 120,
     })
     expect(resolveCompactSpec(otherProvider, 2_000, 0)).toMatchObject({
@@ -448,16 +538,68 @@ describe('compact configuration and defaults', () => {
     })
   })
 
-  it.each([500, 501])('rejects headroom %i that exhausts the remaining capacity', (headroomTokens) => {
+  it.each([
+    // A default headroom larger than the ratio slack is capped, so a routed
+    // output reservation cannot push the trigger below `thresholdRatio`.
+    [500_000, 384_000, 65_536, 92_800, 18_560],
+    [500_000, 393_216, 65_536, 85_427, 17_085],
+    // 262_144 leaves only 52_429 tokens of slack, below the 65_536 default.
+    [262_144, 0, 65_536, 209_715, 41_943],
+    // Ample slack keeps the configured headroom in force.
+    [500_000, 0, 65_536, 400_000, 80_000],
+    [1_048_576, 256_000, 65_536, 727_040, 126_812],
+    [1_000_000, 256_000, 65_536, 678_464, 119_040],
+  ])('caps the configured headroom at the slack of window %i and output cap %i', (window, output, headroomTokens, threshold, retained) => {
     const policy = resolveTargetPolicy(resolveConfig({ headroomTokens }), { provider: MODEL, model: MODEL })
-    expect(() => resolveCompactSpec(policy, 1_000, 500))
-      .toThrow(/headroom tokens.*leaving no pressure budget/)
+    const spec = resolveCompactSpec(policy, window, output)
+    const messageBudgetTokens = window - output
+
+    expect(spec).toMatchObject({
+      contextWindow: window,
+      reservedCompletionTokens: output,
+      headroomTokens: Math.min(
+        headroomTokens,
+        messageBudgetTokens - Math.floor(messageBudgetTokens * policy.thresholdRatio),
+      ),
+      thresholdTokens: threshold,
+      retainTokens: retained,
+    })
+    expect(spec.thresholdTokens).toBeLessThanOrEqual(Math.floor(window * policy.thresholdRatio))
   })
 
-  it('rejects ratio retention that reaches the headroom-limited threshold', () => {
-    const policy = resolveTargetPolicy(resolveConfig({ headroomTokens: 420 }), { provider: MODEL, model: MODEL })
+  it('keeps a headroom that stays under the slack of the threshold ratio', () => {
+    const policy = resolveTargetPolicy(resolveConfig({ headroomTokens: 100 }), { provider: MODEL, model: MODEL })
+    expect(resolveCompactSpec(policy, 1_000, 0)).toMatchObject({
+      headroomTokens: 100,
+      thresholdTokens: 800,
+      retainTokens: 160,
+    })
+  })
+
+  it('leaves no slack above the ratio ceiling when the threshold ratio is 1', () => {
+    const policy = resolveTargetPolicy(resolveConfig({ thresholdRatio: 1 }), { provider: MODEL, model: MODEL })
+    expect(resolveCompactSpec(policy, 1_000, 0)).toMatchObject({
+      headroomTokens: 0,
+      thresholdTokens: 1_000,
+      retainTokens: 160,
+    })
+  })
+
+  it('resolves a headroom that exceeds the whole message budget by capping it', () => {
+    const policy = resolveTargetPolicy(resolveConfig({ headroomTokens: 500 }), { provider: MODEL, model: MODEL })
+    expect(resolveCompactSpec(policy, 1_000, 500)).toMatchObject({
+      headroomTokens: 100,
+      thresholdTokens: 400,
+    })
+  })
+
+  it('rejects ratio retention that reaches the threshold', () => {
+    const policy = resolveTargetPolicy(
+      resolveConfig({ headroomTokens: 0, maxTokens: 8192, retainTokens: 500 }),
+      { provider: MODEL, model: MODEL },
+    )
     expect(() => resolveCompactSpec(policy, 1_000, 500))
-      .toThrow(/retainTokens \(80\) must be less than threshold tokens 80/)
+      .toThrow(/retainTokens \(500\) must be less than threshold tokens 500/)
   })
 
   it('rejects a reserve that leaves no message budget or is not a count', () => {
@@ -881,6 +1023,84 @@ describe('pressure measurement and retention', () => {
       .rejects.toThrow(/still above threshold after 1 compaction attempts/)
   })
 
+  it('does not re-summarize a prior checkpoint that cannot close remaining pressure', async () => {
+    const compact = service({
+      auto: false,
+      compactionRetries: 1,
+      thresholdRatio: 0.3,
+      retainTokens: 180,
+    })
+    compact.summary = [{ type: 'text', text: 'tiny checkpoint' }]
+    const session = conversation(4, 'bulk '.repeat(400).trim())
+
+    await expect(compactIfNeeded(compact, session))
+      .rejects.toThrow(/only a prior checkpoint/)
+    expect(compact.calls).toHaveLength(1)
+    expect(session.snapshotEvents().filter(event => event.type === 'compaction/start')).toHaveLength(1)
+
+    // A second pass over the same checkpoint fails at the guard, not with another summary call.
+    await expect(compactIfNeeded(compact, session))
+      .rejects.toThrow(/only a prior checkpoint/)
+    expect(compact.calls).toHaveLength(1)
+  })
+
+  it('still re-summarizes an oversized checkpoint that can close remaining pressure', async () => {
+    const compact = service({
+      auto: false,
+      compactionRetries: 1,
+      thresholdRatio: 0.3,
+      retainTokens: 180,
+    })
+    compact.summary = Array.from({ length: 7 }, (_, index) => ({
+      type: 'text',
+      text: `summary ${index}`,
+    }))
+    compact.mutateDuringSummary = () => {
+      if (compact.calls.length > 1) {
+        compact.summary = [{ type: 'text', text: 'tiny' }]
+      }
+    }
+
+    const result = await compactIfNeeded(compact, conversation(4))
+    expect(result).not.toBeNull()
+    expect(compact.calls).toHaveLength(2)
+  })
+
+  it('prices a selected span only when every node is a compaction checkpoint', async () => {
+    const ctx = createContext()
+    const compact = service({
+      auto: false,
+      compactionRetries: 0,
+      thresholdRatio: 0.5,
+      retainTokens: 180,
+    }, ctx)
+    const session = conversation(4, 'bulk '.repeat(200).trim())
+    await compactIfNeeded(compact, session).catch(() => undefined)
+
+    const measurement = ctx.tokenMeter.measure(session)
+    const checkpoint = session.snapshotEvents().find(event =>
+      event.type === 'user/message' && event.data.source.kind === 'compact-checkpoint',
+    )
+    expect(checkpoint).toBeDefined()
+    expect(checkpointOnlyRangePrice(session, measurement, {
+      start: checkpoint!.seq,
+      end: checkpoint!.seq,
+    })).toBeGreaterThan(0)
+    // Any other history in the span disqualifies the whole span.
+    expect(checkpointOnlyRangePrice(session, measurement, {
+      start: measurement.nodes[0]!.seq,
+      end: measurement.nodes[measurement.nodes.length - 1]!.seq,
+    })).toBeNull()
+    expect(() => checkpointOnlyRangePrice(session, measurement, {
+      start: SessionSeq(999_999),
+      end: SessionSeq(999_999),
+    })).toThrow(/not on the measured surface/)
+    expect(() => checkpointOnlyRangePrice(session, measurement, {
+      start: measurement.nodes[1]!.seq,
+      end: measurement.nodes[0]!.seq,
+    })).toThrow(/not on the measured surface/)
+  })
+
   it('rounds a retention cut head-ward to preserve tool-call/result pairing', async () => {
     const compact = service({
       auto: false,
@@ -945,7 +1165,69 @@ describe('pressure measurement and retention', () => {
     const priced = ctx.tokenMeter.measure(session)
     expect(selectCompactableRange(session, priced, 1)).toBeNull()
   })
-})
+
+  it('overflow range still includes later paired history after an ended step left unanswered tool-calls', () => {
+    const ctx = createContext()
+    const { session, checkpointSeq, laterUserSeq } = endedOrphanCallsThenPairedTail()
+    const range = selectCompactableRange(session, ctx.tokenMeter.measure(session), 0)
+    expect(range).not.toBeNull()
+    expect(range?.start).toBe(checkpointSeq)
+    expect(range?.end).not.toBe(checkpointSeq)
+    const startIdx = session.surface.nodes.indexOf(range!.start)
+    const endIdx = session.surface.nodes.indexOf(range!.end)
+    expect(session.surface.nodes.slice(startIdx, endIdx + 1)).toContain(laterUserSeq)
+  })
+
+  it('overflow compaction shadows later paired history after an ended step left unanswered tool-calls', async () => {
+    const compact = service(compactConfig, createContext(1_000_000))
+    const { session, checkpointSeq, laterUserSeq } = endedOrphanCallsThenPairedTail()
+    const result = await compactIfNeeded(compact, session, 'context-overflow')
+    expect(result).not.toBeNull()
+    expect(result?.shadowedSeqs[0]).toBe(checkpointSeq)
+    expect(result?.shadowedSeqs).toContain(laterUserSeq)
+    expect(result?.shadowedSeqs.length).toBeGreaterThan(1)
+  })
+
+  it('computes a summarizer-fit retain budget from overflow versus window', () => {
+    expect(retainTokensForSummarizer(1_000, 500_000, 1_000, 100)).toBe(0)
+    expect(retainTokensForSummarizer(501_179, 500_000, 376_893, 1_559))
+      .toBe(501_179 - 500_000 + Math.floor(500_000 * 0.08))
+    expect(retainTokensForSummarizer(100, 0, 100, 10)).toBe(0)
+    expect(retainTokensForSummarizer(8_000, 128, 4_000, 400)).toBe(4_000 - 400)
+  })
+
+  it('overflow keeps a summarizer-fit tail when the full surface exceeds the window', async () => {
+    const ctx = createContext(800)
+    const compact = service({ auto: false }, ctx)
+    const session = conversation(4, 'bulk '.repeat(400))
+    const measurement = ctx.tokenMeter.measure(session)
+    expect(measurement.totalTokens).toBeGreaterThan(800)
+    const last = session.surface.nodes.at(-1)!
+    const result = await compactIfNeeded(compact, session, 'context-overflow')
+    expect(result).not.toBeNull()
+    expect(result?.shadowedSeqs.length).toBeGreaterThan(0)
+    expect(result?.shadowedSeqs).not.toContain(last)
+  })
+
+  it('records the pressure budget that admitted an automatic compaction', async () => {
+    const compact = service({ auto: false, thresholdRatio: 0.5, retainTokens: 180 })
+    const session = conversation(4)
+
+    await compactIfNeeded(compact, session)
+
+    const started = session.snapshotEvents()
+      .filter(event => event.type === 'compaction/start')
+    expect(started).toHaveLength(1)
+    expect(started[0]?.data).toMatchObject({
+      budget: {
+        contextWindow: 1_000,
+        reservedCompletionTokens: 0,
+        headroomTokens: 0,
+        thresholdTokens: 500,
+        retainTokens: 180,
+      },
+    })
+  })})
 
 describe('optional model-free tool-result pruning', () => {
   const pruneConfig = { thresholdChars: 100, headChars: 20, tailChars: 10 }
@@ -1101,16 +1383,44 @@ describe('compaction region transaction', () => {
     expect(compact.calls[1]!.input.messages[0]).toMatchObject({ role: 'user' })
   })
 
-  it('surfaces the session rejection of a range that covers the system head', async () => {
+  it('rejects a range covering the initial system node before recording compaction', async () => {
     const compact = service()
     const session = conversation(3, undefined, 'PROTECTED SYSTEM')
-    const nodes = [...session.surface.nodes]
+    const nodes = session.surface.nodes
+    const before = session.snapshotEvents()
     await expect(compact.compactRegion(nodes[0]!, nodes[3]!, agent(session, MODEL), SIGNAL))
-      .rejects.toThrow(/node 0 holds the system prompt/)
+      .rejects.toThrow('protected initial system message')
+    expect(session.snapshotEvents()).toEqual(before)
+    expect(compact.calls).toEqual([])
+  })
 
-    expect(session.surface.nodes).toEqual(nodes)
-    const end = session.snapshotEvents().findLast(event => event.type === 'compaction/end')
-    expect(end?.type === 'compaction/end' && end.data.error).toBeDefined()
+  it('compacts a balanced middle range without changing retained system messages', async () => {
+    const compact = service()
+    const session = conversation(3, undefined, 'INITIAL SYSTEM')
+    const update = session.append('system/message', {
+      turn: 4, step: 1, message: createSystemMessage('LATER SYSTEM'),
+    }, { surfaceOp: 'append' })
+    const nodes = [...session.surface.nodes]
+    const systems = session.deriveMessages().filter(message => message.role === 'system')
+    const result = await compact.compactRegion(nodes[3]!, nodes[4]!, agent(session, MODEL), SIGNAL)
+    expect(session.surface.nodes).toEqual([...nodes.slice(0, 3), result.summarySeq + 1, ...nodes.slice(5)])
+    expect(session.deriveMessages().filter(message => message.role === 'system')).toEqual(systems)
+    expect(session.surface.nodes.at(-1)).toBe(update.seq)
+    expect(session.snapshotEvents().filter(event => event.type === 'system/message')).toHaveLength(2)
+  })
+
+  it('omits empty system records from the summary input without rebuilding the head', async () => {
+    const compact = service()
+    const session = conversation(2, undefined, 'INITIAL SYSTEM')
+    const head = session.surface.nodes[0]!
+    const empty = session.append('system/message', {
+      turn: 3, step: 1, message: createSystemMessage(''),
+    }, { surfaceOp: 'append' })
+    const visible = session.deriveMessages()
+    await compact.compactRegion(session.surface.nodes[1]!, empty.seq, agent(session, MODEL), SIGNAL)
+    expect(compact.calls[0]?.input.messages).toEqual(visible)
+    expect(session.surface.nodes[0]).toBe(head)
+    expect(session.deriveMessages()[0]).toEqual(visible[0])
   })
 
   it.each([
@@ -1829,7 +2139,9 @@ describe('model-switch pressure', () => {
     expect(ctx.tokenMeter.measure(session).totalTokens).toBeLessThan(300)
   })
 
-  it.each([false, true])('requires a valid small-window policy even for short history (override: %s)', async (override) => {
+  // A headroom larger than the ratio slack is capped rather than rejected, so
+  // this small window resolves a legal budget with or without a model override.
+  it.each([false, true])('caps a large default headroom on a small window (override: %s)', async (override) => {
     const { ctx, adapter } = harness({
       headroomTokens: 65_536, maxTokens: 65_536,
       modelPolicies: override ? [{ provider: '64k', model: '64k', headroomTokens: 4_096, maxTokens: 4_096 }] : [],
@@ -1838,9 +2150,7 @@ describe('model-switch pressure', () => {
     const session = conversation(1, 'short')
     const previous = session.requestHeader()
     const selected = { provider: '64k', model: '64k', maxTokens: 4_096 }
-    const switching = request(ctx, session, selected)
-    if (override) await expect(switching).resolves.toEqual(selected)
-    else await expect(switching).rejects.toMatchObject({ code: 'MODEL_SWITCH_COMPACTION_FAILED' })
+    await expect(request(ctx, session, selected)).resolves.toEqual(selected)
     expect(session.requestHeader()).toEqual(previous)
     expect(adapter.lastOptions).toBeUndefined()
   })
@@ -2000,6 +2310,75 @@ describe('model-switch pressure', () => {
     expect(adapter.lastOptions).toBeUndefined()
   })
 
+  it('reports an unconfigured destination model as a model-selection failure', async () => {
+    const { ctx } = harness()
+    vi.spyOn(ctx.llm, 'resolveModelInfo').mockRejectedValueOnce(
+      new LlmError('pi-ai provider "small" has no configured model "missing"', 'UNKNOWN_MODEL'),
+    )
+    const session = conversation(4)
+    const previous = session.requestHeader()
+    const switching = request(ctx, session, { provider: 'small', model: 'missing' })
+
+    await expect(switching).rejects.toMatchObject({ code: 'UNKNOWN_MODEL' })
+    await expect(switching).rejects.toThrow('Cannot switch to small/missing')
+    await expect(switching).rejects.toThrow('select a model this provider configures')
+    await expect(switching).rejects.not.toThrow('context compaction failed')
+    expect(session.requestHeader()).toEqual(previous)
+    expect(session.snapshotEvents().filter(event => event.type === 'compaction/start')).toHaveLength(0)
+  })
+
+  it.each([
+    ['NO_ADAPTER', 'select a model from a provider this deployment serves'],
+    ['INVALID_CONFIG', 'select a model this provider configures'],
+    ['INVALID_MODEL_INFO', 'select another model for this provider'],
+    ['INVALID_MODEL_CONTEXT', 'select another model for this provider'],
+    ['INVALID_MODEL_MAX_TOKENS', 'select another model for this provider'],
+    ['INVALID_MODEL_REASONING', 'select another model for this provider'],
+  ] as const)('keeps the %s destination failure code and its model-selection advice', async (code, advice) => {
+    const { ctx } = harness()
+    vi.spyOn(ctx.llm, 'resolveModelInfo').mockRejectedValueOnce(
+      new LlmError(`destination lookup refused (${code})`, code),
+    )
+    const session = conversation(4)
+    const previous = session.requestHeader()
+    const switching = request(ctx, session, { provider: 'small', model: 'small' })
+
+    await expect(switching).rejects.toMatchObject({ code })
+    await expect(switching).rejects.toThrow(advice)
+    await expect(switching).rejects.not.toThrow('context compaction failed')
+    expect(session.requestHeader()).toEqual(previous)
+  })
+
+  it('reports a transient destination lookup failure without claiming a summary ran', async () => {
+    const { ctx } = harness()
+    vi.spyOn(ctx.llm, 'resolveModelInfo').mockRejectedValueOnce(
+      new LlmError('destination lookup timed out', 'TRANSPORT'),
+    )
+    const session = conversation(4)
+    const previous = session.requestHeader()
+    const switching = request(ctx, session, { provider: 'small', model: 'small' })
+
+    await expect(switching).rejects.toMatchObject({ code: 'MODEL_SWITCH_COMPACTION_FAILED' })
+    await expect(switching).rejects.toThrow("cannot check the destination model's capacity")
+    await expect(switching).rejects.toThrow('destination lookup timed out')
+    await expect(switching).rejects.not.toThrow('context compaction failed')
+    expect(session.requestHeader()).toEqual(previous)
+  })
+
+  it('keeps a compaction failure when the summary call itself hits an unknown model', async () => {
+    const { ctx } = harness({}, {
+      kind: 'error', failure: { code: 'UNKNOWN_MODEL', message: 'no summary model configured' },
+    })
+    const session = conversation(4)
+    const previous = session.requestHeader()
+    const switching = request(ctx, session, { provider: 'small', model: 'small' })
+
+    await expect(switching).rejects.toMatchObject({ code: 'MODEL_SWITCH_COMPACTION_FAILED' })
+    await expect(switching).rejects.toThrow('no summary model configured')
+    await expect(switching).rejects.toThrow('context compaction failed')
+    expect(session.requestHeader()).toEqual(previous)
+  })
+
   it('removes the switch check when the contributing plugin is unloaded', async () => {
     const ctx = createContext()
     onTestFinished(() => ctx.fiber.dispose())
@@ -2135,6 +2514,25 @@ describe('automatic listener and loader composition', () => {
     expect(warnings).toEqual([
       expect.stringContaining('retainTokens (500) must be less than threshold tokens 500'),
     ])
+  })
+
+  it('warns once per routed target when the ratio caps the configured headroom', async () => {
+    const ctx = createContext(1_000)
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: string) => void warnings.push(message)) as typeof ctx.logger.warn
+    const compact = new TestCompactionEngine(ctx, { headroomTokens: 500 })
+    const session = conversation(4, 'bulk '.repeat(400).trim())
+
+    await preStep(ctx, agent(session, MODEL))
+    await preStep(ctx, agent(session, MODEL))
+
+    expect(warnings).toEqual([
+      expect.stringContaining('headroomTokens 500 exceeds the 200-token slack'),
+    ])
+    expect(warnings[0]).toContain('thresholdRatio 0.8 leaves in a 1000-token window')
+    expect(warnings[0]).toContain('pressure starts at 800 tokens')
+    // The clipped result still compacts: the warning reports tightening, not a failure.
+    expect(compact.calls.length).toBeGreaterThan(0)
   })
 
   it.each([1_000, 1_500])('warns once and continues when the output reserve is %i for a 1,000-token window', async (maxTokens) => {

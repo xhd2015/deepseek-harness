@@ -10,7 +10,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import { trajectoryNode } from './trajectory-definition-common.ts'
 import type { TrajectoryPartialAssistant } from './trajectory-contract.ts'
 import {
-  displayFailure, emptyAssistantBlock, isTokenDelta, toAssistantBlock, toAssistantBlocks,
+  displayFailure, emptyAssistantBlock, isTokenDelta, replayBlocksFromSource, toAssistantBlock, toAssistantBlocks,
 } from './trajectory-event-projection.ts'
 
 /* jscpd:ignore-start -- Target-owned Definitions intentionally keep their event
@@ -206,7 +206,7 @@ function settleMessage(
   match: ConversationMatch,
   event: SessionEvent<'assistant/message'>,
 ): AssistantState {
-  const blocks = toAssistantBlocks(event.data.message.content)
+  const blocks = toAssistantBlocks(event.data.message.content, replayBlocksFromSource(event.data.message.source))
   return {
     ...settleTiming(state, event),
     blocks,
@@ -262,7 +262,7 @@ function finalNode(
       time: event.time,
       turn: state.turn,
       step: state.step,
-      blocks: toAssistantBlocks(event.data.message.content),
+      blocks: toAssistantBlocks(event.data.message.content, replayBlocksFromSource(event.data.message.source)),
       usage: event.data.usage,
       providerMetadata: {
         provider: event.data.message.source.provider,

@@ -178,6 +178,7 @@ export function agentFor(ctx: Context, id = 'original', meta?: CreateSessionOpti
     followup: vi.fn<(message: UserMessage) => void>(), inject: vi.fn<(message: UserMessage) => void>(),
     send() {}, steer() {}, cancel() {},
     whenIdle: async () => {}, runMaintenance: operation => operation(new AbortController().signal),
+    pause: () => false, resumePaused: () => false,
   }
 }
 

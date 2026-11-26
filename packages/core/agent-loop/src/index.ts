@@ -34,6 +34,11 @@ import { SessionPersistenceNotFoundError } from '@deepseek-ai/dsh-session-persis
 import type { SessionHandle, SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { ReactLoopAgent } from './agent.ts'
 import { inboxProjectionDefinition } from './inbox.ts'
+import {
+  installThinkingCapAutoContinueListener,
+  thinkingCapAutoContinueProjectionDefinition,
+  type ThinkingCapAutoContinueState,
+} from './thinking-cap-auto-continue.ts'
 import { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from './constants.ts'
 import type {} from './runtime-context.ts'
 
@@ -311,6 +316,7 @@ export class AgentLoop extends Service implements AgentFactory {
   /** Plain holder prevents Cordis from re-tracing the factory's dependency context through a caller shadow. */
   private readonly runtime: { ctx: Context }
   private modelProjectionHandle!: ProjectionHandle<ModelSelectionProjectionState>
+  private thinkingCapHandle!: ProjectionHandle<ThinkingCapAutoContinueState>
   private inboxProjectionHandle!: ProjectionHandle<InboxState>
 
   constructor(ctx: Context, config: Config) {
@@ -332,6 +338,11 @@ export class AgentLoop extends Service implements AgentFactory {
     ctx.effect(() => () => ownership.dispose(), 'agentLoop.transactions()')
     this.modelProjectionHandle = await ctx.sessionProjections.register(modelSelectionProjectionDefinition)
     this.inboxProjectionHandle = await ctx.sessionProjections.register(inboxProjectionDefinition)
+    this.thinkingCapHandle = await ctx.sessionProjections.register(thinkingCapAutoContinueProjectionDefinition)
+    ctx.effect(
+      () => installThinkingCapAutoContinueListener(ctx, this.thinkingCapHandle),
+      'agentLoop.thinkingCapAutoContinue()',
+    )
     ctx.effect(() => ctx.agents.setFactory(this), 'agentLoop.setFactory()')
     ctx.systemPrompt.variable('provider', context => context.modelSelection?.provider ?? context.agent?.options.provider)
     ctx.systemPrompt.variable('model', context => context.modelSelection?.model ?? context.agent?.options.model)
@@ -685,16 +696,22 @@ export class AgentLoop extends Service implements AgentFactory {
    * already written to the handle.
    * @param session - the unpublished session to store.
    * @param signal - optional cancellation forwarded to the backend create.
+   * @param parentSource - fork parent and cut; the constructor log is stored at creation.
    * @returns the owned handle and stored cursor, or `undefined` without a backend.
    */
-  private async createStoredSession(session: Session, signal?: AbortSignal): Promise<StoredSession | undefined> {
+  private async createStoredSession(
+    session: Session, signal?: AbortSignal, parentSource?: CreateAgentOptions['parentSource'],
+  ): Promise<StoredSession | undefined> {
     const persistence = this.runtime.ctx.get('sessionPersistence')
     if (persistence === undefined) return undefined
+    // oxlint-disable-next-line typescript/no-deprecated -- The stored log includes constructor-generated markers.
+    const stored = parentSource === undefined ? undefined : { ...parentSource, events: session.snapshotEvents() }
     const handle = await persistence.create(session.header, {
       inheritedEventCount: session.inheritedEventCount,
+      ...stored === undefined ? {} : { parentSource: stored },
       ...signal === undefined ? {} : { signal },
     })
-    return { handle, storedCount: 0 }
+    return { handle, storedCount: stored?.events.length ?? 0 }
   }
 
   /**
@@ -726,9 +743,9 @@ export class AgentLoop extends Service implements AgentFactory {
       using ownedPreparation = preparation
       // raceAbortCall closes a handle that finishes creating after cancellation.
       const stored = options.signal === undefined
-        ? await this.createStoredSession(ownedPreparation.session)
+        ? await this.createStoredSession(ownedPreparation.session, undefined, options.parentSource)
         : await raceAbortCall(
-          () => this.createStoredSession(ownedPreparation.session, options.signal),
+          () => this.createStoredSession(ownedPreparation.session, options.signal, options.parentSource),
           options.signal,
           options.sessionId,
           (abandoned) => { void abandoned?.handle.close().catch(() => {}) },

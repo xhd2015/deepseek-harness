@@ -20,6 +20,7 @@
  * `.agents/notes/implemented/architecture/2026-08-30-retain-ignorable-external-session-events.md`.
  */
 export const KNOWN_SESSION_EVENT_TYPES: ReadonlySet<string> = new Set([
+  'action-cards/decision',
   'agent-preset/selected',
   'agent/inbox/spliced',
   'approval/asked',
@@ -46,6 +47,7 @@ export const KNOWN_SESSION_EVENT_TYPES: ReadonlySet<string> = new Set([
   'job/settled',
   'llm/retry',
   'llm/retry-started',
+  'message/edit',
   'model/selection',
   'permission/preset',
   'plan/mode',
@@ -55,6 +57,7 @@ export const KNOWN_SESSION_EVENT_TYPES: ReadonlySet<string> = new Set([
   'schedule/change',
   'session-log-deepseek/delivery-accepted',
   'session/end-seed',
+  'session/thinking-cap-auto-continue',
   'session/title',
   'session/title-llm-request',
   'step/end',
@@ -82,10 +85,12 @@ export const KNOWN_SESSION_EVENT_TYPES: ReadonlySet<string> = new Set([
   'user/message',
   'web/deepseek-search-llm-request',
   'working-directory/change',
+  'workspace-root/change',
   'workspace/changes',
 ])
 
 /** Event types whose model-visible effects require an explicit pure interpreter. */
 export const MESSAGE_PROJECTION_EVENT_TYPES: ReadonlySet<string> = new Set([
   'image/offload',
+  'message/edit',
 ])

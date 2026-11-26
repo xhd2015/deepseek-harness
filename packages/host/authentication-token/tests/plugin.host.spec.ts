@@ -29,6 +29,7 @@ async function mounted(secure = false, before?: (ctx: Context) => void) {
   const authentication = new ConnectionAuthentication(ctx)
   const connection: HostConnectionHandle = {
     authentication,
+    apiPath: '/api',
     browserPeer: { principal: { kind: 'owner' }, interactions: 'answer', ctx, signal: new AbortController().signal,
       id: 'compat-peer', dispose: async () => {} } as PeerScope,
     allowsRemoteAuthorities: false,

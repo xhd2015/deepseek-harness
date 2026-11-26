@@ -62,18 +62,15 @@ interface SessionEventMap {
     headerSeq?: SessionSeq
   }
   /**
-   * The rendered system prompt on the model-visible surface. The loop appends
-   * the first one as surface node 0 before the step's first `user/message`.
-   * A prepared in-history route can append nonempty changes in a continuing
-   * series. An incapable route, or a new series whose effective text differs,
-   * normalizes text to the first system node; a series start whose latest
-   * surviving node already holds the rendering leaves it in place.
-   * Normalization empties nonempty later nodes, then rewrites the head if
-   * needed, through logged per-node replacements. An empty rendering always
-   * clears all active system nodes, leaving no older instructions model-visible.
-   * Empty later nodes are dormant and project to no message; an empty head with
-   * no active later node records "no system prompt". Restored nonempty text follows
-   * the same route and series rule; empty nodes never restore older text.
+   * System instructions and notices on the model-visible surface. The first
+   * accepted assembly reserves node 0, even with empty content. Later admissions
+   * append new or changed sections independently of the route's capabilities.
+   * Source metadata identifies canonical text and notices; retired records remove
+   * a source from committed state. Empty active text withdraws its instructions
+   * while preserving the source. Earlier messages retain their positions.
+   * `source.reset` replaces committed state, including when compaction rebuilds
+   * the initial system node from current instructions.
+   * Empty system nodes remain in the surface but produce no model message.
    */
   'system/message': { turn: number; step: number; message: SystemMessage }
   /**
@@ -144,8 +141,8 @@ interface SessionEventMap {
   /**
    * Route metadata for the next request, logged only when the route, capacity,
    * or system prompt update mode changes. It does not participate in request
-   * reconstruction or header equality. Prompt admission uses the bound prepared
-   * call's capability, not this snapshot from an earlier request.
+   * reconstruction, header equality, or system-section admission. The bound
+   * prepared call's capabilities determine adapter representation.
    */
   'request/context': RequestContext
   /**
@@ -173,6 +170,24 @@ interface SessionEventMap {
    * so tolerating concurrent writers needs a signal beyond the log.
    */
   'session/end-seed': { inherited?: true }
+  /**
+   * Rewrites the model-visible content of existing surface messages, or removes
+   * them from the surface, without changing any message's identity: the surface
+   * node keeps its original seq. Model requests and derived history read the
+   * projected result, so an edit that happens while a turn runs takes effect on
+   * the next step rather than mid-step.
+   *
+   * Each target must name a current surface node. A target that a later
+   * compaction shadowed is skipped rather than refused: the edit was valid when
+   * it was written, and a compaction must not turn committed history into a log
+   * that refuses to load.
+   *
+   * This event is NOT ignorable. A reader that skips it would show the
+   * pre-edit text as if the edit never happened, which is a wrong history rather
+   * than a rejected one, so a build that cannot interpret it must refuse the log.
+   * @messageProjection
+   */
+  'message/edit': { edits: readonly MessageEdit[] }
 }
 ```
 
@@ -182,12 +197,12 @@ interface SessionEventMap {
 
 ### The request header event: `request/header`
 
-The request envelope — the `EpochHeader` (call config + markers for adapter-supplied defaults + assembled tool schemas) — is logged session state, so every conversation request is a pure function of the log (the reconstructability Agent Note). The rendered system prompt is not part of the header: it is derived history, the `system/message` event at surface node 0 and any later in-history system node ([decision](../../.agents/notes/implemented/architecture/2026-09-02-system-prompt-as-surface-node.md)), so a prompt change replaces or appends a system node and leaves the header unchanged. A full `request/header` snapshot with reason `'initial'` or `'resume'` records each loop-instance boundary; a changed request appends a snapshot with reason `'change'`; and an unchanged envelope beginning an explicitly declared message series or following a surface replacement appends a snapshot with reason `'series'`. An `'initial'`, `'resume'`, or `'change'` snapshot carries `startsSeries: true` when that request also begins a series; reason `'series'` already records that fact. Ordinary append-only later Turns, further Steps, and retries in the same model-message series inherit the latest snapshot. `foldRequestHeader(events)` reconstructs the header by selecting the latest snapshot. The event is not a `SurfaceEventType`: it produces no LLM message.
+The request envelope — the `EpochHeader` (call config + markers for adapter-supplied defaults + assembled tool schemas) — is logged session state, so every conversation request is a pure function of the log (the reconstructability Agent Note). The rendered system prompt is not part of the header: it is derived history, the `system/message` event at surface node 0 and any later in-history system node ([decision](../../.agents/notes/implemented/architecture/2026-09-02-system-prompt-as-surface-node.md)), so ordinary prompt changes append system nodes and leave the header unchanged. A full `request/header` snapshot with reason `'initial'` or `'resume'` records each loop-instance boundary; a changed request appends a snapshot with reason `'change'`; and an unchanged envelope beginning an explicitly declared message series or following a surface replacement appends a snapshot with reason `'series'`. An `'initial'`, `'resume'`, or `'change'` snapshot carries `startsSeries: true` when that request also begins a series; reason `'series'` already records that fact. Ordinary append-only later Turns, further Steps, and retries in the same model-message series inherit the latest snapshot. `foldRequestHeader(events)` reconstructs the header by selecting the latest snapshot. The event is not a `SurfaceEventType`: it produces no LLM message.
 
 ```ts type-equiv
 /**
  * Logged request state outside derived history: call config and tools. The
- * system prompt is derived history — surface node 0, a `system/message` event.
+ * system prompt is derived history — the initial and subsequent `system/message` nodes.
  * The latest full `request/header` snapshot reconstructs the header; canonical
  * empty optional fields are absent.
  */
@@ -209,7 +224,7 @@ Current event acceptance requires canonical `request/header.header`: any `system
 
 ### The route capacity event: `request/context`
 
-The context metadata of the route a request resolved to is separate logged state, appended beside `request/header` inside the same step and only when the provider, model, capacity, or `systemPromptUpdate` mode differs from the previous record. It stays outside `EpochHeader` because that type is the reconstruction contract compared field-wise by `headerEquals`: capacity and the update mode describe a route, not a request input, so folding them in would let a route change register as a request-envelope `change` and would pull adapter metadata into the loop's request reconstruction. Like `request/header`, it is not a `SurfaceEventType` and produces no LLM message. `session.requestContext()` folds the latest record incrementally; the agent loop reads that record's `systemPromptUpdate` when it decides whether a changed system prompt replaces the latest system node or is appended after the cached history ([decision rule](../../packages/core/agent-loop/README.md#understand-the-implementation)). A route whose adapter advertises no capacity is recorded with `contextWindow` absent, so the new record clears an older route's capacity; a route without a declared update mode likewise clears an older route's `systemPromptUpdate`.
+Route context metadata is separate logged state, appended beside `request/header` in the same step only when provider, model, capacity, or `systemPromptUpdate` changes. These fields describe the prepared route and remain outside `EpochHeader`; they do not select system admission or become LLM messages. `session.requestContext()` folds the latest record incrementally. An absent `contextWindow` or `systemPromptUpdate` clears the previous route’s corresponding value.
 
 ```ts type-equiv
 /** Registration-bound metadata for one resolved model route. */
@@ -295,9 +310,11 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 Every surface event requires `surfaceOp`; known log-only events forbid both surface metadata fields. Native unknown or obsolete ignorable envelopes remain opaque. `assistant/message` embeds its provider stream and forbids `sourceEventSeqs`. System, user, and tool surface events may cite a complete non-empty set of unique earlier events when source attribution or replacement coverage requires it. A `tool/result` may carry `data.error` only when its message has `isError: true`; failure identity remains optional for failed results.
 
+<a id="surface-types"></a>
+
 ## Surface types
 
-The message-producing types (`SurfaceEventType` — `system/message`, `developer/message`, `user/message`, `assistant/message`, `tool/result`) carry surface metadata declaring how they join the ordered derived surface. `system/message` holds the rendered system prompt: the loop appends the first one as surface node 0 and, when the prompt changes, replaces exactly the latest system node or appends a new one on an in-history route; the surface fold rejects any other replacement covering a `system/message` at node 0, while a later system node is ordinary history that a compaction replacement may shadow. See the [session surface Agent Note](../../.agents/notes/implemented/architecture/2026-06-18-session-surface.md).
+Message-producing types (`SurfaceEventType`: `system/message`, `developer/message`, `user/message`, `assistant/message`, `tool/result`) declare placement in the ordered derived surface. System messages contain section updates and full resets; the [system-prompt package](../../packages/core/system-prompt/README.md) owns their meaning. A system message at node 0 permits only a system replacement over exactly that node; later system nodes can be shadowed by compaction. See the [session surface Agent Note](../../.agents/notes/implemented/architecture/2026-06-18-session-surface.md).
 
 ### `SurfaceEventType` — the message-producing subset of event types
 
@@ -337,7 +354,7 @@ type SurfaceOp =
   | { op: 'replace'; startSeq: SessionSeq; endSeq: SessionSeq }
 ```
 
-`'append'` is the normal tail-append path. `replace` contains exactly `op`, `startSeq`, and `endSeq`, with no aliases or extra keys. It shadows the inclusive span between those current surface event sequences and inserts the new event in their place; equal endpoints replace one entry. Endpoints must precede the replacing event, but their relative order is surface order, not numeric sequence order.
+`'append'` adds at the tail. `replace` has exactly `op`, `startSeq`, and `endSeq`; it shadows the inclusive span between current surface nodes and inserts the new event in their place. Equal endpoints replace one entry. All referenced events must precede the new event in the log. Positions follow surface order, not numeric sequence order.
 
 ### `SurfaceIntent` — the parameter to `session.append()`
 
@@ -375,8 +392,11 @@ interface SessionMessageProjectionContext {
   events: readonly SessionEvent[]
   /** Absolute sequence of the window's first event. */
   baseSeq: SessionLogOffset
-  /** Previously projected messages keyed by their original event sequences. */
-  messages: ReadonlyMap<SessionSeq, Message>
+  /**
+   * Previously projected messages keyed by their original event sequences.
+   * A `null` entry means an edit removed that message from model history.
+   */
+  messages: ReadonlyMap<SessionSeq, Message | null>
 }
 ```
 
@@ -390,10 +410,12 @@ interface SessionMessageProjection<T extends SessionEventType = SessionEventType
    * message identities and publish immutable copies without mutating the input.
    * @param event - candidate event, not yet applied to the supplied history.
    * @param context - history preceding this decision.
-   * @returns changed current messages keyed by their original sequences.
+   * @returns changed current messages keyed by their original sequences. A
+   * `null` value removes that message from model history while the surface node,
+   * and therefore its seq, stays in place.
    * @throws when the durable decision cannot be applied to this history.
    */
-  project(event: SessionEvent<T>, context: SessionMessageProjectionContext): ReadonlyMap<SessionSeq, Message>
+  project(event: SessionEvent<T>, context: SessionMessageProjectionContext): ReadonlyMap<SessionSeq, Message | null>
 }
 ```
 
@@ -404,10 +426,21 @@ interface SessionMessageProjection<T extends SessionEventType = SessionEventType
 `SurfaceManager(log, baseSeq?, projections?)` can instead fold a contiguous loaded window whose first event has the absolute sequence `baseSeq`. Every event remains contiguous in that absolute sequence space, and a replacement that crosses the window head fails because its declared range is absent.
 
 ```ts type-equiv
+/** One system node on the current surface, including an empty head. */
+interface SystemSurfaceNode {
+  readonly seq: SessionSeq
+  /** Whether the logged content array has no blocks; a node with empty text blocks is not empty. */
+  readonly isEmpty: boolean
+}
+```
+
+```ts type-equiv
 /** Readonly live projection of the message-producing session events. */
 interface SessionSurface {
   /** Current surface event sequences in model-visible order. */
   readonly nodes: readonly SessionSeq[]
+  /** Current system nodes in surface order, scanned from the surface on each read; citations do not affect membership. */
+  readonly systemNodes: readonly SystemSurfaceNode[]
   /** Monotonic count of committed positional replacements. */
   readonly replaceGeneration: number
   /** Monotonic count of committed replacements and plugin-owned message changes. */
@@ -440,8 +473,11 @@ interface SurfaceFoldResult {
   nodes: SessionSeq[]
   /** Replacement operations in event order. */
   replacements: SurfaceFoldReplacement[]
-  /** Immutable projected messages, keyed by their original event sequences. */
-  projectedMessages: ReadonlyMap<SessionSeq, Message>
+  /**
+   * Immutable projected messages, keyed by their original event sequences.
+   * A `null` entry means an edit removed that message from model history.
+   */
+  projectedMessages: ReadonlyMap<SessionSeq, Message | null>
 }
 ```
 
@@ -609,15 +645,14 @@ declare class Session {
    *
    * @param type - The event type (key of {@link SessionEventMap}).
    * @param data - The event payload; must be JSON-serializable.
-   * @param opts - Surface metadata: `surfaceOp` controls how the event enters
-   *   the ordered surface; `sourceEventSeqs` lists the seq numbers of earlier
-   *   events this one derives from. REQUIRED for
-   *   {@link SurfaceEventType} events (every message-producing event must
-   *   declare how it joins the surface, the sole source of derived model
-   *   history) and
-   *   rejected by the compiler for non-surface types like `turn/start` or
-   *   `assistant/attempt`. Assistant messages embed their exact provider
-   *   stream and cannot cite top-level source events.
+   * @param opts - For {@link SurfaceEventType} events, required surface
+   *   metadata: `surfaceOp` controls how the event enters the ordered surface;
+   *   `sourceEventSeqs` lists the seq numbers of earlier events this one
+   *   derives from (every message-producing event must declare how it joins
+   *   the surface, the sole source of derived model history). Assistant
+   *   messages embed their exact provider stream and cannot cite top-level
+   *   source events. For log-only types, an optional {@link LogOnlyAppendOptions}
+   *   may mark the record `ignorable` so an older reader can skip it.
    * @returns the logged event — its assigned `seq`/`time` plus the SNAPSHOT of
    *   `data` that entered the log, so reading `event.data` back sees the logged
    *   value, never the caller's still-mutable input.
@@ -641,7 +676,7 @@ declare class Session {
   append<T extends SessionEventType>(
     type: T,
     data: SessionEventMap[T],
-    ...opts: T extends SurfaceEventType ? [opts: SurfaceIntent<T>] : []
+    ...opts: T extends SurfaceEventType ? [opts: SurfaceIntent<T>] : [opts?: LogOnlyAppendOptions]
     ): SessionEvent<T>;
   /**
    * The {@link EpochHeader} in force after the log's last header event — the
@@ -711,6 +746,8 @@ Everything else (`turn/*`, `step/*`, `assistant/attempt`, plugin-owned `llm/retr
 - `fork(source, boundary?, childSessionId?)` accepts a live `Session` object or live `SessionId`, selects source events through the inclusive `SessionSeq` boundary (default: current last event), closes any open tail, then creates an independent live session with deep-cloned seed events, `isSeeded: true`, the exact `inheritedEventCount`, and inherited `cwd`, without `parentSession`.
 
 An explicit `boundary` lets callers fork from any stable between-turn position, including a previous `turn/end` or a later standalone log-only event, even if the source has newer events or an open current turn. The API rejects a prefix that ends inside an open turn instead of clipping silently. `dsh-subagent-fork-in-process` keeps its completed-prefix clipping because tool-time delegation usually starts while the parent turn is open; ordinary session branching should make the requested boundary explicit.
+
+<a id="why-a-turn-ended-turnendreasonmap"></a>
 
 ## Why a turn ended: `TurnEndReasonMap`
 
@@ -904,6 +941,16 @@ resolveAgent(sessionId: SessionId): Promise<ApiSessionAgentResult>
 @Remote('search') async search(request: SessionSearchRequest, signal: AbortSignal): Promise<SessionSearchValue>
 
 /**
+ * Report whether each named or loaded Session is running a turn, without
+ * listing, resuming, or projecting. The answer names only Sessions whose
+ * Agent this caller admits, so an omitted id is unknown here rather than
+ * idle, and a reader with its own liveness source keeps that source.
+ * @param request - Session ids to report, or every loaded Agent when omitted.
+ * @returns the running flag of each admitted Session that currently has an Agent.
+ */
+@Remote('status') status(request: SessionStatusRequest): SessionStatusValue
+
+/**
  * Create one ordinary Session for a new conversation, reusing the named blank Session while it is reusable.
  * @param request - optional blank Session to reuse, location, and Agent preset.
  * @returns the created or reused Session identity and its preset when configured.
@@ -911,11 +958,56 @@ resolveAgent(sessionId: SessionId): Promise<ApiSessionAgentResult>
 @Remote('create') create(request: SessionCreateRequest): Promise<SessionCreateValue>
 
 /**
+ * Create a Session with its first input already in place: a draft pending in
+ * the composer, or a prompt submitted, together with that input's images.
+ *
+ * This composes `create` with the draft store or `prompt` rather than reaching
+ * into the Agent, so a Session created here is indistinguishable from one
+ * created by its own RPC and given input by the next. A draft admits no
+ * prompt: the images are stored and left pending, and submitting remains the
+ * composer's own act. Nothing is rolled back when the input fails: the Session
+ * id is already published, so the caller retries the input against it instead
+ * of leaking a second Session.
+ * @param request - where to create, which input, and that input's images.
+ * @param signal - caller cancellation before any input is written.
+ * @returns the created Session, and why its input failed when it did.
+ */
+@Remote('createWithInput') async createWithInput( request: SessionCreateWithInputRequest, signal: AbortSignal, ): Promise<SessionCreateWithInputValue>
+
+/**
+ * Read durable composer text without resuming the Session or changing its transcript.
+ * @param request - Session identity.
+ * @returns saved text, or empty text when no draft exists.
+ */
+@Remote('getDraft') getDraft(request: SessionDraftRequest): Promise<SessionDraftValue>
+
+/**
+ * Replace durable composer text without admitting a prompt; dependent writes must be serialized by callers.
+ * @param request - Session identity and text; empty text clears the record.
+ * @returns the text after this write is durable.
+ */
+@Remote('setDraft') setDraft(request: SessionSetDraftRequest): Promise<SessionDraftValue>
+
+/**
  * Select one Session-local model after explicitly resuming the Session; save the default in the background.
  * @param request - Session identity and requested model selection.
  * @returns the normalized selection installed for the Session, without waiting for default persistence.
  */
 @Remote('selectModel') selectModel(request: SessionSelectModelRequest): Promise<SessionSelectModelValue>
+
+/**
+ * Record this Session's thinking-cap auto-continue policy.
+ * @param request - Session identity and requested policy.
+ * @returns the stored policy and the durable seq the Client applies.
+ */
+@Remote('setThinkingCapAutoContinue') setThinkingCapAutoContinue( request: SessionSetThinkingCapAutoContinueRequest, ): Promise<SessionSetThinkingCapAutoContinueValue>
+
+/**
+ * Persist the deployment default model without addressing a Session.
+ * @param request - provider, model, and optional reasoning effort.
+ * @returns the normalized selection after the default is durable.
+ */
+@Remote('selectDefaultModel') selectDefaultModel(request: SessionSelectDefaultModelRequest): Promise<SessionSelectModelValue>
 
 /**
  * Select the first available account model after login when no provider API key is configured.
@@ -928,6 +1020,12 @@ resolveAgent(sessionId: SessionId): Promise<ApiSessionAgentResult>
  * @returns provider-grouped models, the deployment default, and isolated provider failures.
  */
 @Remote('modelCatalog') modelCatalog(): Promise<ModelCatalog>
+
+/**
+ * Re-probe live model listings, then describe every currently routable model.
+ * @returns provider-grouped models after the forced listing round-trip.
+ */
+@Remote('refreshModelCatalog') async refreshModelCatalog(): Promise<ModelCatalog>
 
 /**
  * Report whether this deployment can hand a Session workspace path to a native desktop.
@@ -967,11 +1065,16 @@ workspaceDesktop(): { name: string; available: boolean; fileManager: 'finder' | 
 @Remote('rename') rename(request: SessionRenameRequest): Promise<SessionRenameValue>
 
 /**
- * Fork one cold-readable exact event prefix into a new Session. An omitted
- * boundary selects the latest completed-turn prefix; an open cut receives
- * synthetic fork closers.
- * @param request - source Session, optional exact inclusive event boundary, and migration preflight choice.
- * @returns the new Session identity.
+ * Reset one Session into a new one seeded with its compacted context.
+ * @param request - source Session identity and optional child cwd.
+ * @returns the child identity and whether a compaction ran.
+ */
+@Remote('compactIntoNew') compactIntoNew(request: SessionCompactIntoNewRequest): Promise<SessionCompactIntoNewValue>
+
+/**
+ * Copy a Session's history into a new child Session, optionally compacted.
+ * @param request - source Session identity, child cwd, and whether a migration may be skipped.
+ * @returns the child identity and whether a compaction ran.
  */
 @Remote('fork') async fork(request: SessionForkRequest): Promise<SessionForkValue>
 
@@ -982,6 +1085,24 @@ workspaceDesktop(): { name: string; available: boolean; fileManager: 'finder' | 
  * @returns acknowledgement that the Agent accepted the prompt.
  */
 @Remote('prompt') async prompt(request: SessionPromptRequest, signal: AbortSignal): Promise<SessionPromptValue>
+
+/**
+ * Commit one injected transcript batch (user, thinking, assistant) and let the
+ * Agent run on it. Accepted whether the Agent is idle or already running.
+ * @param request - Session identity, idempotency key, and the ordered batch.
+ * @param signal - caller cancellation before the batch is committed.
+ * @returns committed seqs in batch order and whether the Agent acts unprompted.
+ */
+@Remote('inject') inject(request: SessionInjectRequest, signal: AbortSignal): Promise<SessionInjectValue>
+
+/**
+ * Rewrite or remove already-produced messages, then let the Agent act on the
+ * edited history.
+ * @param request - session, idempotency key, and the ordered changes.
+ * @param signal - request cancellation.
+ * @returns the committed record seq and whether a run was started.
+ */
+@Remote('edit') edit(request: SessionEditRequest, signal: AbortSignal): Promise<SessionEditValue>
 
 /**
  * Read one image from the attachment store after gateway authorization.

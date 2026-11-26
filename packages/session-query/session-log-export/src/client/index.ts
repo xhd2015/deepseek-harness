@@ -10,6 +10,7 @@ import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type {} from '@deepseek-ai/dsh-client-ui-context-menu/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { IconCopyOutlineRegular, IconDownloadOutlineRegular, IconPaperPlaneOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { AutoContinueToast, type AutoContinueToastInjected } from './AutoContinueToast.tsx'
 import { SessionLogDownloadController } from './controller.ts'
 import { SessionMarkdownCopyController } from './copy-controller.ts'
 import { SessionMarkdownCopyToast, type SessionMarkdownCopyToastInjected } from './CopyToast.tsx'
@@ -52,6 +53,17 @@ export function apply(ctx: ClientContext): void {
     }, 'session-log-download: feedback availability')
   })
   const t = ctx.locale.bind(NS)
+  const autoContinueError = createSnapshotStore<{ seq: number } | null>(null)
+  let autoContinueErrorSeq = 0
+  ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+    name: 'shell.overlay',
+    id: 'session-log-download.auto-continue-toast',
+    locale: NS,
+    inject: (): AutoContinueToastInjected => ({
+      hooks: { autoContinueError },
+      dismissAutoContinueError: () => { autoContinueError.set(null) },
+    }),
+  }, AutoContinueToast))
   ctx.slots.inject('contextMenu.icon', function* () {
     for (const [key, Icon] of Object.entries({
       'session-log-download.copy': IconCopyOutlineRegular,
@@ -70,6 +82,35 @@ export function apply(ctx: ClientContext): void {
         run: () => controller.download(sessionId) },
     ],
   }), 'session-log-download: Header exports')
+  ctx.inject(['sessions'], (scope) => { scope.effect(() => scope.contextMenus.register({
+    id: 'session-log-download.auto-continue', target: 'sessionHeader', order: 500,
+    observe: ({ sessionId }) => {
+      const session = ctx.sessions.binding(sessionId)?.session
+      return session === undefined ? [ctx.locale] : [session.projections.faceOf('thinkingCapAutoContinue'), ctx.locale]
+    },
+    resolve: ({ sessionId }) => {
+      const session = ctx.sessions.binding(sessionId)?.session
+      // A host that does not serve the policy keeps the row out rather than offering a dead toggle.
+      if (session === undefined || typeof session.setThinkingCapAutoContinue !== 'function') return []
+      const enabled = session.projections.faceOf('thinkingCapAutoContinue').getSnapshot() === true
+      return [{
+        id: 'auto-continue',
+        label: t('menu.autoContinue'),
+        checked: enabled,
+        separatorBefore: true,
+        // A refused write leaves the projection unchanged, so a re-resolve still
+        // reads the old policy; the toast is the only place the refusal surfaces.
+        run: async () => {
+          const result = await session.setThinkingCapAutoContinue(!enabled)
+          if (!result.ok) {
+            autoContinueErrorSeq += 1
+            autoContinueError.set({ seq: autoContinueErrorSeq })
+          }
+        },
+      }]
+    },
+  }), 'session-log-download: Header auto-continue') })
+
   ctx.effect(() => ctx.contextMenus.register({
     id: 'session-log-download.feedback', target: 'sessionHeader', order: 600,
     observe: () => [feedbackAvailable, ctx.locale],

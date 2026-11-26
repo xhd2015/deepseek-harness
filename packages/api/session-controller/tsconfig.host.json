@@ -9,11 +9,14 @@
     "src/index.ts",
     "src/types.ts",
     "src/remote-events.ts",
+    "src/session-resource.ts",
     "src/agent.ts",
     "src/assistant-stream.ts",
     "src/catalog.ts",
     "src/commands.ts",
+    "src/compacted-seed.ts",
     "src/control.ts",
+    "src/drafts.ts",
     "src/file-references.ts",
     "src/history.ts",
     "src/history/controller.ts",
@@ -29,6 +32,9 @@
     "src/continuation.ts"
   ],
   "references": [
+    {
+      "path": "../../compaction/compaction"
+    },
     {
       "path": "../gateway/tsconfig.host.json"
     },
@@ -105,6 +111,9 @@
       "path": "../../skill/skill"
     },
     {
+      "path": "../../storage/storage-domain"
+    },
+    {
       "path": "../../subagent/subagent"
     },
     {
@@ -112,6 +121,9 @@
     },
     {
       "path": "../../util/values"
+    },
+    {
+      "path": "../../util/workspace-path"
     },
     {
       "path": "../../typert/protocol"

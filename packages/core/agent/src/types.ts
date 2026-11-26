@@ -6,6 +6,7 @@
 
 import type { ReasoningEffortId } from '@deepseek-ai/dsh-llm/types'
 import type { UserMessage } from '@deepseek-ai/dsh-llm/types'
+import type {} from '@deepseek-ai/dsh-llm'
 // Type-only: the Workspace registry's archive-admission family map this registry merges `turn` into.
 import type {} from '@deepseek-ai/dsh-workspace/types'
 import type { OptionalSessionSeq, SessionId, SessionSeq } from '@deepseek-ai/dsh-session/types'
@@ -60,6 +61,8 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionMap {
     /** Pending agent input reconstructed from durable inbox splices. */
     inbox: InboxWireState
+    /** Whether this Session auto-continues a reasoning-only `max-tokens` stop. */
+    thinkingCapAutoContinue: boolean
   }
 }
 
@@ -119,5 +122,14 @@ declare module '@deepseek-ai/dsh-session/types' {
      * later selection. Log-only: it never enters derived model history.
      */
     'model/selection': ModelSelection
+    /**
+     * Per-Session policy: auto-continue when thinking fills `max_tokens`.
+     * Log-only last-write-wins; writers mark it `ignorable` so older readers
+     * skip it and keep auto-continue off.
+     */
+    'session/thinking-cap-auto-continue': {
+      /** Whether a later reasoning-only `max-tokens` stop should auto-continue. */
+      enabled: boolean
+    }
   }
 }

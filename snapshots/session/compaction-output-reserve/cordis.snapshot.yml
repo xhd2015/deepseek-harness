@@ -1,5 +1,6 @@
-# With 1,800 tokens of headroom, a 1,000-token output reservation lowers the
-# trigger from 6,980 to 5,980, between the history and its condensed replacement.
+# The 1,800-token headroom fits inside the slack a 0.7 threshold ratio leaves in
+# the 7,980-token message budget, so a 1,000-token output reservation lowers the
+# trigger from 6,286 to 6,180, between the history and its condensed replacement.
 
 
 - id: agent-instructions
@@ -18,7 +19,7 @@
 - id: compaction-basic
   name: '@deepseek-ai/dsh-compaction-basic'
   config:
-    thresholdRatio: 0.8
+    thresholdRatio: 0.7
     headroomTokens: 1800
     retainTokens: 20
     maxTokens: 32
@@ -32,7 +33,7 @@
             name: DeepSeek
             models:
               - id: deepseek-v4-flash
-                contextWindow: 8980
+                contextWindow: 8792
                 defaultMaxTokens: 1000
     - id: compaction-working-directory
       name: '../../../packages/test-support/session-snapshot/tests/fixtures/compaction-working-directory.ts'

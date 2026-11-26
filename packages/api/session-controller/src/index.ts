@@ -1,7 +1,9 @@
 /** Session Remote owner: cold reads, explicit Agent commands, and live control state. */
 
+import { randomUUID } from 'node:crypto'
 import { hostname } from 'node:os'
 import { resolve } from 'node:path'
+import type { PromptContentPart } from '@deepseek-ai/dsh-attachment'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-fs'
 import { Context, Service } from '@deepseek-ai/cordis'
@@ -13,7 +15,7 @@ import { canOpenNativePath, nativeFileManager, nativeFileApplications, openNativ
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-projection-cache'
 import type { SessionObservation } from '@deepseek-ai/dsh-session-query'
-import { Remote, RemoteError, TypertRemoteService, principalOf, type TypertResourceResolveInput } from '@deepseek-ai/dsh-typert-protocol'
+import { Remote, RemoteError, TypertRemoteService, principalOf } from '@deepseek-ai/dsh-typert-protocol'
 import { canonicalClientTimeZone } from '@deepseek-ai/dsh-util-time'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 import type {} from '@deepseek-ai/dsh-api-remote-access'
@@ -22,12 +24,14 @@ import {
   type ApiSessionAgentResult,
 } from './agent.ts'
 import { SessionCommandController, hasPromptContent } from './commands.ts'
+import { resolveSessionResource } from './session-resource.ts'
 import { SessionControlController } from './control.ts'
+import { SessionDraftController } from './drafts.ts'
 import { HistoryController } from './history/controller.ts'
 import { StateController } from './state/controller.ts'
 import { WebController } from './web/controller.ts'
 import { SessionFileReferences } from './file-references.ts'
-import { ApiSessionList } from './list.ts'
+import { ApiSessionList, isSessionRunning } from './list.ts'
 import { buildModelCatalog, hasProviderApiKey } from './catalog.ts'
 import { SessionSkillCatalog } from './skill-catalog.ts'
 import { SessionMediaReferences } from './media-references.ts'
@@ -35,18 +39,33 @@ import { ArchivedSessionGate } from './archived-session-gate.ts'
 import type {
   ModelCatalog,
   SessionWorkspacePathApplication,
-  SessionAddress,
   SessionAttachmentRequest,
   SessionAttachmentValue,
   SessionCancelRequest,
+  SessionPauseRequest,
+  SessionPauseValue,
+  SessionUnpauseRequest,
+  SessionUnpauseValue,
   SessionCancelValue,
   SessionControlFrame,
   SessionCreateRequest,
   SessionCreateValue,
+  SessionCreateWithInputRequest,
+  SessionCreateWithInputValue,
+  SessionRequestId,
+  SessionDraftRequest,
+  SessionDraftValue,
+  SessionSetDraftRequest,
   SessionFollowFrame,
   SessionFollowRequest,
+  SessionCompactIntoNewRequest,
+  SessionCompactIntoNewValue,
   SessionForkRequest,
   SessionForkValue,
+  SessionEditRequest,
+  SessionEditValue,
+  SessionInjectRequest,
+  SessionInjectValue,
   SessionListRequest,
   SessionListValue,
   SessionOpenWorkspacePathRequest,
@@ -59,8 +78,13 @@ import type {
   SessionRenameValue,
   SessionSearchRequest,
   SessionSearchValue,
+  SessionSelectDefaultModelRequest,
+  SessionSetThinkingCapAutoContinueRequest,
+  SessionSetThinkingCapAutoContinueValue,
   SessionSelectModelRequest,
   SessionSelectModelValue,
+  SessionStatusRequest,
+  SessionStatusValue,
   SessionProjectionsRequest,
   SessionProjectionsValue,
   SessionUpdateQueueRequest,
@@ -77,34 +101,6 @@ declare module '@deepseek-ai/cordis' {
     /** Host Session business API and Remote namespace owner. */
     sessionController: SessionController
   }
-}
-
-/**
- * Extract the Session resource from an ID or a history address.
- *
- * Registers as the `session` kind default, so it applies to every Remote method of
- * every namespace: a top-level `sessionId` parameter, otherwise the first object
- * parameter carrying `sessionId` or an `address`. A new request type whose first
- * object parameter has an unrelated `address` field would be read as an address.
- * @param input - validated wire arguments and their ordered parameter descriptions.
- * @returns the named Session identity, otherwise the first object's Session identity or history address.
- * @throws Error when the request object supplies both sessionId and address.
- */
-function resolveSessionResource({ args, parameters }: TypertResourceResolveInput): SessionId | undefined {
-  const sessionParameter = parameters.find(parameter => parameter.name === 'sessionId' || parameter.wire === 'sessionId')
-  if (sessionParameter !== undefined) return args[sessionParameter.wire] as SessionId | undefined
-  for (const parameter of parameters) {
-    const value = args[parameter.wire]
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) continue
-    const request = value as { readonly sessionId?: SessionId; readonly address?: SessionAddress }
-    const address = request.address
-    if (request.sessionId !== undefined && address !== undefined) {
-      throw new Error('Session resource request must not contain both sessionId and address')
-    }
-    return request.sessionId ?? (address === undefined ? undefined
-      : address.kind === 'session' ? address.sessionId : address.childSessionId)
-  }
-  return undefined
 }
 
 /** Session Controller deployment policy. */
@@ -132,6 +128,19 @@ export interface SessionControllerInternals {
   readonly canOpenPath?: () => boolean
 }
 
+/**
+ * The one-line reason a created Session's input did not land.
+ *
+ * A RemoteError carries the code, not the caller's prose, so the code is what a
+ * caller can branch on; anything else keeps its own message.
+ * @param error - whatever the draft write or prompt admission threw.
+ * @returns text for {@link SessionCreateWithInputValue.inputError}.
+ */
+function inputErrorMessage(error: unknown): string {
+  if (error instanceof RemoteError) return `${error.code}: ${error.message}`
+  return error instanceof Error ? error.message : String(error)
+}
+
 /** Host service backing the generated `ctx.remote.session` namespace. */
 export class SessionController extends TypertRemoteService {
   static inject = [
@@ -145,6 +154,7 @@ export class SessionController extends TypertRemoteService {
     'sessions',
     'sessionProjections',
     'sessionQuery',
+    'storageDomain',
     'typert',
     'typertGateway',
     'workspaceRegistry',
@@ -156,6 +166,7 @@ export class SessionController extends TypertRemoteService {
   })
 
   private historyController!: HistoryController
+  private drafts!: SessionDraftController
   private stateController!: StateController
   private webController!: WebController
 
@@ -190,6 +201,8 @@ export class SessionController extends TypertRemoteService {
   protected async [Service.init](): Promise<void> {
     const ctx = this.ctx
     ctx.typert.resources.register('session', { resolve: resolveSessionResource })
+    this.drafts = new SessionDraftController(ctx)
+    await this.drafts.open()
     this.agents = new ApiSessionAgentController(ctx)
     this.agents.initialize()
     this.commands = new SessionCommandController(ctx, this.agents, process.cwd())
@@ -300,6 +313,26 @@ export class SessionController extends TypertRemoteService {
   }
 
   /**
+   * Report whether each named or loaded Session is running a turn, without
+   * listing, resuming, or projecting. The answer names only Sessions whose
+   * Agent this caller admits, so an omitted id is unknown here rather than
+   * idle, and a reader with its own liveness source keeps that source.
+   * @param request - Session ids to report, or every loaded Agent when omitted.
+   * @returns the running flag of each admitted Session that currently has an Agent.
+   */
+  @Remote('status')
+  status(request: SessionStatusRequest): SessionStatusValue {
+    const ids = request.ids ?? this.ctx.agents.list().map(agent => agent.id)
+    const running: Record<string, boolean> = {}
+    for (const sessionId of ids) {
+      if (this.ctx.agents.get(sessionId) === undefined) continue
+      if (!this.ctx.remoteAccess.allows({ kind: 'session', id: sessionId })) continue
+      running[sessionId] = isSessionRunning(this.ctx, sessionId)
+    }
+    return { running }
+  }
+
+  /**
    * Create one ordinary Session for a new conversation, reusing the named blank Session while it is reusable.
    * @param request - optional blank Session to reuse, location, and Agent preset.
    * @returns the created or reused Session identity and its preset when configured.
@@ -310,6 +343,110 @@ export class SessionController extends TypertRemoteService {
   }
 
   /**
+   * Create a Session with its first input already in place: a draft pending in
+   * the composer, or a prompt submitted, together with that input's images.
+   *
+   * This composes `create` with the draft store or `prompt` rather than reaching
+   * into the Agent, so a Session created here is indistinguishable from one
+   * created by its own RPC and given input by the next. A draft admits no
+   * prompt: the images are stored and left pending, and submitting remains the
+   * composer's own act. Nothing is rolled back when the input fails: the Session
+   * id is already published, so the caller retries the input against it instead
+   * of leaking a second Session.
+   * @param request - where to create, which input, and that input's images.
+   * @param signal - caller cancellation before any input is written.
+   * @returns the created Session, and why its input failed when it did.
+   */
+  @Remote('createWithInput')
+  async createWithInput(
+    request: SessionCreateWithInputRequest,
+    signal: AbortSignal,
+  ): Promise<SessionCreateWithInputValue> {
+    signal.throwIfAborted()
+    const draft = request.draft ?? ''
+    const draftImages = request.draftImages ?? []
+    const promptText = request.prompt ?? ''
+    const images = request.images ?? []
+    const wantsDraft = draft.trim() !== '' || draftImages.length > 0
+    const wantsPrompt = promptText.trim() !== '' || images.length > 0
+    if (wantsDraft && wantsPrompt) {
+      throw new RemoteError(
+        'gateway/bad-request',
+        'createWithInput takes a draft or a prompt, not both',
+        {},
+      )
+    }
+    if (images.length > 0 && promptText.trim() === '') {
+      // An image is part of a message; without text there is no message to
+      // attach it to. A draft is different: it may hold images alone.
+      throw new RemoteError(
+        'gateway/bad-request',
+        'createWithInput needs prompt text to carry prompt images',
+        {},
+      )
+    }
+    // The Session is created here, from `cwd` or `workspaceId`: one request, so
+    // no caller has to hold an id across two round trips to add the input.
+    const created = await this.commands.create(request)
+    signal.throwIfAborted()
+    if (!wantsDraft && !wantsPrompt) return created
+    try {
+      if (wantsDraft) {
+        await this.drafts.set({
+          sessionId: created.sessionId,
+          text: draft,
+          ...(draftImages.length === 0 ? {} : { images: draftImages }),
+        })
+        return created
+      }
+      const content: PromptContentPart[] = []
+      if (promptText.trim() !== '') content.push({ type: 'text', text: promptText })
+      for (const image of images) {
+        content.push({
+          type: 'image',
+          mediaType: image.mediaType,
+          data: image.data,
+          ...(image.name === undefined ? {} : { name: image.name }),
+        })
+      }
+      await this.prompt(
+        {
+          sessionId: created.sessionId,
+          requestId: brandString<SessionRequestId>(randomUUID()),
+          mode: 'queue',
+          content,
+        },
+        signal,
+      )
+    } catch (error: unknown) {
+      // The Session stays: its id is how the caller retries the input, and
+      // discarding it would leak a second Session on the retry.
+      return { ...created, inputError: inputErrorMessage(error) }
+    }
+    return created
+  }
+
+  /**
+   * Read durable composer text without resuming the Session or changing its transcript.
+   * @param request - Session identity.
+   * @returns saved text, or empty text when no draft exists.
+   */
+  @Remote('getDraft')
+  getDraft(request: SessionDraftRequest): Promise<SessionDraftValue> {
+    return this.drafts.get(request)
+  }
+
+  /**
+   * Replace durable composer text without admitting a prompt; dependent writes must be serialized by callers.
+   * @param request - Session identity and text; empty text clears the record.
+   * @returns the text after this write is durable.
+   */
+  @Remote('setDraft')
+  setDraft(request: SessionSetDraftRequest): Promise<SessionDraftValue> {
+    return this.drafts.set(request)
+  }
+
+  /**
    * Select one Session-local model after explicitly resuming the Session; save the default in the background.
    * @param request - Session identity and requested model selection.
    * @returns the normalized selection installed for the Session, without waiting for default persistence.
@@ -317,6 +454,28 @@ export class SessionController extends TypertRemoteService {
   @Remote('selectModel')
   selectModel(request: SessionSelectModelRequest): Promise<SessionSelectModelValue> {
     return this.commands.selectModel(request)
+  }
+
+  /**
+   * Record this Session's thinking-cap auto-continue policy.
+   * @param request - Session identity and requested policy.
+   * @returns the stored policy and the durable seq the Client applies.
+   */
+  @Remote('setThinkingCapAutoContinue')
+  setThinkingCapAutoContinue(
+    request: SessionSetThinkingCapAutoContinueRequest,
+  ): Promise<SessionSetThinkingCapAutoContinueValue> {
+    return this.commands.setThinkingCapAutoContinue(request)
+  }
+
+  /**
+   * Persist the deployment default model without addressing a Session.
+   * @param request - provider, model, and optional reasoning effort.
+   * @returns the normalized selection after the default is durable.
+   */
+  @Remote('selectDefaultModel')
+  selectDefaultModel(request: SessionSelectDefaultModelRequest): Promise<SessionSelectModelValue> {
+    return this.commands.selectDefaultModel(request)
   }
 
   /**
@@ -344,6 +503,16 @@ export class SessionController extends TypertRemoteService {
    */
   @Remote('modelCatalog')
   modelCatalog(): Promise<ModelCatalog> {
+    return buildModelCatalog(this.ctx)
+  }
+
+  /**
+   * Re-probe live model listings, then describe every currently routable model.
+   * @returns provider-grouped models after the forced listing round-trip.
+   */
+  @Remote('refreshModelCatalog')
+  async refreshModelCatalog(): Promise<ModelCatalog> {
+    await this.ctx.llm.refreshListings()
     return buildModelCatalog(this.ctx)
   }
 
@@ -447,6 +616,21 @@ export class SessionController extends TypertRemoteService {
    * @param request - source Session, optional exact inclusive event boundary, and migration preflight choice.
    * @returns the new Session identity.
    */
+  /**
+   * Reset one Session into a new one seeded with its compacted context.
+   * @param request - source Session identity and optional child cwd.
+   * @returns the child identity and whether a compaction ran.
+   */
+  @Remote('compactIntoNew')
+  compactIntoNew(request: SessionCompactIntoNewRequest): Promise<SessionCompactIntoNewValue> {
+    return this.commands.compactIntoNew(request)
+  }
+
+  /**
+   * Copy a Session's history into a new child Session, optionally compacted.
+   * @param request - source Session identity, child cwd, and whether a migration may be skipped.
+   * @returns the child identity and whether a compaction ran.
+   */
   @Remote('fork')
   async fork(request: SessionForkRequest): Promise<SessionForkValue> {
     if (request.allowMigration === false && this.ctx.sessions.get(request.sessionId) === undefined) {
@@ -494,6 +678,32 @@ export class SessionController extends TypertRemoteService {
   }
 
   /**
+   * Commit one injected transcript batch (user, thinking, assistant) and let the
+   * Agent run on it. Accepted whether the Agent is idle or already running.
+   * @param request - Session identity, idempotency key, and the ordered batch.
+   * @param signal - caller cancellation before the batch is committed.
+   * @returns committed seqs in batch order and whether the Agent acts unprompted.
+   */
+  @Remote('inject')
+  inject(request: SessionInjectRequest, signal: AbortSignal): Promise<SessionInjectValue> {
+    signal.throwIfAborted()
+    return this.commands.inject(request)
+  }
+
+  /**
+   * Rewrite or remove already-produced messages, then let the Agent act on the
+   * edited history.
+   * @param request - session, idempotency key, and the ordered changes.
+   * @param signal - request cancellation.
+   * @returns the committed record seq and whether a run was started.
+   */
+  @Remote('edit')
+  edit(request: SessionEditRequest, signal: AbortSignal): Promise<SessionEditValue> {
+    signal.throwIfAborted()
+    return this.commands.edit(request)
+  }
+
+  /**
    * Read one image from the attachment store after gateway authorization.
    * @param request - image reference and gateway permission scope; Session existence is not checked.
    * @returns the durable attachment reference and base64-encoded bytes.
@@ -521,6 +731,26 @@ export class SessionController extends TypertRemoteService {
   @Remote('cancel')
   cancel(request: SessionCancelRequest): SessionCancelValue {
     return this.commands.cancel(request)
+  }
+
+  /**
+   * Suspend one live turn without ending the Session.
+   * @param request - Session whose turn is paused.
+   * @returns acknowledgement that the pause was admitted.
+   */
+  @Remote('pause')
+  pause(request: SessionPauseRequest): SessionPauseValue {
+    return this.commands.pause(request)
+  }
+
+  /**
+   * Continue one paused Session without admitting a new message.
+   * @param request - Session whose paused turn is continued.
+   * @returns acknowledgement that the continuation started.
+   */
+  @Remote('unpause')
+  unpause(request: SessionUnpauseRequest): Promise<SessionUnpauseValue> {
+    return this.commands.unpause(request)
   }
 
   /**

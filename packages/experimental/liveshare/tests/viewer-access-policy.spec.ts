@@ -14,6 +14,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
+import { VIEWER_ENDPOINT_CLASSES } from '../src/endpoint-classification.ts'
 import type { ForkPromptDecision, ForkRecord } from '../src/host/fork-registry.ts'
 import type { ForkShareState, ViewerSessionMode } from '../src/host/fork-policy.ts'
 import {
@@ -42,14 +43,22 @@ const CALL = { request: {} }
  */
 const GLOBAL_ACTIONS = [
   'commands/list', 'llm/listConfigurableProviders', 'llm/listProviders', 'session/canOpenWorkspacePath',
-  'session/control', 'session/list', 'session/modelCatalog', 'workspace/follow',
+  'session/control', 'session/list', 'session/modelCatalog', 'session/status', 'pluginEvents/follow',
+  'productAnalytics/enabled', 'productAnalytics/report', 'productAnalytics/watchPolicy',
+  'speech/cancelPreparation', 'speech/catalog', 'speech/follow', 'speech/prepare', 'speech/transcribe',
+  'workspace/follow',
 ] as const
 /** Session reads the served page's startup and render paths need; see {@link GLOBAL_ACTIONS}. */
 const SESSION_READS = [
-  'commands/list', 'fileUploads/upload', 'goals/get', 'session/attachment', 'session/control',
-  'session/events', 'session/follow', 'session/list', 'session/observeEvent', 'session/observeProjections',
+  'commands/list', 'fileReferences/list', 'fileUploads/upload', 'goals/get', 'goals/edit',
+  'goals/clear', 'goals/complete', 'goals/create', 'goals/pause', 'goals/resume', 'job/list', 'job/follow',
+  'session/attachment', 'session/control',
+  'session/events', 'session/follow', 'session/getDraft', 'session/inject', 'session/list', 'session/observeEvent',
+  'session/observeProjections',
   'session/observeState', 'session/page', 'session/projections', 'session/state', 'session/wait',
-  'skills/list', 'toolResults/watch', 'workspace/follow',
+  'sessionReferenceResolver/candidates', 'userQuestions/answer', 'userQuestions/attachWait',
+  'skills/list', 'toolResults/watch',
+  'workspace/follow',
 ] as const
 const SESSION_EVENTS = [
   'event:api-session/activity', 'event:api-session/added', 'event:api-session/error',
@@ -202,6 +211,48 @@ describe('share reader access policy', () => {
     expect(decide('session/rename', session('other-child'))).toEqual(deny('liveshare/read-only'))
   })
 
+  it('lets the reader manage the goal of every Session it can see, and no other', async () => {
+    const { decide, grants } = await fixture()
+    // A goal is Session data, so every goal endpoint follows visibility alone; `/goal` reaches the same
+    // service from inside the owner Host, so the endpoint and the command answer the same way.
+    const goalWrites = ['goals/create', 'goals/edit', 'goals/pause', 'goals/resume', 'goals/complete', 'goals/clear'] as const
+    for (const id of ['source', 'own-child', 'revoked-child']) {
+      for (const action of goalWrites) {
+        expect(decide(action, session(id), { request: { objective: 'finish the task' } })).toEqual(ALLOW)
+      }
+    }
+    for (const id of ['private', 'other-child', 'foreign-child']) {
+      for (const action of goalWrites) {
+        expect(decide(action, session(id), { request: { objective: 'finish the task' } }))
+          .toEqual(deny('liveshare/read-only'))
+      }
+    }
+    const source = grants().find(grant => grant.resource.kind === 'session' && grant.resource.id === 'source')?.actions ?? []
+    for (const action of goalWrites) expect(source).toContain(action)
+    // The global resource keeps refusing the same endpoints: a goal belongs to one Session.
+    for (const action of goalWrites) expect(decide(action, GLOBAL, CALL)).toEqual(deny('liveshare/read-only'))
+  })
+
+  it.each(['view', 'write'] as const)('keeps the goal writable at the %s tier', async (mode) => {
+    const { decide } = await fixture({ mode })
+    for (const action of ['goals/create', 'goals/pause', 'goals/resume', 'goals/complete', 'goals/clear'] as const) {
+      expect(decide(action, session('source'), CALL)).toEqual(ALLOW)
+    }
+  })
+
+  it('refuses the preset write endpoint on every Session the reader can see', async () => {
+    const { decide, grants } = await fixture()
+    // The `/permission` line and this endpoint are the two routes to the same knob write; the policy
+    // refuses the endpoint itself so a reader page cannot reach it with an unlisted client call.
+    for (const id of ['source', 'own-child', 'revoked-child']) {
+      expect(decide('permissionPresets/set', session(id), { request: { sessionId: id, preset: 'danger-full-access' } }))
+        .toEqual(deny('liveshare/read-only'))
+    }
+    expect(decide('permissionPresets/set', session('private'), { request: { sessionId: 'private', preset: 'danger-full-access' } }))
+      .toEqual(deny('liveshare/read-only'))
+    expect(grants().flatMap(grant => grant.actions)).not.toContain('permissionPresets/set')
+  })
+
   it('binds every source Session a multi-source share carries', async () => {
     const { decide } = await fixture({ sourceIds: ['source', 'second'] })
     for (const action of SESSION_READS) expect(decide(action, session('second'))).toEqual(ALLOW)
@@ -342,13 +393,13 @@ describe('share reader access policy', () => {
 
   it('opens the reader with grants on global, the shared Session, its own forks, and the Workspaces holding them', async () => {
     const { grants } = await fixture()
-    const reads = [...SESSION_READS]
+    const reads = [...SESSION_READS].sort()
     expect(grants()).toEqual([
       { resource: GLOBAL, actions: [...GLOBAL_ACTIONS].sort() },
-      { resource: session('source'), actions: [...reads, 'session/cancel', 'session/fork', 'session/prompt'].sort() },
+      { resource: session('source'), actions: [...reads, 'session/cancel', 'session/fork', 'session/prompt', 'session/setDraft'].sort() },
       // The reader's own fork carries the source grant's fork verb, and is the only Session it may rename.
       { resource: session('own-child'), actions: [...reads, 'session/cancel', 'session/fork', 'session/prompt',
-        'session/rename'].sort() },
+        'session/rename', 'session/setDraft'].sort() },
       // A revoked fork stays readable, so the page states it as read-only rather than unknown.
       { resource: session('revoked-child'), actions: [...reads].sort() },
       { resource: workspace('shared-ws'), actions: ['workspace/follow'] },
@@ -365,18 +416,20 @@ describe('share reader access policy', () => {
       (await fixture(options)).grants().find(grant => grant.resource.kind === 'session' && grant.resource.id === 'source')?.actions
     const childActions = async (options: FixtureOptions) =>
       (await fixture(options)).grants().find(grant => grant.resource.kind === 'session' && grant.resource.id === 'own-child')?.actions
-    const driving = [...SESSION_READS, 'session/cancel', 'session/fork', 'session/prompt'].sort()
+    const driving = [...SESSION_READS, 'session/cancel', 'session/fork', 'session/prompt', 'session/setDraft'].sort()
     expect(await sourceActions({ mode: 'view' })).toEqual(driving)
     expect(await sourceActions({ mode: 'write' })).toEqual(driving)
     // Without the confined layer the Session is not driven, and without the switch it is not forked.
     expect(await sourceActions({ confined: false })).toEqual([...SESSION_READS, 'session/fork'].sort())
-    expect(await sourceActions({ allowsFork: false })).toEqual([...SESSION_READS, 'session/cancel', 'session/prompt'].sort())
+    expect(await sourceActions({ allowsFork: false }))
+      .toEqual([...SESSION_READS, 'session/cancel', 'session/prompt', 'session/setDraft'].sort())
     const { grants } = await fixture({ mode: 'view' })
     expect(grants().find(grant => grant.resource.kind === 'session' && grant.resource.id === 'own-child')?.actions)
-      .toEqual([...SESSION_READS, 'session/cancel', 'session/fork', 'session/prompt', 'session/rename'].sort())
+      .toEqual([...SESSION_READS, 'session/cancel', 'session/fork', 'session/prompt', 'session/rename',
+        'session/setDraft'].sort())
     // The switch removes the child's fork alone: the child role and its rename stay in the snapshot.
     expect(await childActions({ allowsFork: false }))
-      .toEqual([...SESSION_READS, 'session/cancel', 'session/prompt', 'session/rename'].sort())
+      .toEqual([...SESSION_READS, 'session/cancel', 'session/prompt', 'session/rename', 'session/setDraft'].sort())
   })
 })
 
@@ -392,6 +445,8 @@ describe('derived policy actions', () => {
       'session/cancel',
       'session/fork',
       'session/rename',
+      'session/setDraft',
+      'session/getDraft',
       'fileUploads/upload',
     ])
     expect([...POLICY_DECIDED_ACTIONS].sort()).toEqual([...roleActions].sort())
@@ -410,7 +465,7 @@ describe('viewer page startup contract', () => {
   it('keeps the owner’s own surfaces refused and out of the reader’s snapshot', async () => {
     const { decide, grants } = await fixture()
     const ownerOnly = ['account/watch', 'account/getNotifications', 'account/getNotificationContent', 'account/reportNotificationEvent',
-      'job/list', 'job/follow', 'settings/describe',
+      'settings/describe',
       'credentials/describe', 'pluginManager/listPlugins', 'schedule/catalog', 'schedule/create',
       'schedule/deliveryLimits', 'schedule/deleteInactive', 'schedule/edit', 'schedule/history',
       'schedule/list', 'schedule/run', 'schedule/view', 'agentTeams/setEnabled'] as const
@@ -430,6 +485,22 @@ describe('viewer page startup contract', () => {
     }
   })
 
+  it('classifies every listed action for the resource its role binds', () => {
+    // A list entry the classification files under another resource kind names an action this role never
+    // binds, so the suite would keep passing while the page silently reads the read-only fact.
+    // A few actions appear in both lists: their classification names the resource the deciding role binds,
+    // so each list admits the classes whose resource that role holds.
+    for (const action of GLOBAL_ACTIONS) {
+      expect(['reader-global-read', 'reader-session-read', 'reader-workspace-read'])
+        .toContain(VIEWER_ENDPOINT_CLASSES[action])
+    }
+    for (const action of SESSION_READS) {
+      // The session role binds workspace actions on the Sessions' Workspaces too, so a list entry may be
+      // filed under any reader class; what it may never be is owner-only or a global bypass.
+      expect(VIEWER_ENDPOINT_CLASSES[action]).toMatch(/^reader-/)
+    }
+  })
+
   it('grants every action the served page’s startup and render paths need', async () => {
     // The page reads only this snapshot, so an action it needs here and the policy omits leaves a
     // surface silently stating the read-only fact instead of failing loudly.
@@ -440,13 +511,13 @@ describe('viewer page startup contract', () => {
     for (const action of GLOBAL_ACTIONS) expect(global).toContain(action)
     for (const action of SESSION_READS) expect(await source({})).toContain(action)
     // The driving actions ride the same reads, and the confined layer is what decides them.
-    for (const action of ['session/prompt', 'session/cancel', 'session/fork']) expect(await source({})).toContain(action)
+    for (const action of ['session/prompt', 'session/cancel', 'session/setDraft', 'session/fork']) expect(await source({})).toContain(action)
     // The tier decides no driving action: both tiers carry the prompt and the fork switch of their own.
     for (const action of SESSION_READS) expect(await source({ mode: 'view' })).toContain(action)
-    for (const action of ['session/prompt', 'session/cancel', 'session/fork']) {
+    for (const action of ['session/prompt', 'session/cancel', 'session/setDraft', 'session/fork']) {
       expect(await source({ mode: 'view' })).toContain(action)
     }
-    for (const action of ['session/prompt', 'session/cancel']) {
+    for (const action of ['session/prompt', 'session/cancel', 'session/setDraft']) {
       expect(await source({ confined: false })).not.toContain(action)
     }
   })

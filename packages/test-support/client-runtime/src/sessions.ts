@@ -7,12 +7,18 @@ import {
 import type {
   AgentContext, ISessions, ProjectionsFace, SessionBinding, SessionFace, SessionListState,
   SessionEventLikeEntry, SessionLiveEventEntry, SessionSearchResultItem,
-  SessionReference, SessionReferenceSource, SessionRetainInfo, SessionRetainOptions,
+  SessionReference, SessionReferenceSource, SessionRetainFacet, SessionRetainInfo, SessionRetainOptions,
   SessionSnapshot, SessionSummary, SessionTarget, SubmissionHandle,
 } from '@deepseek-ai/dsh-api-session-controller/client'
 import { scopeIdentityOf } from '@deepseek-ai/dsh-api-session-controller/src/client/scope.ts'
+import {
+  EMPTY_RETAIN_INFO,
+  heldFacets,
+  shiftRetention,
+} from '@deepseek-ai/dsh-api-session-controller/src/client/sessions/facets.ts'
 import type { SessionRequestId } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
+import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { ObservableSnapshot, SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -185,6 +191,14 @@ export class FixtureSession implements SessionFace {
   rename(): never {
     throw new Error(`test session "${this.sessionId}": rename is not stubbed — supply it on the fixture's session face`)
   }
+
+  /**
+   * Fail-loud stub; supply `setThinkingCapAutoContinue` on the fixture's session face to exercise it.
+   * @returns never — always throws.
+   */
+  setThinkingCapAutoContinue(): never {
+    throw new Error(`test session "${this.sessionId}": setThinkingCapAutoContinue is not stubbed — supply it on the fixture's session face`)
+  }
 }
 
 /** Catalog fixture data remains available across live Client generations. */
@@ -214,17 +228,8 @@ interface OpeningControl {
   readonly reject: (error: unknown) => void
 }
 
-function freezeRetainedBy(
-  counts: Partial<Record<SessionReferenceSource, number>>,
-): SessionRetainInfo['retainedBy'] {
-  Object.setPrototypeOf(counts, null)
-  return Object.freeze(counts)
-}
-
-const EMPTY_RETAIN_INFO: SessionRetainInfo = Object.freeze({
-  referenceCount: 0,
-  retainedBy: freezeRetainedBy({}),
-})
+/** Fixture references default to a rendering use, so Conversation assembly runs as it does under a main view. */
+const DEFAULT_TEST_RETAIN: SessionRetainOptions = { source: 'testFixture', facets: { conversation: true } }
 
 // TestSessions implements SessionReference against its fixture-owned
 // SessionGeneration without importing the production service's private record.
@@ -319,7 +324,7 @@ export class TestSessions implements ISessions {
 
   /** Calls observed on the service-level face, newest last. */
   readonly calls: {
-    method: 'create' | 'refreshProjections' | 'refresh' | 'search' | 'fork'
+    method: 'create' | 'createWithInput' | 'refreshProjections' | 'refresh' | 'search' | 'fork'
     args: unknown[]
   }[] = []
 
@@ -526,16 +531,17 @@ export class TestSessions implements ISessions {
   /* jscpd:ignore-start -- The fixture intentionally mirrors production SessionReference acquisition and release semantics. */
   retain(
     target: SessionTarget,
-    options: SessionRetainOptions = { source: 'testFixture' },
+    options: SessionRetainOptions = DEFAULT_TEST_RETAIN,
   ): SessionReference {
-    const { source, signal } = options
+    const { source, signal, facets } = options
     signal?.throwIfAborted()
     if (this.closed) throw new Error('test Session Controller is disposed')
     const id = this.resolveTarget(target)
     const generation = this.generations.get(id) ?? this.materialize(id, this.require(id))
-    const reference = this.retainGeneration(id, generation, source)
+    const connected = options.connection !== false
+    const reference = this.retainGeneration(id, generation, source, heldFacets(facets), connected)
     try {
-      reference.attachOpening(generation.opening, signal)
+      reference.attachOpening(connected ? generation.opening : Promise.resolve(), signal)
       return reference
     } catch (error: unknown) {
       reference.release()
@@ -577,7 +583,7 @@ export class TestSessions implements ISessions {
   retainFor(
     ownerCtx: Context,
     target: SessionTarget,
-    options: SessionRetainOptions = { source: 'testFixture' },
+    options: SessionRetainOptions = DEFAULT_TEST_RETAIN,
   ): SessionReference {
     const reference = this.retain(target, options)
     try {
@@ -623,6 +629,18 @@ export class TestSessions implements ISessions {
   }
 
   /** Create through the installed test behavior and require a catalogued fixture. */
+  async createWithInput(
+    opts: Parameters<ISessions['createWithInput']>[0],
+  ): Promise<RemoteResult<{ sessionId: SessionId; inputError?: string }>> {
+    this.calls.push({ method: 'createWithInput', args: [opts] })
+    if (this.createStub === undefined) {
+      throw new Error('test sessions: createWithInput is not stubbed — call stubCreate() first')
+    }
+    const id = await this.createStub(opts)
+    this.require(id)
+    return { ok: true, value: { sessionId: id } }
+  }
+
   async create(opts?: Parameters<ISessions['create']>[0]): Promise<SessionId> {
     this.calls.push({ method: 'create', args: [opts] })
     if (this.createStub === undefined) {
@@ -720,26 +738,15 @@ export class TestSessions implements ISessions {
     id: SessionId,
     generation: SessionGeneration,
     source: SessionReferenceSource,
+    facets: readonly SessionRetainFacet[],
+    connected: boolean,
   ): TestSessionReference {
-    const previous = generation.retention
-    generation.retention = Object.freeze({
-      referenceCount: previous.referenceCount + 1,
-      retainedBy: freezeRetainedBy({
-        ...previous.retainedBy,
-        [source]: (previous.retainedBy[source] ?? 0) + 1,
-      }),
-    })
+    const use = { source, facets, connected }
+    generation.retention = shiftRetention(generation.retention, use, 1)
     const reference = new TestSessionReference(id, generation, () => {
       if (!generation.live) return
-      const count = generation.retention.referenceCount - 1
-      const { [source]: sourceCount = 0, ...otherSources } = generation.retention.retainedBy
-      const retainedBy = sourceCount > 1
-        ? { ...otherSources, [source]: sourceCount - 1 }
-        : otherSources
-      generation.retention = count === 0
-        ? EMPTY_RETAIN_INFO
-        : Object.freeze({ referenceCount: count, retainedBy: freezeRetainedBy(retainedBy) })
-      if (count === 0) this.drop(id, generation)
+      generation.retention = shiftRetention(generation.retention, use, -1)
+      if (generation.retention.referenceCount === 0) this.drop(id, generation)
       else this.publishRetention(id)
     })
     this.publishRetention(id)

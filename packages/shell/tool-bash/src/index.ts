@@ -100,7 +100,7 @@ function rejectUnadvertisedArgs(
   }
 }
 
-function validateBashArgs(args: BashToolArgs, effectiveMode: SandboxMode | undefined, advertised: AdvertisedArgs): void {
+function validateBashArgs(args: BashToolArgs, effectiveMode: SandboxMode | undefined, advertised: AdvertisedArgs): 'ignored' | undefined {
   if (args.command.trim().length === 0) {
     throw new ToolArgsError(['invalid command: expected a non-empty string'])
   }
@@ -115,7 +115,7 @@ function validateBashArgs(args: BashToolArgs, effectiveMode: SandboxMode | undef
   const justification = args.sandbox_permissions === undefined && args.justification?.trim() === ''
     ? undefined
     : args.justification
-  validateEscalationArgs(args.sandbox_permissions, justification)
+  return validateEscalationArgs(args.sandbox_permissions, justification, effectiveMode)
 }
 
 function bashDescription(): string {
@@ -183,7 +183,7 @@ function resolveWorkdir(modelWorkdir: string | undefined, sessionCwd: string | u
 }
 
 /** Detach the executor DTO from readonly Service Definition types into plain JSON data. */
-function canonicalBashResult(result: ShellRunResult, cwd: string) {
+function canonicalBashResult(result: ShellRunResult, cwd: string, escalationIgnored = false) {
   const output = (stream: ShellRunResult['stdout']) => ({
     text: stream.text,
     truncated: stream.truncated,
@@ -206,6 +206,7 @@ function canonicalBashResult(result: ShellRunResult, cwd: string) {
         ...result.sandbox.runnerFailed !== undefined ? { runnerFailed: result.sandbox.runnerFailed } : {},
       },
     } : {},
+    ...escalationIgnored ? { escalationIgnored: true } : {},
   }
 }
 
@@ -292,6 +293,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     name: 'tool:bash',
     order: ctx.systemPrompt.getSectionOrder('TOOL_BASH'),
     text: 'Check the [exit code: N] marker on every bash result; investigate failures before moving on.',
+    retirement: 'The bash tool is no longer available. Its guidance no longer applies.',
   })
 
   /**
@@ -506,25 +508,30 @@ export function apply(ctx: Context, config: Config = {}): void {
                     runnerFailed: { type: 'boolean' },
                   },
                 },
+                escalationIgnored: { type: 'boolean' },
               },
             },
           ],
         },
-        render: (_args, value) => [{
+        render: (args, value) => [{
           type: 'text',
           text: value.kind === 'background'
             ? `started background job ${value.jobId}`
             : value.kind === 'promoted'
               ? renderPromoted(value)
-              : renderResult(value as { kind: 'foreground' } & ShellRunResult, escalationModes),
+              : renderResult(
+                value as { kind: 'foreground' } & ShellRunResult & { escalationIgnored?: boolean },
+                escalationModes,
+                args.sandbox_permissions,
+              ),
         }],
         presentationMeta: (_args, value) => ({ cwd: value.cwd }),
       },
       async execute(args: BashToolArgs, exec) {
         // Description is display metadata; workdir defaults to the caller's session.
         const standingPolicy = resolveSandboxPolicy(exec)
-        validateBashArgs(args, standingPolicy?.mode, { escalation: escalationModes.length > 0, background: backgroundEnabled })
-        const approvedMode = args.sandbox_permissions !== undefined && args.justification !== undefined
+        const escalationIgnored = validateBashArgs(args, standingPolicy?.mode, { escalation: escalationModes.length > 0, background: backgroundEnabled }) === 'ignored'
+        const approvedMode = !escalationIgnored && args.sandbox_permissions !== undefined && args.justification !== undefined
           ? await approveBashEscalation(args.sandbox_permissions, args.justification, exec, standingPolicy)
           : undefined
         const policy = approvedMode === undefined
@@ -572,7 +579,7 @@ export function apply(ctx: Context, config: Config = {}): void {
           throw launchFailure(error, exec.signal)
         }
         if (result.aborted) throw toolAborted()
-        return { kind: 'foreground' as const, ...canonicalBashResult(result, spec.workdir) }
+        return { kind: 'foreground' as const, ...canonicalBashResult(result, spec.workdir, escalationIgnored) }
       },
       presentCall: presentBashCall,
       presentResult: presentBashResult,

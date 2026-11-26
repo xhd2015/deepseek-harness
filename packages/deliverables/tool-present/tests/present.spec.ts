@@ -47,6 +47,7 @@ async function agent(ctx: Context, cwd: string | undefined): Promise<Agent> {
     cancel() {},
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
+    pause: () => false, resumePaused: () => false,
   }
   await ctx.plugin(Object.assign((inner: Context) => { scope = createScope(inner, value) }, { inject: ['tools'] }))
   await ctx.agents.register(value)
@@ -60,9 +61,9 @@ async function setup() {
   const ctx = new Context()
   provideWorkingDirectoryFixture(ctx)
   cleanups.push(() => ctx.fiber.dispose())
+  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
-  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(NativeToolExecutor)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(LocalFileSystem, { cwd: root })

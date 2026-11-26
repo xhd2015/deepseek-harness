@@ -33,7 +33,7 @@ export interface AssistantProviderMetadataView {
 /** Assistant content blocks sorted by what a UI target presents. */
 export type AssistantBlock =
   | { kind: 'text'; text: string }
-  | { kind: 'reasoning'; text: string }
+  | { kind: 'reasoning'; text: string; encrypted?: true; opaque?: true }
   | { kind: 'image'; attachment: ImageAttachmentRef }
   | { kind: 'tool-call'; callId: string; name: string; argsRaw: string }
   | { kind: 'other'; block: unknown }
@@ -197,10 +197,7 @@ export interface CompactionSummaryNode {
   seq: number
   /** Unix epoch ms of the checkpoint event. */
   time: number
-  /** Summary text from the checkpoint's cited `compaction/summary` event; null when
-   *  the window cut left that event outside (the marker is then not expandable). */
-  summary: string | null
-  /** Seq of the loaded `compaction/summary` event, or null when that event is outside the window. */
+  /** Sequence of the loaded compaction/summary event, or null outside the loaded window. */
   summaryEventSeq: number | null
   /** Number of surface items replaced, or null when the summary event is unavailable or malformed. */
   shadowedItemCount: number | null

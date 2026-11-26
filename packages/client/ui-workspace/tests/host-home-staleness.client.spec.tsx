@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { syncedConfig } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply as applyMenus, inject as injectMenus } from '@deepseek-ai/dsh-client-ui-context-menu/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 /**
@@ -33,7 +34,7 @@ async function bench() {
   const runtime = await SlotTestRuntime.create()
   runtime.ctx.provide('shortcuts', { register: () => () => {}, catalog: createSnapshotStore([]) })
   runtime.ctx.provide('uiConversation', {})
-  runtime.ctx.provide('layout', { selectPanel: vi.fn(), beginNavigation: () => new AbortController().signal })
+  runtime.ctx.provide('layout', { selectPanel: vi.fn(), collapseSidebar: vi.fn(), beginNavigation: () => new AbortController().signal })
   runtime.releaseWorkspaceSource()
   const directoryPicker = {}
   const { remote } = runtime
@@ -41,7 +42,7 @@ async function bench() {
   const locale = new LocaleRuntime(runtime.ctx)
   runtime.ctx.provide('locale', locale)
   runtime.slots.installLocale(locale)
-  await runtime.mount({ inject: [...injectMenus], apply: applyMenus })
+  await runtime.mount({ inject: [...injectMenus], apply: applyMenus }, syncedConfig({ resolutionTimeoutMs: 1000 }))
   await runtime.workspaces.update((draft) => {
     draft.items = [{
       workspaceId: 'w1' as WorkspaceId, title: 'Project', path: '/home/u/Documents/project',
@@ -52,7 +53,7 @@ async function bench() {
     { 'sidebar.workspaces': { kind: 'single', scope: 'root', inject: SECTION_INJECT } } as never,
     SidebarFrame as never,
   )
-  await runtime.mount({ inject: [...inject], apply })
+  await runtime.mount({ inject: [...inject], apply }, syncedConfig({ recentViewLimit: 10 }))
   return { runtime, remote }
 }
 

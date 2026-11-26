@@ -95,7 +95,7 @@ describe('session-log-download browser plugin', () => {
     injected.dismiss(SID)
     expect(b.ctx.sessionLogDownload.store.getSnapshot().bySession[SID]?.open).toBe(false)
 
-    const overlay = b.slots.entries('shell.overlay')[0]
+    const overlay = b.slots.entries('shell.overlay').find(row => row.options.id === 'session-log-download.copy-toast')
     expect(overlay?.component).toBe(SessionMarkdownCopyToast)
     expect(overlay?.options).toMatchObject({ id: 'session-log-download.copy-toast' })
     const overlayInjected = injectedOf(overlay) as SessionMarkdownCopyToastInjected
@@ -135,7 +135,9 @@ describe('session-log-download browser plugin', () => {
     copy.resolve(new Response('', { status: 500 }))
     await vi.waitFor(() => { expect(menu.source.getSnapshot().every(row => !row.disabled)).toBe(true) })
     expect(b.ctx.sessionLogDownload.store.getSnapshot().bySession[SID]).toMatchObject({ open: true, status: 'error' })
-    const face = injectedOf(b.slots.entries('shell.overlay')[0]) as SessionMarkdownCopyToastInjected
+    const face = injectedOf(
+      b.slots.entries('shell.overlay').find(row => row.options.id === 'session-log-download.copy-toast'),
+    ) as SessionMarkdownCopyToastInjected
     expect(face.hooks.sessionMarkdownCopy.getSnapshot().notice?.kind).toBe('preparationFailed')
     expect(b.failed).not.toHaveBeenCalled()
     b.ctx.locale.setLocale('zh')
@@ -171,8 +173,14 @@ describe('session-log-download browser plugin', () => {
     const redeclare = declare(b.slots)
     await Promise.resolve()
     expect(b.slots.entries('conversation.session.header.utilities')).toHaveLength(0)
-    expect(b.slots.entries('shell.overlay')[1]?.component).toBe(SessionLogDownloadDialog)
-    expect(b.slots.entries('shell.overlay')[0]?.component).toBe(SessionMarkdownCopyToast)
+    const overlays = b.slots.entries('shell.overlay')
+    expect(overlays.map(entry => entry.options.id)).toEqual([
+      'session-log-download.auto-continue-toast',
+      'session-log-download.copy-toast',
+      'session-log-download',
+    ])
+    expect(overlays[1]?.component).toBe(SessionMarkdownCopyToast)
+    expect(overlays[2]?.component).toBe(SessionLogDownloadDialog)
     redeclare()
     await b.fiber.dispose()
   })

@@ -33,6 +33,7 @@ async function fakeAgent(ctx: Context, rawId: string): Promise<Agent> {
     followup: () => {}, steer: () => {}, inject: () => {}, cancel() {},
     runMaintenance: job => job(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
+    pause: () => false, resumePaused: () => false,
   }
   await ctx.agents.register(agent)
   return agent
@@ -118,9 +119,9 @@ async function setup(jobs: boolean, config: ToolPty.Config = {}) {
 async function setupBase(jobs: boolean) {
   const ctx = new Context()
   provideWorkingDirectoryFixture(ctx)
+  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
-  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(NativeToolExecutor)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(TerminalSessionService)

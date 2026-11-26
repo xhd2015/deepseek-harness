@@ -49,6 +49,7 @@ function stubAgent(ctx: Context, rawId: string): Agent {
     followup: () => {}, steer: () => {}, inject: () => {}, cancel() {},
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
+    pause: () => false, resumePaused: () => false,
   }
   return agent
 }
@@ -61,7 +62,8 @@ async function harness(
   const root = mkdtempSync(join(tmpdir(), 'dsh-pty-local-'))
   roots.push(root)
   const ctx = new Context()
-  provideWorkingDirectoryFixture(ctx)
+  // The Agents' Sessions record no directory, so the directory service's default is their workspace.
+  provideWorkingDirectoryFixture(ctx, root)
   contexts.push(ctx)
   await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(AgentRegistry)

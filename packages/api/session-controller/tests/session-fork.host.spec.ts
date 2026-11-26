@@ -32,10 +32,10 @@ function request<P>(payload: P): P {
 async function composed(workspaces: readonly Workspace[] = []): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
-  await ctx.plugin(SystemPrompt, { personaPrefix: '' })
   await ctx.plugin(SessionProjectionRegistry)
+  await ctx.plugin(SystemPrompt, { personaPrefix: '' })
   await ctx.plugin(AgentRegistry)
-  installSessionReadTestServices(ctx)
+  await installSessionReadTestServices(ctx)
   ctx.provide('workspaceRegistry', { list: () => workspaces, archivedSessionIds: [] } as never)
   ctx.agents.setFactory({
     createAgent: async (ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle> => {
@@ -167,6 +167,30 @@ describe('sessions.fork', () => {
     }
   })
 
+  it('shares the whole selected prefix of a live observation, which carries no persisted count', async () => {
+    const ctx = await composed()
+    try {
+      const source = ctx.sessions.create(sid('unreported-source'), { meta: { cwd: '/proj' } })
+      source.append('turn/start', { turn: 1 })
+      source.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+      const observe = ctx.sessionQuery.observeSession.bind(ctx.sessionQuery)
+      vi.spyOn(ctx.sessionQuery, 'observeSession').mockImplementation(async (...args) => {
+        const observation = await observe(...args)
+        expect(observation.persistedEventCount).toBeUndefined()
+        return observation
+      })
+      const create = vi.spyOn(ctx.agents, 'create')
+
+      const result = await (await remote(ctx)).fork({ sessionId: source.id, allowMigration: false })
+
+      if (!result.ok) throw result.error
+      expect(create.mock.calls[0]?.[0].parentSource).toMatchObject({ sessionId: source.id, endSeq: 2 })
+      expect(ctx.sessions.get(result.value.sessionId)?.inheritedEventCount).toBe(2)
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('forks a resident Session without consulting disk metadata or requiring a live Agent', async () => {
     const ctx = await composed()
     try {
@@ -252,6 +276,7 @@ describe('sessions.fork', () => {
       await mountAgentLoopTestDependencies(ctx)
       const harness = await mountAgentLoopTestHarness(ctx)
       await ctx.plugin(TokenMeter)
+      await installSessionReadTestServices(ctx)
       const compact = new BasicCompactionEngine(ctx, { auto: false })
       const adapter = new MockAdapter([
         textResponse('reply'), textResponse('checkpoint'), textResponse('continued'),
@@ -341,6 +366,40 @@ describe('sessions.fork', () => {
     ])
     expect(child?.header.parentSession).toBeUndefined()
     expect(child?.header.cwd).toBe('/proj')
+    await ctx.fiber.dispose()
+  })
+
+  it('writes an explicit cwd and attaches that Workspace instead of the source', async () => {
+    const attachSource = vi.fn<(sessionId: SessionId) => Promise<void>>().mockResolvedValue(undefined)
+    const attachChild = vi.fn<(sessionId: SessionId) => Promise<void>>().mockResolvedValue(undefined)
+    const sourceSessions: SessionId[] = []
+    const sourceWorkspace = {
+      id: 'ws-source', path: '/proj', sessionIds: sourceSessions, attachSession: attachSource,
+    } as unknown as Workspace
+    const otherWorkspace = {
+      id: 'ws-other', path: '/other', sessionIds: [] as SessionId[], attachSession: attachChild,
+    } as unknown as Workspace
+    const ctx = await composed([sourceWorkspace, otherWorkspace])
+    const source = await liveAgent(ctx, 'session-source-cwd', 1)
+    sourceSessions.push(source.id)
+    const response = await (await remote(ctx)).fork(request({ sessionId: source.id, cwd: '/other' }))
+    expect(response.ok ? null : response.error).toBeNull()
+    if (!response.ok) return
+    expect(ctx.sessions.get(response.value.sessionId)?.header.cwd).toBe('/other')
+    expect(attachChild).toHaveBeenCalledWith(response.value.sessionId)
+    expect(attachSource).not.toHaveBeenCalled()
+    await ctx.fiber.dispose()
+  })
+
+  it('rejects a relative or blank fork cwd', async () => {
+    const ctx = await composed()
+    const source = await liveAgent(ctx, 'session-bad-cwd', 1)
+    for (const cwd of ['', '  ', 'relative/path']) {
+      const response = await (await remote(ctx)).fork(request({ sessionId: source.id, cwd }))
+      expect(response.ok).toBe(false)
+      if (response.ok) continue
+      expect(response.error.code).toBe('gateway/bad-request')
+    }
     await ctx.fiber.dispose()
   })
 

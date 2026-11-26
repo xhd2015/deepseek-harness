@@ -80,7 +80,7 @@ kind: "package-library"
 
 启动页是原生 DOM 加本地 CSS，其回退字体与颜色匹配加载期间到达的主题 token。`internal/status` 事件驱动一个 spinner 节点；失败的 entry 在审计前不绘制，因为它可能是可选的。hydrate 会保留该节点与动画相位直到应用提交，`fail()` 渲染抛出的原因。React 挂载、slot 渲染与应用组装位于 `ui-renderer`；`ui-layout` 拥有组装后的浏览器标题投影。
 
-启动内核把清单条目创建交给 Client Modules，使启动后的动态图同步继续持有相同的条目身份。初始激活审计只拒绝必需 entry；后续页面本地失败显示在「设置 → 插件 → 插件列表」。
+启动内核把清单条目创建交给 Client Modules，使启动后的动态图同步继续持有相同的条目身份。初始激活审计只拒绝必需 entry；后续页面本地失败显示在插件页面顶部的同步提示中。
 
 ### 源码地图
 
@@ -92,7 +92,7 @@ kind: "package-library"
 | [`src/mount.ts`](src/mount.ts) | `mountClient`：经 `uiRenderer` 依赖 fiber 完成渲染器交接 |
 | [`src/boot-page.ts`](src/boot-page.ts) | 无框架启动页：spinner、逐 entry 状态、失败渲染 |
 | [`src/platform.ts`](src/platform.ts) | `PLATFORM_MODULES` / `PRELOADED_CLIENT_EXTERNALS`：隐式 external 基座 |
-| [`src/seed.ts`](src/seed.ts) | 启动时交给 loader 的静态模块表 |
+| [`src/seed.ts`](src/seed.ts) | 启动时交给 loader 的静态模块表：`getStaticModules` 供加载 `staticLinked` 产物的被服务外壳，`getSourceStaticModules` 供从源码编译同一批包的同进程外壳 |
 | [`src/window-drag/regions.ts`](src/window-drag/regions.ts) | darwin app-region 组合模型，以及 `base.css` 减除的交互元素选择器 |
 | [`src/base.css`](src/base.css) | 页面基础样式与原生窗口拖拽区域；inert 子树不参与拖拽区域计算 |
 | [`src/window-drag/recall.ts`](src/window-drag/recall.ts) | 外壳唯一的窗口拖拽矩形 watcher（electron/electron#32341）：逐帧测量被打标行，并在它们移动期间脉冲 recall 标记 |
@@ -130,7 +130,7 @@ kind: "package-library"
 
 这些限制说明启动内核不支持什么。它们是当前包约束，不是任务积压。
 
-- **可选插件的启动失败起初只在控制台可见**——初始启动时失败的可选插件（包括 Loader 拒绝创建的插件）出现在控制台警告中；只有后续图同步调和之后，「设置 → 插件 → 插件列表」才会列出它。
+- **可选插件的启动失败起初只在控制台可见**——初始启动时失败的可选插件（包括 Loader 拒绝创建的插件）出现在控制台警告中；只有后续图同步调和之后，插件页面的同步提示才会列出它。
 
 <a id="dev-note"></a>
 ### 开发备注

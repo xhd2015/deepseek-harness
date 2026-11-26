@@ -102,7 +102,11 @@ export interface SessionHeader {
   readonly id: SessionId
   /** Non-negative safe-integer Unix epoch milliseconds when the session was created. */
   readonly createdAt: number
-  /** Absolute working directory the session was created in (if any). */
+  /**
+   * Canonical absolute working directory the session was created in (if any). Producers resolve the
+   * requested directory through the execution-world filesystem before recording it, so the later
+   * canonical directory records of the working-directory service compare with it lexically.
+   */
   readonly cwd?: string
   /**
    * Direct creator of a subagent Session. Ordinary forks omit this field;
@@ -136,6 +140,20 @@ export interface SessionHeader {
 }
 
 /**
+ * Caller-supplied storage fields that `buildSessionHeader` folds into a new {@link SessionHeader}.
+ * `isSeeded` marks fork lineage; supplying replay history alone does not make it inherited.
+ */
+export interface SessionHeaderMeta {
+  readonly cwd?: string
+  readonly parentSession?: SessionId
+  readonly createdAt?: number
+  readonly isSeeded?: boolean
+  readonly origin?: 'subagent'
+  readonly delegationDepth?: number
+  readonly agentPreset?: string
+}
+
+/**
  * Options for creating a {@link Session} via the store. `seed` replays/forks
  * an existing event log; `meta` carries the caller-supplied storage fields the
  * store folds into a {@link SessionHeader}.
@@ -153,15 +171,7 @@ export interface CreateSessionOptions {
    * Storage metadata read once before publication. `isSeeded` marks fork
    * lineage; supplying replay history alone does not make it inherited.
    */
-  readonly meta?: {
-    readonly cwd?: string
-    readonly parentSession?: SessionId
-    readonly createdAt?: number
-    readonly isSeeded?: boolean
-    readonly origin?: 'subagent'
-    readonly delegationDepth?: number
-    readonly agentPreset?: string
-  }
+  readonly meta?: SessionHeaderMeta
 }
 
 /**
@@ -239,7 +249,7 @@ export type TurnEndReason = TurnEndReasonMap[keyof TurnEndReasonMap]
 
 /**
  * Logged request state outside derived history: call config and tools. The
- * system prompt is derived history — surface node 0, a `system/message` event.
+ * system prompt is derived history — the initial and subsequent `system/message` nodes.
  * The latest full `request/header` snapshot reconstructs the header; canonical
  * empty optional fields are absent.
  */
@@ -322,18 +332,15 @@ export interface SessionEventMap {
     headerSeq?: SessionSeq
   }
   /**
-   * The rendered system prompt on the model-visible surface. The loop appends
-   * the first one as surface node 0 before the step's first `user/message`.
-   * A prepared in-history route can append nonempty changes in a continuing
-   * series. An incapable route, or a new series whose effective text differs,
-   * normalizes text to the first system node; a series start whose latest
-   * surviving node already holds the rendering leaves it in place.
-   * Normalization empties nonempty later nodes, then rewrites the head if
-   * needed, through logged per-node replacements. An empty rendering always
-   * clears all active system nodes, leaving no older instructions model-visible.
-   * Empty later nodes are dormant and project to no message; an empty head with
-   * no active later node records "no system prompt". Restored nonempty text follows
-   * the same route and series rule; empty nodes never restore older text.
+   * System instructions and notices on the model-visible surface. The first
+   * accepted assembly reserves node 0, even with empty content. Later admissions
+   * append new or changed sections independently of the route's capabilities.
+   * Source metadata identifies canonical text and notices; retired records remove
+   * a source from committed state. Empty active text withdraws its instructions
+   * while preserving the source. Earlier messages retain their positions.
+   * `source.reset` replaces committed state, including when compaction rebuilds
+   * the initial system node from current instructions.
+   * Empty system nodes remain in the surface but produce no model message.
    */
   'system/message': { turn: number; step: number; message: SystemMessage }
   /**
@@ -404,8 +411,8 @@ export interface SessionEventMap {
   /**
    * Route metadata for the next request, logged only when the route, capacity,
    * or system prompt update mode changes. It does not participate in request
-   * reconstruction or header equality. Prompt admission uses the bound prepared
-   * call's capability, not this snapshot from an earlier request.
+   * reconstruction, header equality, or system-section admission. The bound
+   * prepared call's capabilities determine adapter representation.
    */
   'request/context': RequestContext
   /**
@@ -433,7 +440,45 @@ export interface SessionEventMap {
    * so tolerating concurrent writers needs a signal beyond the log.
    */
   'session/end-seed': { inherited?: true }
+  /**
+   * Rewrites the model-visible content of existing surface messages, or removes
+   * them from the surface, without changing any message's identity: the surface
+   * node keeps its original seq. Model requests and derived history read the
+   * projected result, so an edit that happens while a turn runs takes effect on
+   * the next step rather than mid-step.
+   *
+   * Each target must name a current surface node. A target that a later
+   * compaction shadowed is skipped rather than refused: the edit was valid when
+   * it was written, and a compaction must not turn committed history into a log
+   * that refuses to load.
+   *
+   * This event is NOT ignorable. A reader that skips it would show the
+   * pre-edit text as if the edit never happened, which is a wrong history rather
+   * than a rejected one, so a build that cannot interpret it must refuse the log.
+   * @messageProjection
+   */
+  'message/edit': { edits: readonly MessageEdit[] }
 }
+
+/**
+ * One committed change to an existing surface message.
+ *
+ * `seq` names the message by its original surface node; the node is preserved,
+ * so a client that keys rows by seq keeps working across an edit.
+ */
+export type MessageEdit =
+  | {
+    /** Surface node being rewritten. */
+    seq: SessionSeq
+    /** Replacement text for the message's model-visible content. */
+    text: string
+  }
+  | {
+    /** Surface node being removed from the model-visible history. */
+    seq: SessionSeq
+    /** Present and true only on a removal; the log keeps the original event. */
+    deleted: true
+  }
 
 /** The appendable event-type keys of {@link SessionEventMap}, plugin-merged extensions included. */
 export type SessionEventType = keyof SessionEventMap
@@ -489,6 +534,15 @@ export type SurfaceIntent<T extends SurfaceEventType = SurfaceEventType> = {
 export type SessionEventInput = {
   [K in SessionEventType]: readonly [type: K, data: SessionEventMap[K], ...opts: K extends SurfaceEventType ? [opts: SurfaceIntent<K>] : []]
 }[SessionEventType]
+
+/**
+ * Optional envelope for a log-only {@link Session.append}. `ignorable: true`
+ * lets a reader that does not recognize `type` skip the record instead of
+ * refusing the Session.
+ */
+export interface LogOnlyAppendOptions {
+  readonly ignorable?: true
+}
 
 /**
  * One immutable entry in the session log.
@@ -570,5 +624,9 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
   interface RemoteErrorDetailsMap {
     /** The named Session does not exist; produced by every layer that resolves a SessionId. */
     'session/not-found': { readonly sessionId: SessionId }
+    /** The Session has no live turn to suspend: already idle, or never started. */
+    'session/not-running': { readonly sessionId: SessionId }
+    /** Continue was asked for a Session whose newest turn did not end paused. */
+    'session/not-paused': { readonly sessionId: SessionId }
   }
 }

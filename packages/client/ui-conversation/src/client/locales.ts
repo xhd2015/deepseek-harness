@@ -14,6 +14,7 @@ export const zh = {
   'shortcut.complementary': '使用互补的 Queue／Steer 方式',
   'shortcut.slash': '打开命令菜单',
   'shortcut.mention': '打开引用菜单',
+  'draft.persistenceFailed': '无法同步会话草稿。当前编辑内容仍保留在此浏览器中。',
   'hint.plan': PLAN_NEXT_ACTION_ZH,
   'hint.goal': '输入目标，智能体将持续执行',
   'hint.goal.active': '当前目标进行中。可输入 edit 修改 / pause 暂停 / resume 继续 / clear 清除',
@@ -41,6 +42,7 @@ export const zh = {
   'attachment.pathUnavailable': '无法获取文件夹路径，请重新拖入',
   'attachment.pathUnsupported': '路径含有无法引用的字符，请改名后再试',
   'image.pending': '待发送图片',
+  'attachments.unavailable': '部分草稿附件已失效，请重新添加',
   'image.openOriginal': '查看原图',
   'image.openOriginalLabel': '{label}，点击查看原图',
   'image.remove': '移除图片 {name}',
@@ -420,6 +422,7 @@ export const en = {
   'shortcut.complementary': 'Use the complementary Queue / Steer action',
   'shortcut.slash': 'Open command menu',
   'shortcut.mention': 'Open reference menu',
+  'draft.persistenceFailed': 'Could not synchronize the session draft. Your current edits remain in this browser.',
   'hint.plan': PLAN_NEXT_ACTION_EN,
   'hint.goal': 'describe the objective for a long-running task',
   'hint.goal.active': 'goal active — edit / pause / resume / clear',
@@ -447,6 +450,7 @@ export const en = {
   'attachment.pathUnavailable': 'Could not obtain the folder path; drag it in again',
   'attachment.pathUnsupported': 'The path contains characters a reference cannot carry; rename it and try again',
   'image.pending': 'Pending images',
+  'attachments.unavailable': 'Some draft attachments are no longer available; add them again',
   'image.openOriginal': 'View original',
   'image.openOriginalLabel': '{label}, click to view original',
   'image.remove': 'Remove image {name}',
@@ -821,6 +825,7 @@ export const en = {
 /** Japanese copy, checked against the English keys. */
 export const ja = {
   'quote.remove': '引用を削除',
+  'draft.persistenceFailed': 'セッションの下書きを同期できませんでした。現在の編集内容はこのブラウザに残っています。',
   'shortcut.newline': '改行',
   'shortcut.complementary': '補助のキュー / 実行中の指示変更を使用',
   'shortcut.slash': 'コマンドメニューを開く',
@@ -852,6 +857,7 @@ export const ja = {
   'attachment.pathUnavailable': 'フォルダのパスを取得できませんでした。もう一度ドラッグしてください',
   'attachment.pathUnsupported': 'パスに参照できない文字が含まれています。名前を変更して再試行してください',
   'image.pending': '保留中の画像',
+  'attachments.unavailable': '一部の下書き添付ファイルは利用できなくなりました。再度追加してください',
   'image.openOriginal': '元の画像を表示',
   'image.openOriginalLabel': '{label}、クリックで元の画像を表示',
   'image.remove': '画像{name}を削除',
@@ -1224,6 +1230,7 @@ export const ja = {
 /** Spanish dictionary, checked against the English keys. */
 export const es = {
   'quote.remove': 'Eliminar cotización',
+  'draft.persistenceFailed': 'No se pudo sincronizar el borrador de la sesión. Tus cambios actuales permanecen en este navegador.',
   'shortcut.newline': 'Nueva linea',
   'shortcut.complementary': 'Usar la acción alternativa de poner en cola o redirigir',
   'shortcut.slash': 'Abrir menú de comandos',
@@ -1255,6 +1262,7 @@ export const es = {
   'attachment.pathUnavailable': 'No se pudo obtener la ruta de la carpeta; arrástralo de nuevo',
   'attachment.pathUnsupported': 'La ruta contiene caracteres que una referencia no puede contener; cámbiale el nombre y vuelve a intentarlo.',
   'image.pending': 'Imágenes pendientes',
+  'attachments.unavailable': 'Algunos adjuntos del borrador ya no están disponibles; vuelve a añadirlos',
   'image.openOriginal': 'Ver original',
   'image.openOriginalLabel': '{label}, haga clic para ver el original',
   'image.remove': 'Eliminar imagen {name}',
@@ -1629,6 +1637,7 @@ export const es = {
 /** French dictionary, checked against the English keys. */
 export const fr = {
   'quote.remove': 'Supprimer le devis',
+  'draft.persistenceFailed': 'Impossible de synchroniser le brouillon de la session. Vos modifications actuelles restent dans ce navigateur.',
   'shortcut.newline': 'Nouvelle ligne',
   'shortcut.complementary': 'Utiliser l’action alternative de mise en attente ou de guidage',
   'shortcut.slash': 'Ouvrir le menu des commandes',
@@ -1660,6 +1669,7 @@ export const fr = {
   'attachment.pathUnavailable': "Impossible d'obtenir le chemin du dossier ; fais-le glisser à nouveau",
   'attachment.pathUnsupported': "Le chemin contient des caractères qu'une référence ne peut pas transporter ; renommez-le et réessayez",
   'image.pending': 'Images en attente',
+  'attachments.unavailable': 'Certaines pièces jointes du brouillon ne sont plus disponibles ; ajoutez-les à nouveau',
   'image.openOriginal': "Voir l'original",
   'image.openOriginalLabel': "{label}, cliquez pour voir l'original",
   'image.remove': "Supprimer l'image {name}",
@@ -2034,6 +2044,7 @@ export const fr = {
 /** German dictionary, checked against the English keys. */
 export const de = {
   'quote.remove': 'Zitat entfernen',
+  'draft.persistenceFailed': 'Der Sitzungsentwurf konnte nicht synchronisiert werden. Ihre aktuellen Änderungen bleiben in diesem Browser.',
   'shortcut.newline': 'Neue Zeile',
   'shortcut.complementary': 'Die alternative Aktion zum Vormerken oder Lenken verwenden',
   'shortcut.slash': 'Befehlsmenü öffnen',
@@ -2065,6 +2076,7 @@ export const de = {
   'attachment.pathUnavailable': 'Der Ordnerpfad konnte nicht abgerufen werden; Ziehen Sie es erneut hinein',
   'attachment.pathUnsupported': 'Der Pfad enthält Zeichen, die eine Referenz nicht enthalten kann; Benennen Sie es um und versuchen Sie es erneut',
   'image.pending': 'Ausstehende Bilder',
+  'attachments.unavailable': 'Einige Entwurfsanhänge sind nicht mehr verfügbar; füge sie erneut hinzu',
   'image.openOriginal': 'Original ansehen',
   'image.openOriginalLabel': '{label}, klicken Sie, um das Original anzuzeigen',
   'image.remove': 'Bild {name} entfernen',
@@ -2439,6 +2451,7 @@ export const de = {
 /** Russian dictionary, checked against the English keys. */
 export const ru = {
   'quote.remove': 'Удалить цитату',
+  'draft.persistenceFailed': 'Не удалось синхронизировать черновик сеанса. Текущие правки остаются в этом браузере.',
   'shortcut.newline': 'Новая линия',
   'shortcut.complementary': 'Использовать альтернативное действие: поставить в очередь или направить',
   'shortcut.slash': 'Открыть командное меню',
@@ -2470,6 +2483,7 @@ export const ru = {
   'attachment.pathUnavailable': 'Не удалось получить путь к папке; перетащите это снова',
   'attachment.pathUnsupported': 'Путь содержит символы, которые не может содержать ссылка; переименуй его и попробуй еще раз',
   'image.pending': 'Ожидающие изображения',
+  'attachments.unavailable': 'Некоторые вложения черновика больше недоступны; добавьте их снова',
   'image.openOriginal': 'Посмотреть оригинал',
   'image.openOriginalLabel': '{label}, нажмите, чтобы посмотреть оригинал',
   'image.remove': 'Удалить изображение {name}',
@@ -2844,6 +2858,7 @@ export const ru = {
 /** Portuguese dictionary, checked against the English keys. */
 export const pt = {
   'quote.remove': 'Remover cotação',
+  'draft.persistenceFailed': 'Não foi possível sincronizar o rascunho da sessão. Suas edições atuais permanecem neste navegador.',
   'shortcut.newline': 'Nova linha',
   'shortcut.complementary': 'Usar a ação alternativa de enfileirar ou orientar',
   'shortcut.slash': 'Abrir menu de comando',
@@ -2875,6 +2890,7 @@ export const pt = {
   'attachment.pathUnavailable': 'Não foi possível obter o caminho da pasta; arraste-o novamente',
   'attachment.pathUnsupported': 'O caminho contém caracteres que uma referência não pode transportar; renomeie-o e tente novamente',
   'image.pending': 'Imagens pendentes',
+  'attachments.unavailable': 'Alguns anexos do rascunho não estão mais disponíveis; adicione-os novamente',
   'image.openOriginal': 'Ver original',
   'image.openOriginalLabel': '{label}, clique para ver o original',
   'image.remove': 'Remover imagem {name}',

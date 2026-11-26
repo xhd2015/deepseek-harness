@@ -14,6 +14,25 @@ import type { CompactionId } from './brand.ts'
 
 export type { CompactionId }
 
+/**
+ * Resolved pressure budget that admitted an automatic compaction: the context
+ * capacity it was priced against and the token counts it decided with.
+ * Recording it keeps "why did this compaction run" answerable from the log
+ * alone, without re-deriving adapter capacity or request overrides.
+ */
+export interface CompactionBudget {
+  /** Context window of the routed adapter model. */
+  contextWindow: number
+  /** Completion tokens reserved by the routed request, excluded from the message budget. */
+  reservedCompletionTokens: number
+  /** Pressure slack the policy applied below the ratio ceiling. */
+  headroomTokens: number
+  /** Message-budget tokens at or above which pressure compaction triggers. */
+  thresholdTokens: number
+  /** Recent tokens the transaction retains when it selects the compacted span. */
+  retainTokens: number
+}
+
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
     /**
@@ -21,7 +40,17 @@ declare module '@deepseek-ai/dsh-session/types' {
      * `compaction/end`. A numbered owner is strictly enclosed by that open turn;
      * `null` identifies a standalone manual transaction between turns.
      */
-    'compaction/start': { compactionId: CompactionId; sourceCommandId?: CommandId; turn: number | null }
+    'compaction/start': {
+      compactionId: CompactionId
+      sourceCommandId?: CommandId
+      turn: number | null
+      /**
+       * The pressure budget an automatic trigger resolved, so the threshold
+       * that admitted this compaction stays reconstructable from the log.
+       * Absent for manual compaction and for triggers that bypass pressure.
+       */
+      budget?: CompactionBudget
+    }
     /**
      * Completed summary, its inputs, and its model call facts — log-only, no surfaceOp.
      * The summary content is in `data.summary`; the actual surface replacement

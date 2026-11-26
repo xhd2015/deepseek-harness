@@ -213,6 +213,22 @@ declare module './types.ts' {
     cancel(cause: AgentCancelCause, options?: CancelOptions): void
 
     /**
+   * Suspend the live turn without ending the session: the stream is aborted,
+   * the partial output is kept out of model-visible history, and the turn
+   * closes with the `paused` hook reason. Pending inbox work is kept.
+   * @returns whether a live turn was suspended.
+   */
+    pause(): boolean
+
+    /**
+   * Continue a paused session with no new input. The model sees the durable
+   * history as it stood before the stream was cut, and no user message is
+   * inserted for the continuation.
+   * @returns whether a paused session was resumed.
+   */
+    resumePaused(): boolean
+
+    /**
    * Resolve after the current whole-agent activity reaches quiescence. This
    * follows replacement work started before the observed driver retires,
    * but does not identify the settlement of any particular message.
@@ -269,7 +285,136 @@ declare module './types.ts' {
    * @param message - identified injected context and the source that supplied it.
    */
     inject(message: UserMessage): void
+
+    /**
+     * Inject one batch of transcript events and make the driver act on them.
+     *
+     * The whole batch lands in a single `Session.append` call: one contiguous
+     * seq run, one durability commit, all-or-nothing. Nothing goes through the
+     * inbox, so `user` messages keep their authored position inside the batch
+     * instead of arriving at a step boundary.
+     *
+     * After the commit the driver is told there is work to do even though the
+     * inbox is untouched: an idle agent opens a turn, a running agent takes one
+     * more step. That is what makes "inject, then run" one call rather than an
+     * inject followed by a queued prompt.
+     * @param messages - ordered batch; each entry is a `user`, `thinking`
+     * (reasoning) or `assistant` (text) transcript event.
+     * @returns the committed seqs in batch order, and whether a run was started.
+     * Optional: a test double or a foreign driver may not implement batch
+     * injection at all, and callers must degrade explicitly rather than assume
+     * it exists. The shipped loop driver always provides it.
+     * @throws when the batch is empty, a text is blank, or an assistant event
+     * has no provider/model route.
+     */
+    injectBatch?(messages: readonly InjectedMessage[]): InjectedBatchResult
+
+    /**
+     * Commit one batch of changes to already-produced messages as a single
+     * transcript event, then let the driver act on the edited history.
+     *
+     * The commit is the transaction: a change that names no current surface
+     * message throws before anything is written. Message identity is preserved,
+     * so a client keyed by seq keeps its rows.
+     * @param edits - ordered rewrites and removals.
+     * @returns the committed record seq and whether a run was started.
+     * @throws when the batch is empty, a rewrite is blank, or a removal is
+     * malformed.
+     */
+    editBatch?(edits: readonly InjectedMessageEdit[]): InjectedEditResult
   }
+}
+
+/** One transcript event requested through {@link AgentRuntime.injectBatch}. */
+export type InjectedMessageKind = 'user' | 'thinking' | 'assistant' | 'tool-call' | 'tool-result'
+
+/** A batch entry that carries model-visible text. */
+export interface InjectedTextMessage {
+  readonly kind: 'user' | 'thinking' | 'assistant'
+  readonly text: string
+}
+
+/**
+ * A batch entry that asserts the model called a tool.
+ *
+ * `arguments` is the raw JSON string the model would have produced, exactly as
+ * `tool/call` stores it: unparsed, so an injected call and a real one are
+ * indistinguishable to every reader.
+ */
+export interface InjectedToolCall {
+  readonly kind: 'tool-call'
+  /** Tool name, as the registry knows it. */
+  readonly tool: string
+  /** Raw JSON argument object text. */
+  readonly arguments: string
+}
+
+/**
+ * A batch entry that asserts a tool returned a result.
+ *
+ * `call` names the call this answers: either a seq from the same batch (a
+ * `tool-call` entry already listed) or an existing call seq in the session. The
+ * pairing is validated before anything is committed, because a result that
+ * answers no call makes the next request invalid at the provider rather than at
+ * the log.
+ */
+export interface InjectedToolResult {
+  readonly kind: 'tool-result'
+  /** Call seq this result answers. */
+  readonly call: SessionSeq
+  /** Model-visible result text. */
+  readonly text: string
+  /** Whether the call failed; absent means success. */
+  readonly isError?: boolean
+}
+
+/**
+ * One entry of an injected batch. `thinking` becomes an assistant message
+ * carrying a reasoning block, `assistant` an assistant message carrying text,
+ * `user` an ordinary user message, and the two tool forms assert one call and
+ * its result.
+ */
+export type InjectedMessage = InjectedTextMessage | InjectedToolCall | InjectedToolResult
+
+/** One change to an already-produced message. */
+export type InjectedMessageEdit =
+  | {
+    /** Surface node being rewritten; the node keeps this seq. */
+    readonly seq: SessionSeq
+    /** Replacement message text. */
+    readonly text: string
+  }
+  | {
+    /** Surface node removed from model history; the node keeps this seq. */
+    readonly seq: SessionSeq
+    readonly deleted: true
+  }
+
+/** What an edit batch committed, and whether it woke the driver. */
+export interface InjectedEditResult {
+  /** Seq of the committed `message/edit` record. */
+  readonly seq: SessionSeq
+  /** Whether the driver will act on the edited history without another call. */
+  readonly started: boolean
+}
+
+/** What an injected batch committed, and whether it woke the driver. */
+export interface InjectedBatchResult {
+  /**
+   * Committed event seqs, in batch order.
+   *
+   * A batch can produce more events than it has entries: a `tool-result` entry
+   * commits one surface event, while a `tool-call` commits a log-only event that
+   * never appears on the surface. Callers that need to address a specific entry
+   * read {@link callSeqs} or {@link resultSeqs}.
+   */
+  readonly seqs: readonly SessionSeq[]
+  /** Seqs of committed `tool/call` events, in batch order. */
+  readonly callSeqs: readonly SessionSeq[]
+  /** Seqs of committed `tool/result` events, in batch order. */
+  readonly resultSeqs: readonly SessionSeq[]
+  /** Whether the driver will act on the batch without another call. */
+  readonly started: boolean
 }
 
 declare module '@deepseek-ai/cordis' {

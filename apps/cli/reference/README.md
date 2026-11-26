@@ -37,7 +37,7 @@ The shipped apps own these command lines:
 
 | Profile | Arguments |
 |---|---|
-| `web` | `--host`, `--port`, `--tls-cert`, `--tls-key`, `--public-url`, repeatable `--trusted-host`, `--no-open` |
+| `web` | repeatable `--host`, `--port`, `--tls-cert`, `--tls-key`, `--public-url`, repeatable `--trusted-host`, repeatable `--trusted-host-for-settings`, `--no-auth`, `--api-prefix`, `--no-open`, `--browser`, `open [dir]` |
 | `headless` | the task text, as the positional argument |
 | `sdk` | no options; stdio carries the JSON-RPC protocol |
 | `sdk-minimal` | no options; stdio carries the same JSON-RPC protocol |
@@ -108,7 +108,7 @@ Git-hosted plugins that ship sources build during install through their `prepare
 
 ## Web profile
 
-`dsh web` uses the profile shorthand. Launcher flags are parsed first; the remaining flags belong to the web app, whose ordinary bundle provider parses them. `--host` and `--port` override the composed listener values, and `--tls-cert`/`--tls-key` set the listener's `tls` pair. The host must name one concrete local address, not a wildcard (`--host 0.0.0.0` exits with a usage error); `hostname -i` may list several, so pass one. Repeatable `--trusted-host` values are collected in `ctx.webStartup.trustedHosts`; a deployment expression may add its own authorities. `--no-open` disables the default-browser handoff for this invocation. The client-plugin HMR receiver is always mounted and stays idle until `pnpm run dev:web` rebuilds client bundles; that command builds once, starts this same launcher, and keeps client bundles rebuilt, or with `--no-serve` runs only the watchers beside a `dsh web` started elsewhere.
+`dsh web` uses the profile shorthand. Launcher flags are parsed first; the remaining flags belong to the web app, whose ordinary bundle provider parses them. `--host` and `--port` override the composed listener values, and `--tls-cert`/`--tls-key` set the listener's `tls` pair. Every host must name one concrete local address, not a wildcard (`--host 0.0.0.0` exits with a usage error); repeat `--host` to serve several addresses on the one `--port`, and one refused address fails the whole group. Repeatable `--trusted-host` values are collected in `ctx.webStartup.trustedHosts`; a deployment expression may add its own authorities. `--trusted-host-for-settings` names an authority that may also read and write the Host settings document, including stored credentials; each entry must also appear in `--trusted-host`, and a loopback page always qualifies. `--no-auth` drops the process-token and cookie credential layer for deployments behind an authenticating outer proxy; the Host/Origin trust fence still applies, so it grants no authority by itself. `--api-prefix` relocates the shared API channel from `/api` to a nested absolute path such as `/api/dsh`, for an embedding host that already owns `/api`. `--browser` names the handoff browser (`brave`, `chrome`, `firefox`, `edge`, `safari`). `--no-open` disables the browser handoff for this invocation. `dsh web open [dir]` creates a new Session for that directory (default: cwd) on the already-running GUI. The client-plugin HMR receiver is always mounted and stays idle until `pnpm run dev:web` rebuilds client bundles; that command builds once, starts this same launcher, and keeps client bundles rebuilt, or with `--no-serve` runs only the watchers beside a `dsh web` started elsewhere.
 
 `--public-url <url>` advertises one HTTP(S) application root — with an optional forwarding prefix — in place of the listener's bind-address URL (loopback for a loopback bind). It grants no trust, so the browser-visible authority still has to be named with `--trusted-host`; [Publish the Web UI behind a reverse proxy](../../../docs/user/guide/public-deployments.md) lists what the proxy in front must provide.
 
@@ -119,6 +119,9 @@ dsh web
 dsh web --host "$(hostname -i | awk '{print $1}')" --public-url https://app.example/ --trusted-host app.example
 dsh web --tls-cert ./server-chain.pem --tls-key ./server-key.pem
 dsh web --no-open
+dsh web --browser brave
+dsh web open
+dsh web open ~/proj --browser brave
 dsh web --patch ./extra.cordis.yml
 dsh web --dump-config
 dsh web --help
@@ -128,11 +131,11 @@ The production Web runner needs built package and frontend artifacts (`pnpm run 
 
 Process shutdown gives the plugin tree up to five seconds to dispose. The first `SIGINT`/`SIGTERM` starts that graceful drain — `SIGTERM` is a supervisor's ordinary stop request and exits 0 on every surface, `SIGINT` reports 130; a second signal forces immediate exit. If one-shot normal completion is already stuck in disposal, the first `Ctrl+C` is the escalation and exits immediately instead of being swallowed.
 
-The base-backed modes treat the invoking directory as the default workspace root, load applicable `AGENTS.md` or `CLAUDE.md` instructions with a 65,536-byte render budget for each instruction chain, and use an in-memory SQLite session content index. The standalone `sdk-minimal` profile uses the invoking directory as its sandbox-policy root and includes `read_image`, but omits text filesystem tools, instruction discovery, and SQLite. An enabled HMR plugin watches both `cordis.patch.yml` layers (profile and home) and reapplies valid edits transactionally; without HMR, the process applies them once. A one-shot surface exits through its bounded shutdown, which disposes any live watchers.
+The base-backed modes treat the invoking directory as the default workspace root, load applicable `AGENTS.md` or `CLAUDE.md` instructions with a 65,536-byte render budget for each instruction chain, and use an in-memory SQLite session content index. The standalone `sdk-minimal` profile uses the invoking directory as its sandbox-policy root and includes `read_image`, but omits text filesystem tools, instruction discovery, and SQLite. An enabled HMR plugin watches both `cordis.patch.yml` layers (profile and home) and every `--patch` overlay file, and reapplies valid edits transactionally; without HMR, the process applies them once. A one-shot surface exits through its bounded shutdown, which disposes any live watchers.
 
 New sessions in base-backed profiles default to the `workspace-write` permission preset. Bash and filesystem mutations are restricted to the session workspace and platform temporary roots; reads and network access are not confined, while process visibility depends on the selected sandbox backend — bwrap runs commands in a private PID namespace that hides host processes, and Landlock and Seatbelt leave host process visibility unchanged. `DSH_PERMISSION_MODE` changes the process fallback. Stored General-settings permissions affect later Web sessions, not an already-open one. The standalone `sdk-minimal` tree instead pins `danger-full-access` and mounts no approval or permission-settings service.
 
-Web, headless, and SDK inherit native tool execution from the base bundle; use a [PTC overlay](../config/examples/ptc.yml) to select PTC. The shipped `minimal` agent preset keeps that deployment presentation, fixes the complete system prompt to `You are a helpful software engineer assistant.`, and provides the platform-selected persistent shell, `read_image`, and `working_directory`. It supports automatic context compaction and the human `/compact` command. Select 极简模式 when creating a Web session; the shared browser, workspace, persistence, sandbox, and permission host remains in place.
+Web, headless, and SDK inherit native tool execution from the base bundle; use a [PTC overlay](../config/examples/ptc.yml) to select PTC. The shipped `minimal` agent preset keeps that deployment presentation, fixes the complete system prompt to `You are a helpful software engineer assistant.`, and provides the platform-selected persistent shell and `read_image`. It supports automatic context compaction and the human `/compact` command. Select 极简模式 when creating a Web session; the shared browser, workspace, persistence, sandbox, and permission host remains in place.
 
 ## Shared deployment behavior
 

@@ -730,6 +730,7 @@ describe('subagent ownership fence', () => {
       options: { provider: 'p', model: 'm' },
       inbox: inboxFor(), status: 'idle', ctx, followup,
       cancel: vi.fn(), whenIdle: () => Promise.resolve(),
+      pause: () => false, resumePaused: () => false,
       runMaintenance: async () => { throw new Error('unexpected maintenance') },
       send: vi.fn(), inject: vi.fn(), steer: vi.fn(),
     }
@@ -757,6 +758,7 @@ describe('subagent ownership fence', () => {
       options: { provider: 'p', model: 'm' },
       inbox: inboxFor(), status: 'idle', ctx, followup,
       cancel: vi.fn(), whenIdle: () => Promise.resolve(),
+      pause: () => false, resumePaused: () => false,
       runMaintenance: async () => { throw new Error('unexpected maintenance') },
       send: vi.fn(), inject: vi.fn(), steer: vi.fn(),
     }
@@ -889,6 +891,7 @@ describe('sessions.prompt synchronous rejection', () => {
       id: session.id,
       options,
       whenIdle: vi.fn(() => Promise.resolve()),
+      pause: () => false, resumePaused: () => false,
       runMaintenance: async () => { throw new Error('unexpected maintenance') },
       send: vi.fn(),
       inject: vi.fn(),
@@ -997,6 +1000,7 @@ describe('sessions.prompt synchronous rejection', () => {
       ctx,
       options: { provider: 'p', model: 'm' },
       cancel: vi.fn(), whenIdle: () => Promise.resolve(),
+      pause: () => false, resumePaused: () => false,
       runMaintenance: async () => { throw new Error('unexpected maintenance') },
       send: vi.fn(), inject: vi.fn(),
       followup: () => { throw new Error('agent "session-throwing" lifecycle disposed') },

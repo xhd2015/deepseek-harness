@@ -1,4 +1,5 @@
 /** Owner choices and management reads constrain live external execution. */
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { Context } from '@deepseek-ai/cordis'
 import { Peer } from '@deepseek-ai/dsh-client-connection'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -55,6 +56,7 @@ async function fixture(mode: 'view' | 'write') {
     shares: [{ relay: 'https://relay.test', shareId: 'share', sessionId: 'source',
       sessionTitle: 'Source', accessMode: 'selected', allowedSubjectIds: [identityKeyOf(alice), identityKeyOf(bob)],
       gatewayToken: 'token', createdAt: '2026-10-08T00:00:00Z', sessionMode: mode, allowsFork: mode !== 'view' }] }))
+  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(NativeToolExecutor)
@@ -66,7 +68,8 @@ async function fixture(mode: 'view' | 'write') {
     inbox: { nextTurn: [], nextStep: [], clear: unsupported, append: unsupported, prepend: unsupported,
       replace: unsupported, remove: unsupported, splice: unsupported },
     send: unsupported, followup: unsupported, steer: unsupported, inject: unsupported,
-    cancel: vi.fn(), whenIdle: () => Promise.resolve(), runMaintenance: task => task(new AbortController().signal) }
+    cancel: vi.fn(), whenIdle: () => Promise.resolve(), runMaintenance: task => task(new AbortController().signal),
+    pause: () => false, resumePaused: () => false }
   let scope: Scope | undefined
   await ctx.plugin(Object.assign((inner: Context) => { scope = createScope(inner, key) }, { inject: ['tools', 'systemPrompt'] }))
   if (scope === undefined) throw new Error('source scope missing')

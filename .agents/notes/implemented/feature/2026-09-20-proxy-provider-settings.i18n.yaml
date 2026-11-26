@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-09-20-proxy-provider-settings.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-20-proxy-provider-settings.md
+/agent-note-proxy-provider-settings:
+  en: 63576f0649dd790d
+  zh: 6ec97d8df8825824
+/agent-note-proxy-provider-settings/problem:
+  en: 4073695cf0cc8aba
+  zh: 4cc0700335b07361
+/agent-note-proxy-provider-settings/decision:
+  en: 434417cc77dd98e8
+  zh: fb04cd2558b758b0
+/agent-note-proxy-provider-settings/alternatives-considered:
+  en: 168bd7c735ee4288
+  zh: 2798cdf4f70eee2a
+/agent-note-proxy-provider-settings/consequences:
+  en: f863175860c252e2
+  zh: a4cdf32c0061d6a6

@@ -48,7 +48,7 @@ interface AgentHandle {
 }
 ```
 
-`CreateAgentOptions` 携带共享标识以及新 agent 发布前所需的一切：会话元数据（`meta`——已校验的 `cwd`、fork 谱系、`isSeeded` 标记、来源分类、委派深度与 `agentPreset`）、同级字段 `inheritedEventCount` 所表示的精确 fork cut、可选的 `seed` 回放前缀、按 agent 的 `AgentOptions`、仅创建期有效的取消 `signal`，以及 `setup`。`ResumeAgentOptions` 是持久标识的对应项：`resumeSessionId`、`agentOptions`、`signal` 与 `setup`。`setup` 回调（`AgentSetup`）在 Session 入库且 `session/created` 完成后、Agent 注册前接收 `(agentCtx, agent)`：上下文拥有作用域注册，显式 Agent 提供确切的子 Session，Context 无需反向属性。凡经 `agentCtx` 注册的内容都先于 `agent/created` 与第一次提示词组装存在。Setup 可以返回在发布前一刻调用的同步 commit；setup 拒绝、commit 抛出或所有者 dispose（资源释放）都会撤销事务并移除 Session，同时保留恢复出的待处理输入及已存储事件。
+`CreateAgentOptions` 携带共享标识以及新 agent 发布前所需的一切：会话元数据（`meta`——已校验的 `cwd`、fork 谱系、`isSeeded` 标记、来源分类、委派深度与 `agentPreset`）、同级字段 `inheritedEventCount` 所表示的精确 fork cut、可选的 `seed` 历史，以及 fork 时与之共享前 `endSeq` 条 seed 事件的 `parentSource` 父会话、按 agent 的 `AgentOptions`、仅创建期有效的取消 `signal`，以及 `setup`。`ResumeAgentOptions` 是持久标识的对应项：`resumeSessionId`、`agentOptions`、`signal` 与 `setup`。`setup` 回调（`AgentSetup`）在 Session 入库且 `session/created` 完成后、Agent 注册前接收 `(agentCtx, agent)`：上下文拥有作用域注册，显式 Agent 提供确切的子 Session，Context 无需反向属性。凡经 `agentCtx` 注册的内容都先于 `agent/created` 与第一次提示词组装存在。Setup 可以返回在发布前一刻调用的同步 commit；setup 拒绝、commit 抛出或所有者 dispose（资源释放）都会撤销事务并移除 Session，同时保留恢复出的待处理输入及已存储事件。
 
 `AgentFactory` 是注册表背后的创建接口：循环经 `ctx.agents.setFactory()` 注册其工厂，因此消费方使用 `ctx.agents` 时无需依赖具体循环包。注册表把创建选项和调用方 Context 传给工厂；调用方 Context 拥有返回句柄的生命周期。确切的 `create`/`resume` 签名及回滚约定见下方[生成区块](#ctxagents--agentregistry)。
 
@@ -87,6 +87,22 @@ interface Agent {
    * @param options - cancellation options; `keepInbox` preserves pending work.
    */
   cancel(cause: AgentCancelCause, options?: CancelOptions): void
+
+  /**
+   * Suspend the live turn without ending the session: the stream is aborted,
+   * the partial output is kept out of model-visible history, and the turn
+   * closes with the `paused` hook reason. Pending inbox work is kept.
+   * @returns whether a live turn was suspended.
+   */
+  pause(): boolean
+
+  /**
+   * Continue a paused session with no new input. The model sees the durable
+   * history as it stood before the stream was cut, and no user message is
+   * inserted for the continuation.
+   * @returns whether a paused session was resumed.
+   */
+  resumePaused(): boolean
 
   /**
    * Resolve after the current whole-agent activity reaches quiescence. This
@@ -145,6 +161,43 @@ interface Agent {
    * @param message - identified injected context and the source that supplied it.
    */
   inject(message: UserMessage): void
+
+  /**
+   * Inject one batch of transcript events and make the driver act on them.
+   *
+   * The whole batch lands in a single `Session.append` call: one contiguous
+   * seq run, one durability commit, all-or-nothing. Nothing goes through the
+   * inbox, so `user` messages keep their authored position inside the batch
+   * instead of arriving at a step boundary.
+   *
+   * After the commit the driver is told there is work to do even though the
+   * inbox is untouched: an idle agent opens a turn, a running agent takes one
+   * more step. That is what makes "inject, then run" one call rather than an
+   * inject followed by a queued prompt.
+   * @param messages - ordered batch; each entry is a `user`, `thinking`
+   * (reasoning) or `assistant` (text) transcript event.
+   * @returns the committed seqs in batch order, and whether a run was started.
+   * Optional: a test double or a foreign driver may not implement batch
+   * injection at all, and callers must degrade explicitly rather than assume
+   * it exists. The shipped loop driver always provides it.
+   * @throws when the batch is empty, a text is blank, or an assistant event
+   * has no provider/model route.
+   */
+  injectBatch?(messages: readonly InjectedMessage[]): InjectedBatchResult
+
+  /**
+   * Commit one batch of changes to already-produced messages as a single
+   * transcript event, then let the driver act on the edited history.
+   *
+   * The commit is the transaction: a change that names no current surface
+   * message throws before anything is written. Message identity is preserved,
+   * so a client keyed by seq keeps its rows.
+   * @param edits - ordered rewrites and removals.
+   * @returns the committed record seq and whether a run was started.
+   * @throws when the batch is empty, a rewrite is blank, or a removal is
+   * malformed.
+   */
+  editBatch?(edits: readonly InjectedMessageEdit[]): InjectedEditResult
 }
 ```
 

@@ -482,8 +482,18 @@ export function ModelSelect(
       onKeyDown={onRootKeyDown}
       onBlur={onBlur}
       onMouseDown={(event) => {
-        // WebKit blurs a focused row before click unless the button's mousedown keeps focus.
-        if (event.target instanceof Element && event.target.closest('button') !== null) event.preventDefault()
+        // WebKit blurs a focused row before click unless the button's mousedown
+        // keeps focus. Pressing non-focusable card content (a provider heading,
+        // padding, status text) would move focus to the body and close the card
+        // through onBlur; other focusable controls, which plugin options may
+        // render, keep their default focus, and a detail pane keeps the default
+        // so its prose stays selectable.
+        const { target } = event
+        if (target instanceof Element && (
+          target.closest('button') !== null
+          || (pane.kind !== 'detail' && menuRef.current?.contains(target) === true
+            && target.closest('a[href], input, select, textarea, [role="button"], [contenteditable], [tabindex]') === null)
+        )) event.preventDefault()
       }}
     >
       <button
@@ -614,6 +624,7 @@ export function ModelSelect(
                       {group.models.map((model) => {
                         const index = modelIndex++
                         const selected = state.current?.provider === group.id && state.current.model === model.id
+                        const refusal = model.unavailable
                         return (
                           <button
                             ref={itemRef()}
@@ -632,12 +643,17 @@ export function ModelSelect(
                               else itemRefs.current[index]?.focus()
                             }}
                             key={model.id}
-                            title={model.name}
-                            disabled={busy}
+                            title={refusal ?? model.name}
+                            disabled={busy || refusal !== undefined}
                             onClick={() => { choose({ provider: group.id, model: model.id }) }}
                           >
                             <span className={css.optionCopy}>
                               <span className={css.modelName}>{renderModelLabel(group.provider, model, 'option', selected)}</span>
+                              {refusal !== undefined && (
+                                <span className={css.optionReason}>
+                                  {t('warning.modelUnavailable', { message: refusal })}
+                                </span>
+                              )}
                             </span>
                             <span className={css.check}>
                               {pending?.provider === group.id && pending.model === model.id

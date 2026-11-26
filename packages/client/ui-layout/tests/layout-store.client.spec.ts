@@ -77,6 +77,40 @@ describe('createLayoutStore', () => {
   })
 })
 
+describe('collapse request', () => {
+  it('closes the wide sidebar and never reopens one that is already closed', () => {
+    const { store, actions } = createLayoutStore().create()
+    actions.setSidebar(400)
+    actions.collapseSidebar()
+    expect(store.getSnapshot().layoutInfo.sidebar).toBe(0)
+    const closed = store.getSnapshot()
+    actions.collapseSidebar()
+    expect(store.getSnapshot().layoutInfo.sidebar).toBe(0)
+    expect(store.getSnapshot()).toBe(closed)
+  })
+
+  it('drops a manually expanded narrow override and preserves the width preference', () => {
+    const { store, actions } = createLayoutStore().create()
+    actions.setSidebar(400)
+    actions.setViewportWidth(980)
+    actions.toggleSidebar()
+    expect(store.getSnapshot().layoutInfo.narrowExpanded).toBe(true)
+    actions.collapseSidebar()
+    expect(store.getSnapshot().layoutInfo).toMatchObject({ sidebar: 400, narrowExpanded: false })
+    actions.setViewportWidth(1920)
+    expect(store.getSnapshot().layoutInfo.sidebar).toBe(400)
+  })
+
+  it('clears the fullscreen-exit marker like the other sidebar actions', () => {
+    const { store, actions } = createLayoutStore().create()
+    actions.openRightbar(true, true)
+    actions.closeRightbar()
+    expect(store.getSnapshot().layoutInfo.rightbarInstant).toBe(true)
+    actions.collapseSidebar()
+    expect(store.getSnapshot().layoutInfo.rightbarInstant).toBe(false)
+  })
+})
+
 describe('main panel selection', () => {
   const panelA = 'panel-a' as MainPanelId
   const panelB = 'panel-b' as MainPanelId
@@ -119,7 +153,7 @@ describe('main panel selection', () => {
     expect(store.getSnapshot().layoutInfo).toBe(selected.layoutInfo)
   })
 
-  it.each(['setSidebar', 'toggleSidebar', 'setViewportWidth', 'setRightbar', 'openRightbar', 'closeRightbar'] as const)(
+  it.each(['setSidebar', 'toggleSidebar', 'collapseSidebar', 'setViewportWidth', 'setRightbar', 'openRightbar', 'closeRightbar'] as const)(
     'preserves panelInfo identity when %s changes layoutInfo', (action) => {
       const { store, actions } = createLayoutStore().create()
       actions.selectPanel(panelA)
@@ -128,6 +162,7 @@ describe('main panel selection', () => {
       switch (action) {
         case 'setSidebar': actions.setSidebar(400); break
         case 'toggleSidebar': actions.toggleSidebar(); break
+        case 'collapseSidebar': actions.collapseSidebar(); break
         case 'setViewportWidth': actions.setViewportWidth(980); break
         case 'setRightbar': actions.setRightbar(500); break
         case 'openRightbar': actions.openRightbar(true, true); break

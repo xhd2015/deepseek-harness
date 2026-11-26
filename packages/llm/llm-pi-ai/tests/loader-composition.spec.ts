@@ -109,6 +109,38 @@ describe('llm-pi-ai real dormant composition', () => {
     expect(server.headers[0]?.['x-request-session']).toBe('loader-session')
   })
 
+  it('authenticates an exported proxy Responses route with a placeholder credential', async () => {
+    vi.stubEnv('PI_COMPOSITION_KEY', '')
+    const server = await mockServer([{ events: [
+      JSON.stringify({ type: 'response.created', response: { id: 'resp-proxy', model: 'proxy-model' } }),
+      JSON.stringify({ type: 'response.output_item.added', output_index: 0, item: { type: 'message', id: 'msg-proxy', role: 'assistant', content: [] } }),
+      JSON.stringify({ type: 'response.content_part.added', output_index: 0, content_index: 0, part: { type: 'output_text', text: '', annotations: [] } }),
+      JSON.stringify({ type: 'response.output_text.delta', output_index: 0, content_index: 0, delta: 'hello' }),
+      JSON.stringify({ type: 'response.completed', response: { id: 'resp-proxy', status: 'completed', usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } } }),
+    ] }])
+    const { ctx, settingsPath } = await loadComposition()
+    await writeFile(settingsPath, [
+      '- id: llm-pi-ai',
+      '  config:',
+      '    providers:',
+      '      llm-proxy-codex:',
+      '        apiKeyEnv: PI_COMPOSITION_KEY',
+      '        api: openai-responses',
+      `        baseURL: ${server.url}/v1`,
+      '        models:',
+      '          - id: proxy-model',
+      '            input: [ text, image ]',
+      '',
+    ].join('\n'))
+    await vi.waitFor(() => {
+      expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['llm-proxy-codex'])
+    }, { timeout: 5000 })
+    const result = await assemble(ctx, { provider: 'llm-proxy-codex', model: 'proxy-model', messages: [] })
+    expect(result.message.content).toEqual([{ type: 'text', text: 'hello' }])
+    expect(server.paths).toEqual(['/v1/responses'])
+    expect(server.headers[0]?.authorization).toBe('Bearer key-from-store')
+  })
+
   it('boots with zero routes and registers one the moment settings supply a profile', async () => {
     vi.stubEnv('PI_COMPOSITION_KEY', '')
     const server = await mockServer([{ events: textEvents }])
@@ -248,7 +280,7 @@ describe('llm-pi-ai real dormant composition', () => {
     expect(server.requests[1]).toMatchObject({
       messages: [
         { role: 'assistant', content: 'partial' },
-        { role: 'user', content: 'continue' },
+        { role: 'user', content: [{ type: 'text', text: 'continue' }] },
       ],
     })
     const followup = server.requests[1] as { messages?: unknown[] }
@@ -307,7 +339,7 @@ describe('llm-pi-ai real dormant composition', () => {
     expect(server.requests[0]).toMatchObject({
       messages: [
         { role: 'assistant', content: 'partial' },
-        { role: 'user', content: 'continue' },
+        { role: 'user', content: [{ type: 'text', text: 'continue' }] },
       ],
     })
   })

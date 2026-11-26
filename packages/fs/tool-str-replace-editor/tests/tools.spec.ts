@@ -51,6 +51,7 @@ async function agent(ctx: Context, cwd: string): Promise<Agent> {
     cancel() {},
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
+    pause: () => false, resumePaused: () => false,
   }
   await ctx.agents.register(value)
   return value
@@ -78,9 +79,9 @@ async function setup(
   if (options.root === undefined) roots.push(root)
   const ctx = new Context()
   contexts.push(ctx)
+  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
-  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(NativeToolExecutor)
   await ctx.plugin(AgentRegistry)
   if (options.sandboxMode === undefined) {
@@ -621,9 +622,9 @@ describe('tool-str-replace-editor', () => {
     roots.push(root)
     const ctx = new Context()
     contexts.push(ctx)
+    await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
-    await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(LocalFileSystem, { cwd: root })

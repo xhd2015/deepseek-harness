@@ -23,6 +23,7 @@ export function menuEntries(
       ...(shortcut === undefined ? {} : { shortcut }),
       ...(action.disabled === undefined ? {} : { disabled: action.disabled }),
       ...(action.danger === undefined ? {} : { danger: action.danger }),
+      ...(action.checked === undefined ? {} : { checked: action.checked }),
       ...(action.icon === undefined ? {} : {
         icon: renderSlot('contextMenu.icon', { icon: action.icon }, { entryKey: action.icon.key }),
       }),

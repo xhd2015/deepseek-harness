@@ -104,7 +104,8 @@ describe('plugin-owned message projections', () => {
     ctx.sessions.announce(restored)
     expect(restored.deriveMessages()).toEqual(before)
     await fiber.dispose()
-    expect(ctx.sessions.messageProjections).toEqual([])
+    // Core-owned interpreters stay registered; the disposed contribution is gone.
+    expect(ctx.sessions.messageProjections.map(item => item.type)).toEqual(['message/edit'])
     for (const session of [live, pending, child, restored]) {
       expect(() => session.deriveMessages()).toThrow(/was removed or replaced/)
       expect(() => session.deriveEventMessage(source)).toThrow(/was removed or replaced/)

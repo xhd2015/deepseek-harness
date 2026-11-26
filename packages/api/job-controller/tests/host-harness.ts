@@ -38,6 +38,7 @@ export async function registerAgent(ctx: Context, rawId: string): Promise<Agent 
     cancel: () => {},
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
+    pause: () => false, resumePaused: () => false,
     disposeScope: () => scopeFiber.dispose(),
   }
   await ctx.agents.register(agent)

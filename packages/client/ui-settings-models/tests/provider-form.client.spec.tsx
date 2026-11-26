@@ -106,6 +106,8 @@ function scriptedFace(options: {
   baseProviders?: Record<string, JsonValue>
   /** Routes the adapter reports as hand-declared; the rest come back as shipped. */
   declaredRoutes?: readonly string[]
+  /** Refusals the adapter reports per route, keyed by model id. */
+  modelErrors?: Record<string, Record<string, string>>
   discover?: ReturnType<typeof vi.fn>
   mutate?: ReturnType<typeof vi.fn>
   set?: ReturnType<typeof vi.fn>
@@ -129,6 +131,9 @@ function scriptedFace(options: {
           settingsNs: 'llm-pi-ai',
           settingsPath: ['providers', provider],
           declared: options.declaredRoutes?.includes(provider) ?? false,
+          ...options.modelErrors?.[provider] === undefined
+            ? {}
+            : { modelErrors: options.modelErrors[provider] },
         })),
       ))),
       discoverModels: discover,
@@ -327,6 +332,22 @@ describe('model list editing', () => {
     })
   })
 
+  it("shows the adapter's refusal on the model row it names, leaving that row editable", async () => {
+    const refusal = 'llm-pi-ai: provider "openai" model "acme-bad" reasoningEfforts names "ultra"'
+    await mountSection({
+      providers: { openai: { baseURL: 'https://proxy.example/v1', models: [{ id: 'acme-bad' }, { id: 'acme-ok' }] } },
+      modelErrors: { openai: { 'acme-bad': refusal } },
+    })
+    openEditor('openai')
+
+    // The row is where the fix goes, so it keeps its fields and gains the text
+    // the adapter reported for that exact model id.
+    const id = screen.getByLabelText(`${en.modelId} 1`) as HTMLInputElement
+    expect(id.value).toBe('acme-bad')
+    expect(id.disabled).toBe(false)
+    expect(screen.getByText(`${en.modelRefusal}: ${refusal}`)).toBeTruthy()
+  })
+
   it('names a duplicate model id in the edit flow too', async () => {
     const { mutate } = await mountSection({
       providers: { openai: { baseURL: 'https://proxy.example/v1', models: [{ id: 'dup' }] } },
@@ -497,6 +518,24 @@ describe('model list editing', () => {
       .toContainEqual({ op: 'unset', path: ['providers', 'openai', 'models'] })
   })
 
+  it('declares reasoning levels on a catalog route model and stores them in its models list', async () => {
+    const { mutate } = await mountSection({
+      providers: { openai: { apiKeyEnv: 'OPENAI_API_KEY', models: [{ id: 'gpt-5', name: 'GPT-5' }] } },
+    })
+    openEditor('openai')
+    expandModel(1)
+    // Switched off, the field is absent and the model keeps the installed catalog's levels.
+    const toggle = screen.getByRole('switch', { name: `${en.modelReasoning} 1` })
+    expect(toggle.getAttribute('aria-checked')).toBe('false')
+
+    fireEvent.click(toggle)
+    fireEvent.click(screen.getByText(en.apply))
+    await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
+    expect(firstMutate(mutate).ops).toEqual([{
+      op: 'set', path: ['providers', 'openai', 'models'],
+      value: [{ id: 'gpt-5', name: 'GPT-5', reasoningEfforts: { off: null, low: 'low', medium: 'medium', high: 'high' } }],
+    }])
+  })
 })
 
 describe('capacity spellings', () => {
@@ -1228,11 +1267,11 @@ describe('hand-declared providers', () => {
   })
 
   it.each([
-    ['blocks a hand-declared route', true],
-    ['leaves a catalog route to the adapter', false],
-  ])('%s whose stored reasoning levels the adapter refuses', async (_label, declared) => {
-    // Only a hand-declared route's rows edit reasoning levels, so only there
-    // can the card name the row and offer the switch that repairs it.
+    ['a hand-declared route', true],
+    ['a catalog route', false],
+  ])('blocks %s whose stored reasoning levels the adapter refuses', async (_label, declared) => {
+    // The adapter refuses the same declarations on both kinds of route, and
+    // both edit them, so the card names the row and offers the switch that repairs it.
     await mountSection({
       providers: {
         'acme-gateway': {
@@ -1244,9 +1283,8 @@ describe('hand-declared providers', () => {
     })
     openEditor('acme-gateway')
 
-    const refusal = `${en.model} 1: ${en.modelReasoningNeedsLevel}`
-    expect(screen.queryByText(refusal) !== null).toBe(declared)
-    expect(buttonNamed(en.apply).disabled).toBe(declared)
+    expect(screen.getByText(`${en.model} 1: ${en.modelReasoningNeedsLevel}`)).toBeTruthy()
+    expect(buttonNamed(en.apply).disabled).toBe(true)
   })
 
   it('retries only the key after the profile landed, and reports the provider on cancel', async () => {

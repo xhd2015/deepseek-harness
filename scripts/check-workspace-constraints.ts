@@ -188,6 +188,9 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   // Tools entry points share error classes and invocation stages through runtime chunks.
   '@deepseek-ai/dsh-tools': ['lib/pipeline.js', 'lib/shared-*.js'],
   '@deepseek-ai/dsh-tool-executor-ptc': ['lib/run-code.js', 'lib/_chunks/*.js'],
+  // Gateway ships the browser-wide Remote mux as its own module Worker bundle,
+  // reached through the `./shared-mux-worker` export rather than the entry.
+  '@deepseek-ai/dsh-api-gateway': ['lib/shared-mux-worker.js'],
   // The embedded OAR implementation retains its upstream license.
   '@deepseek-ai/dsh-experimental-subagent-oar': ['LICENSE-OAR'],
   // CUA publishes its client API and attributed native source for local macOS builds.
@@ -218,6 +221,14 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   '@deepseek-ai/dsh-client-ui-theme': ['lib/styles'],
   // The physical-key protocol is a public entry usable without the browser service.
   '@deepseek-ai/dsh-client-shortcuts': ['lib/protocol.js'],
+  // The Feishu entry skill travels with the package; the guides it indexes stay in lark-cli.
+  '@deepseek-ai/dsh-feishu': ['skills'],
+  // The WeCom plugin ships its entry skill; the upstream guides it indexes are downloaded at load.
+  '@deepseek-ai/dsh-wecom': ['skills'],
+  // The Tencent Meeting plugin ships its entry skill; the upstream guide it indexes is downloaded at load.
+  '@deepseek-ai/dsh-tencent-meeting': ['skills'],
+  // The DingTalk entry skill travels with the package; the plugin copies it beside the downloaded guides.
+  '@deepseek-ai/dsh-dingtalk': ['skills'],
   '@deepseek-ai/dsh-experimental-speech-to-text-sensevoice': ['runtime/assets.json'],
   // Node profile configuration and process bootstraps have separate bundles.
   '@deepseek-ai/dsh-ptc-runtime-node': ['lib/configuration.js', 'lib/process.js', 'lib/persistent-process.js'],
@@ -263,11 +274,13 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   // through a hashed chunk. The committed bin.js is the link target pnpm can
   // resolve at install time, before the build produces lib/bin.js.
   '@deepseek-ai/dsh-experimental-webworker-packer': ['bin.js', 'lib/repository-*.js'],
-  // Startup and runtime share the advertised URL parser.
-  '@deepseek-ai/dsh-web-app': ['lib/public-url-*.js'],
   // The headless entry and its startup row share the JSON projection code
   // through a hashed tsdown chunk; both import it by relative path.
   '@deepseek-ai/dsh-headless': ['lib/json-stream-*.js'],
+  // The web entry, its startup row, and the `dsh web open` client share the
+  // advertised URL parser, the browser handoff, and the listen record
+  // through hashed tsdown chunks.
+  '@deepseek-ai/dsh-web-app': ['lib/public-url-*.js', 'lib/startup-*.js', 'lib/opener-*.js'],
 }
 
 function sameStringList(actual: readonly string[] | undefined, expected: readonly string[]): boolean {
@@ -356,6 +369,9 @@ export function expectedDshPackageFiles(manifest: PackageManifest, detailFiles: 
     // A surface bundle's startup row is its own bundle: the Loader imports it
     // as a row module, so it cannot ride inside the package entry.
     ...exportDefault(manifest, './startup') === './lib/startup.js' ? ['lib/startup.js'] : [],
+    // The `open` client row is the same row-module pattern: the `dsh web open`
+    // launcher imports this subpath directly, so it ships as its own bundle.
+    ...exportDefault(manifest, './open') === './lib/open.js' ? ['lib/open.js'] : [],
     ...extras,
     // Subpaths whose runtime default is the tsc-emitted tree (lib/types/*.js —
     // browser-safe source channels rehomed off src so plain Node can import

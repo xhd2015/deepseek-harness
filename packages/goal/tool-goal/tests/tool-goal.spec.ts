@@ -90,6 +90,7 @@ function stubAgent(rawId: string, supplied?: Session, suppliedCtx?: Context): St
     cancel() {},
     runMaintenance: task => task(new AbortController().signal),
     whenIdle() { return Promise.resolve() },
+    pause: () => false, resumePaused: () => false,
   }
   return { agent, session, inbox, setStatus(value) { status = value } }
 }
@@ -185,7 +186,7 @@ describe('goal tool registration and presentation', () => {
 
     await fiber.dispose()
     expect(ctx.tools.get('get_goal')).toBeUndefined()
-    expect((await ctx.systemPrompt.assemble()).sections.some(item => item.name === 'tool:goal')).toBe(false)
+    expect((await ctx.systemPrompt.assemble()).sections.find(item => item.name === 'tool:goal')).toBeUndefined()
   })
 
   it('uses args-only generic render intent and soft-fails malformed replay args', async () => {

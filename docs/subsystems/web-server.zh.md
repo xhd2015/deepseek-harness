@@ -76,7 +76,13 @@ interface Config {
    * IPv4 any, IPv6 any, and the IPv4-mapped forms of IPv4 any — is rejected at
    * load: it would expose the port on every interface at once.
    */
-  host: string
+  host?: string
+  /**
+   * Listen addresses: the same contract as {@link host}, one entry per address,
+   * all sharing {@link port}. Use this instead of `host` to serve several local
+   * addresses at once; giving both is a configuration error.
+   */
+  hosts?: string[]
   /** Listen port; zero requests an OS-assigned port. */
   port: number
   /**
@@ -141,7 +147,7 @@ Host `ctx.connection` members consumed by transport-independent adapters.
  * @param channel - shared channel mounted by Connection.
  * @returns Fetch handler for trusted, authenticated requests.
  */
-createSharedFetchHandler(channel: '/api'): ConnectionFetchHandler
+createSharedFetchHandler(channel: string): ConnectionFetchHandler
 
 /**
  * Apply Host/Origin checks and admit the first live Peer returned by a registered credential verifier.
@@ -188,6 +194,58 @@ Types: [AuthenticationProvider](../../packages/client/connection/README.zh.md#br
 
 Source: [`packages/client/connection/src/authentication.ts`](../../packages/client/connection/src/authentication.ts)
 
+<a id="ctxremoteconnection--remoteconnection"></a>
+
+### `ctx.remoteConnection` — `RemoteConnection`
+
+Owner-authorized browser login through QR codes, private links, or pairing requests.
+
+```ts cordis-catalog
+/**
+ * Read prerequisites and the state of one invitation without disclosing its credential.
+ * @param id - invitation to inspect, or null to inspect only deployment prerequisites.
+ * @returns deployment availability and invitation state, with the polling interval.
+ */
+@Remote status(id: RemoteLoginId | null): RemoteConnectionStatus
+
+/**
+ * Authorize a new browser by generating a one-use login invitation; replaces any older invitation.
+ * @returns the invitation credential and its fixed expiry.
+ */
+@Remote create(): RemoteLoginTicket
+
+/**
+ * Read the advertised URL carrying the process launch token; QR invitations are unchanged.
+ * @returns owner-only login URL, reusable until the Host process restarts; never persist or log it.
+ */
+@Remote loginUrl(): string
+
+/**
+ * Cancel an unused invitation; this never revokes a browser session already issued.
+ * @param id - invitation being cancelled; an older ID cannot cancel a replacement.
+ * @returns the invitation's final state, including used when a redemption won the race.
+ */
+@Remote cancel(id: RemoteLoginId): RemoteLoginState
+
+/**
+ * Read pending requests without the credentials used to collect their sessions.
+ * @param signal - current Remote call's cancellation.
+ * @returns pending codes and the deployment's refresh interval.
+ */
+@Remote pairingRequests(signal: AbortSignal): PairingRequestsValue
+
+/**
+ * Approve or deny one displayed code; the first decision is retained across retries.
+ * @param id - request selected after comparing its code with the applicant's screen.
+ * @param decision - allow or deny full owner access for the requesting browser.
+ * @param signal - current Remote call's cancellation before the decision commits.
+ * @returns committed decision, or unavailable after cancellation, expiry, or collection.
+ */
+@Remote decidePairing(id: PairingRequestId, decision: PairingDecision, signal: AbortSignal): PairingDecisionResult
+```
+
+Source: [`packages/client/remote-connection/src/index.ts`](../../packages/client/remote-connection/src/index.ts)
+
 <a id="ctxwebapp--webapp"></a>
 
 ### `ctx.webApp` — `WebApp`
@@ -218,6 +276,14 @@ The browser HTTP carrier service. Activation loads any configured TLS material, 
  * @throws before `listen` binds a port, or when the bind address has no URL form.
  */
 getOrigin(): string
+
+/**
+ * Choose a URL a local client can use, preferring IPv4 loopback, then any
+ * loopback, then the first URL-expressible address.
+ * @returns the origin, or undefined when every bound address carries a zone id.
+ * @throws before every listener bound its shared port.
+ */
+getLocalOrigin(): string | undefined
 
 /**
  * Register a named route. Duplicate (kind, path) throws — route patterns are

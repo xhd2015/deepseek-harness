@@ -11,6 +11,10 @@ import type {
   AgentOptions,
   AgentStatus,
   CancelOptions,
+  InjectedBatchResult,
+  InjectedEditResult,
+  InjectedMessage,
+  InjectedMessageEdit,
   ModelSelection,
   ModelSelectionProjectionState,
   InboxTarget,
@@ -24,15 +28,19 @@ import {
   LlmError,
   createAssistantMessage,
   createDeveloperMessage,
+  createToolResultMessage,
+  createUserMessage,
   errorChain,
   markAgentLoopRequest,
 } from '@deepseek-ai/dsh-llm'
+import type { ToolCallId } from '@deepseek-ai/dsh-llm'
+import { brandString } from '@deepseek-ai/dsh-brand'
 import { assertNever, deepFreeze } from '@deepseek-ai/dsh-util-values'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import { createScope } from '@deepseek-ai/dsh-scope'
-import type { EpochHeader, RequestContext, Session, SessionId, SessionSeq, TurnEndReason, UserMessage } from '@deepseek-ai/dsh-session'
+import type { EpochHeader, MessageEdit, RequestContext, Session, SessionEventInput, SessionId, SessionSeq, TurnEndReason, UserMessage } from '@deepseek-ai/dsh-session'
 import { canonicalHeader, headerEquals, ToolCallRecovery } from '@deepseek-ai/dsh-session'
-import { renderContextSections, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
+import { renderContextSections } from '@deepseek-ai/dsh-system-prompt'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import { ToolActivationError, ToolBatchExecutionError } from '@deepseek-ai/dsh-tools'
 import type { ResolvedToolSet } from '@deepseek-ai/dsh-tools'
@@ -40,7 +48,6 @@ import type { Context } from '@deepseek-ai/cordis'
 import { ReactLoopInbox } from './inbox.ts'
 import { RuntimeContextProjection } from './runtime-context.ts'
 import { AssistantStreamAttempt } from './assistant-stream.ts'
-import { SystemPromptProjection } from './runtime-context.ts'
 
 /** Projected facts consumed by this driver; registration stays with the factory. */
 interface LoopProjections {
@@ -58,7 +65,7 @@ type Phase =
     lastTurn: number
     wakeRequested: boolean
   }
-  | { kind: 'running'; abort: AbortController; turn: number; step: number; wakeRequested: boolean }
+  | { kind: 'running'; abort: AbortController; turn: number; step: number; wakeRequested: boolean; resume?: boolean }
 
 type StepEndReason = Extract<TurnEndReason, { kind: 'completed' | 'max-tokens' }>
 
@@ -108,12 +115,51 @@ function abortedCancelCause(signal: AbortSignal): AgentCancelCause | undefined {
   }
 }
 
+/** Hook reason recorded by {@link ReactLoopAgent.pause}. */
+const PAUSE_REASON = 'paused'
+
+/**
+ * Whether the newest durable turn ended paused. A later `turn/start` means the
+ * session was continued, so only a tail that is still the paused ending counts.
+ */
+function pausedAtTail(session: Session): boolean {
+  // oxlint-disable-next-line typescript/no-deprecated -- construction needs the durable tail once, before any projection exists.
+  const events = session.snapshotEvents()
+  for (let index = events.length - 1; index >= 0; index--) {
+    const event = events[index]!
+    if (event.type === 'turn/start') return false
+    if (event.type === 'turn/end') {
+      const reason = event.data.reason
+      return reason.kind === 'aborted' && reason.reason.kind === 'hook' && reason.reason.reason === PAUSE_REASON
+    }
+  }
+  return false
+}
+
 /** Drives one session through turn and step boundaries. */
 export class ReactLoopAgent implements Agent {
   readonly model: AgentModel
   readonly inbox: ReactLoopInbox
   private phase: Phase
   private activityDone: Promise<void> = Promise.resolve()
+  /**
+   * A committed batch the driver still owes one step. Set by `injectBatch`, so
+   * injected work is durable before anyone is asked to act on it; cleared when
+   * a turn gives up without spending a step, and read at both places where a
+   * turn would otherwise stop on an empty inbox.
+   */
+  private injectedPending = false
+
+  /** Whether a committed batch still owes a step.
+   *
+   * Read through a method, not the field: within `turn()` the compiler sees
+   * only the `false` assignment below and narrows the field to that literal,
+   * hiding the `true` that `injectBatch` writes while the loop awaits a step.
+   * @returns true while a committed batch has not yet bought its step.
+   */
+  private hasInjectedPending(): boolean {
+    return this.injectedPending
+  }
 
   /** The agent-scoped registration boundary; the lifecycle owner unwinds it after the driver exits. */
   readonly scope: Scope
@@ -130,9 +176,10 @@ export class ReactLoopAgent implements Agent {
   /** Process-local revision of assistant frames for this attached Session. */
   private assistantStreamRevision = 0
   private assistantAttemptCounter = 0
-  private readonly systemPrompt: SystemPromptProjection
   /** Identities fully frozen by this loop; weak references do not retain replaced history. */
   private readonly frozenMessages = new WeakSet<Message>()
+  /** The newest turn ended paused, so Continue may start a turn with no new input. */
+  private paused = false
 
   constructor(
     private loopCtx: Context,
@@ -151,7 +198,9 @@ export class ReactLoopAgent implements Agent {
     this.inbox = new ReactLoopInbox(projections.inbox, session, this.dispatch)
     this.phase = { kind: 'idle', lastTurn }
     this.runtimeContext = new RuntimeContextProjection(this.ctx, session)
-    this.systemPrompt = new SystemPromptProjection(session)
+    // Read the durable tail after parameter properties exist; a field
+    // initializer runs before `session` is assigned and cannot see it.
+    this.paused = pausedAtTail(this.session)
   }
 
   get status(): AgentStatus {
@@ -187,6 +236,204 @@ export class ReactLoopAgent implements Agent {
 
   inject(input: UserMessage): void {
     this.send(input, 'next-step', false)
+  }
+
+  /**
+   * Commit one batch as a single append, then make the driver act on it.
+   *
+   * Every entry becomes its own event but the batch shares one
+   * `Session.append` call, so the log grows by a contiguous seq run that is
+   * persisted once — a partial batch cannot reach disk. Nothing is routed
+   * through the inbox, which is what lets a `user` entry keep its authored
+   * position between two assistant entries instead of landing at the next step
+   * boundary.
+   *
+   * The commit is the durability point; `injectedPending` is the intent to
+   * spend a step on it. An idle driver wakes immediately, a running driver is
+   * left alone because it re-reads the log at its own next step.
+   * @param messages - ordered batch of user, thinking and assistant entries.
+   * @returns the committed seqs and whether the driver will act unprompted.
+   */
+  injectBatch(messages: readonly InjectedMessage[]): InjectedBatchResult {
+    if (messages.length === 0) throw new Error('agent "' + this.id + '": injected batch is empty')
+    const selection = this.model.current() ?? this.options
+    const turn = this.currentTurn()
+    const step = this.currentStep()
+    // A tool call is log-only, so the batch cannot know its own seqs until the
+    // append runs. Every result that targets a call listed in this batch is
+    // therefore resolved after commit, from the seq the call actually got.
+    const pending: { entry: number; call: SessionSeq }[] = []
+    // Seqs are assigned densely from the current head, so the seq of each entry is
+    // predictable before the append. That is what lets a result name a call that
+    // appears earlier in the same batch.
+    const head = Number(this.session.seq)
+    const inputs: SessionEventInput[] = messages.map((message, index): SessionEventInput => {
+      switch (message.kind) {
+        case 'user': {
+          const text = this.requiredText(message.text, 'user')
+          return ['user/message', createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }), { surfaceOp: 'append' }]
+        }
+        case 'thinking':
+        case 'assistant': {
+          const text = this.requiredText(message.text, message.kind)
+          return ['assistant/message', {
+            turn,
+            step,
+            message: createAssistantMessage({
+              content: [{ type: message.kind === 'thinking' ? 'reasoning' : 'text', text }],
+              source: { provider: selection.provider ?? '', model: selection.model ?? '' },
+            }),
+            stream: [{
+              type: message.kind === 'thinking' ? 'reasoning-chunks' : 'text-chunks',
+              time0: Date.now(),
+              index: 0,
+              dt: [],
+              texts: [text],
+            }],
+          }, { surfaceOp: 'append' }]
+        }
+        case 'tool-call': {
+          const tool = message.tool.trim()
+          if (tool === '') throw new Error('agent "' + this.id + '": injected tool-call has no tool name')
+          if (message.arguments.trim() === '') {
+            throw new Error('agent "' + this.id + '": injected tool-call for "' + tool + '" has no arguments')
+          }
+          return ['tool/call', {
+            turn,
+            step,
+            callId: brandString<ToolCallId>('inject-' + String(head + index)),
+            name: tool,
+            arguments: message.arguments,
+          }]
+        }
+        case 'tool-result': {
+          const text = this.requiredText(message.text, 'tool-result')
+          // A call earlier in this batch gets its predictable seq; anything else
+          // must already be committed.
+          const resolved = message.call >= head && message.call < head + messages.length
+            ? messages[message.call - head]?.kind === 'tool-call'
+            : this.session.eventAt(message.call)?.type === 'tool/call'
+          if (!resolved) {
+            throw new Error('agent "' + this.id + '": injected tool-result answers ' + String(message.call) + ', which is not a tool call in this batch or the session')
+          }
+          pending.push({ entry: index, call: message.call })
+          return ['tool/result', {
+            turn,
+            step,
+            message: createToolResultMessage({
+              callId: this.callIdAt(head, messages, message.call),
+              content: [{ type: 'text', text }],
+              isError: message.isError === true,
+            }),
+          }, { surfaceOp: 'append' }]
+        }
+      }
+    })
+    const committed = this.session.append(inputs)
+    this.injectedPending = true
+    // A running driver reads the log at its next step already; only an idle one
+    // needs waking, and waking it here is what turns "inject" into "inject and run".
+    if (this.phase.kind === 'idle') this.wakeDriver()
+    else if (this.phase.kind === 'maintenance') this.phase.wakeRequested = true
+    return {
+      seqs: committed.map(event => event.seq),
+      callSeqs: committed.filter(event => event.type === 'tool/call').map(event => event.seq),
+      resultSeqs: committed.filter(event => event.type === 'tool/result').map(event => event.seq),
+      started: true,
+    }
+  }
+
+  /**
+   * Commit one batch of changes to already-produced messages.
+   *
+   * A rewrite stays a projection of its node (the node keeps its seq); a removal
+   * makes that node derive nothing. Both are one `message/edit` event, so the
+   * batch is atomic and replays identically from the log.
+   *
+   * Removing a message is refused when the node is already absent: unlike an
+   * edit written by another build, a removal the caller asks for now is a
+   * mistake worth reporting, and the alternative is silently doing nothing.
+   * @param edits - ordered rewrites and removals.
+   * @returns the committed record seq and whether the driver was woken.
+   */
+  editBatch(edits: readonly InjectedMessageEdit[]): InjectedEditResult {
+    if (edits.length === 0) throw new Error('agent "' + this.id + '": edit batch is empty')
+    const nodes = new Set(this.session.surface.nodes)
+    const seen = new Set<number>()
+    const changes: MessageEdit[] = edits.map((edit) => {
+      if (seen.has(edit.seq)) throw new Error('agent "' + this.id + '": edit names seq ' + String(edit.seq) + ' twice')
+      seen.add(edit.seq)
+      if (!nodes.has(edit.seq)) {
+        throw new Error('agent "' + this.id + '": seq ' + String(edit.seq) + ' is not a current message')
+      }
+      return 'deleted' in edit
+        ? { seq: edit.seq, deleted: true }
+        : { seq: edit.seq, text: this.requiredText(edit.text, 'assistant') }
+    })
+    const committed = this.session.append('message/edit', { edits: changes })
+    // An edit rewrites history the driver has not yet read; waking it is what
+    // makes "edit then run" one call. A running driver picks the change up at
+    // its next step, which the projection's content generation already forces.
+    if (this.phase.kind === 'idle') this.wakeDriver()
+    else if (this.phase.kind === 'maintenance') this.phase.wakeRequested = true
+    return { seq: committed.seq, started: true }
+  }
+
+  /** Trimmed non-empty text for one injected entry, or a loud rejection. */
+  private requiredText(text: string, kind: InjectedMessage['kind']): string {
+    const trimmed = text.trim()
+    if (trimmed === '') throw new Error('agent "' + this.id + '": injected ' + kind + ' has no text')
+    return trimmed
+  }
+
+  /**
+   * The call id a tool result answers.
+   *
+   * A call in this batch has not been committed yet, so its id is the one
+   * {@link injectBatch} is about to stamp; a committed call carries its own.
+   */
+  private callIdAt(head: number, messages: readonly InjectedMessage[], call: SessionSeq): ToolCallId {
+    if (call >= head && call < head + messages.length) return brandString<ToolCallId>('inject-' + String(call))
+    const event = this.session.eventAt(call)
+    if (event?.type !== 'tool/call') {
+      throw new Error('agent "' + this.id + '": ' + String(call) + ' is not a committed tool call')
+    }
+    return event.data.callId
+  }
+
+  /** Turn the next step is attributed to: the open one, or the next to open. */
+  private currentTurn(): number {
+    return this.phase.kind === 'running' ? this.phase.turn : this.phase.lastTurn + 1
+  }
+
+  /** Step the next model call is attributed to, matching the turn above. */
+  private currentStep(): number {
+    return this.phase.kind === 'running' ? this.phase.step + 1 : 1
+  }
+
+  /**
+   * Suspend the live turn without ending the session. The abort carries the
+   * `paused` hook reason, so the turn closes as an aborted hook that readers
+   * classify as paused; the inbox is kept for the next turn.
+   * @returns whether a live turn was suspended.
+   */
+  pause(): boolean {
+    if (this.phase.kind === 'idle') return false
+    this.cancel({ kind: 'hook', reason: PAUSE_REASON }, { keepInbox: true })
+    return true
+  }
+
+  /**
+   * Continue a paused session. The turn starts without claiming any inbox
+   * message, so the model sees the durable history exactly as it stood when
+   * the stream was cut — no placeholder and no new user message.
+   * @returns whether a paused session was resumed.
+   */
+  resumePaused(): boolean {
+    if (this.phase.kind !== 'idle' || !this.paused) return false
+    this.paused = false
+    this.wakeDriver(false, true)
+    return true
   }
 
   cancel(cause: AgentCancelCause, options: CancelOptions = {}): void {
@@ -232,7 +479,7 @@ export class ReactLoopAgent implements Agent {
    * @param wakeAfterAbort - the {@link send} classification, captured before
    *   the inbox insertion so a reentrant cancel cannot reclassify it.
    */
-  private wakeDriver(wakeAfterAbort = false): void {
+  private wakeDriver(wakeAfterAbort = false, resume = false): void {
     if (this.lifetimeSignal.aborted) return
     if (this.phase.kind !== 'idle') {
       // Maintenance and aborted drivers cannot deliver the wake: latch it for
@@ -252,6 +499,7 @@ export class ReactLoopAgent implements Agent {
       turn: this.phase.lastTurn,
       step: 0,
       wakeRequested: false,
+      ...resume ? { resume: true } : {},
     })
     this.loopCtx.agents.withInitiator(this, () => this.kick()).then(driver.resolve, driver.reject)
   }
@@ -322,13 +570,6 @@ export class ReactLoopAgent implements Agent {
     }
   }
 
-  /** Whether the assembled tool schemas differ from the logged request header's. */
-  private toolsChanged(tools: PromptAssembly['tools']): boolean {
-    const baseline = this.session.requestHeader()
-    if (baseline === undefined) return false
-    return !headerEquals(baseline, canonicalHeader({ ...baseline, tools: [...tools] }))
-  }
-
   /** Open one turn before claiming its first proposed step. */
   private async turn(): Promise<boolean> {
     if (this.phase.kind !== 'running') {
@@ -338,6 +579,7 @@ export class ReactLoopAgent implements Agent {
     const { signal } = phase.abort
     signal.throwIfAborted()
     const turn = phase.turn + 1
+    this.paused = false
     try {
       this.session.append('turn/start', { turn })
     } catch (error: unknown) {
@@ -356,15 +598,19 @@ export class ReactLoopAgent implements Agent {
           return false
         }
         try {
-          if (turnEnds && decision.messages.length === 0) break
+          // A committed injected batch buys one step without inbox input: its
+          // messages are already on the surface, so an empty claim is expected.
+          if (turnEnds && decision.messages.length === 0 && !this.hasInjectedPending()) break
           // A removed waking message or an enter decision rewritten to empty
           // still owns the initial turn boundary, but it spends no model call.
-          if (phase.step === 0 && decision.messages.length === 0) {
+          if (phase.step === 0 && decision.messages.length === 0 && !this.hasInjectedPending() && phase.resume !== true) {
             turnEnds = { kind: 'completed' }
             return false
           }
           signal.throwIfAborted()
           this.session.append('step/start', { turn, step })
+          // This step is the one the injected batch paid for.
+          this.injectedPending = false
           phase.step = step
           const toolRecovery = new ToolCallRecovery()
           const stopRecovery = this.ctx.on('session/event', (session, event) => {
@@ -398,17 +644,20 @@ export class ReactLoopAgent implements Agent {
           decision.toolSet.dispose()
         }
         signal.throwIfAborted()
-        if (turnEnds && this.inbox.nextStep.length === 0) {
+        // Injected work also keeps the turn alive: stopping here would leave the
+        // batch unread until some later prompt woke the agent again.
+        if (turnEnds && this.inbox.nextStep.length === 0 && !this.hasInjectedPending()) {
           await this.dispatch.serial('agent/turn-stopping', { turn, signal })
           signal.throwIfAborted()
         }
-        if (turnEnds && this.inbox.nextStep.length === 0) break
+        if (turnEnds && this.inbox.nextStep.length === 0 && !this.hasInjectedPending()) break
         target = 'next-step'
       }
     } catch (error: unknown) {
       // A cause is present exactly while the signal is aborted.
       const cause = abortedCancelCause(signal)
       if (cause !== undefined) {
+        if (cause.kind === 'hook' && cause.reason === PAUSE_REASON) this.paused = true
         turnEnds = { kind: 'aborted', reason: cause }
         throw error
       }
@@ -441,11 +690,13 @@ export class ReactLoopAgent implements Agent {
   private async step(decision: Extract<PreparedStep, { kind: 'enter' }>): Promise<StepEndReason | null> {
     /* v8 ignore next -- private callers establish the running phase before executing a step */
     if (this.phase.kind !== 'running') throw new Error(`agent "${this.id}": step outside running phase`)
-    const { turn, step, abort: { signal } } = this.phase
+    const { turn, step, abort: { signal }, resume: resuming = false } = this.phase
+    // A resumed turn already owns the durable runtime-context message from the
+    // turn it continues; admitting a second one would add model-visible input.
+    if (this.phase.kind === 'running') this.phase.resume = false
     signal.throwIfAborted()
 
     const { assembly } = decision
-    const renderedPrompt = renderPrompt(assembly)
     let firstAttempt = true
     while (true) {
       const { config, preparedCall } = await this.prepareRequest(turn, step, decision.selection, signal)
@@ -456,18 +707,13 @@ export class ReactLoopAgent implements Agent {
       const context = this.runtimeContext.project(sections)
       signal.throwIfAborted()
       const startsRequestSeries = firstAttempt && decision.startsRequestSeries === true
-      const commits = this.systemPrompt.project(renderedPrompt, {
-        inHistory: preparedCall?.systemPromptUpdate === 'in-history',
-        startsSeries: startsRequestSeries
-          || this.requestSurfaceGeneration !== this.session.surface.contentGeneration
-          || (preparedCall?.toolUpdate === undefined && this.toolsChanged(assembly.tools)),
-      })
-      for (const { message, intent } of commits) {
+      let contextAdmitted = false
+      // A retry writes only the rebuild that an intervening compaction requires.
+      for (const { message, intent } of assembly.systemUpdates(!firstAttempt)) {
         this.session.append('system/message', { turn, step, message }, intent)
       }
-      let contextAdmitted = false
       if (firstAttempt) {
-        for (const message of decision.messages) {
+        for (const message of resuming ? [] : decision.messages) {
           if (message.source.kind === 'runtime-context') {
             if (context !== undefined && !contextAdmitted) {
               this.session.append('user/message', context, { surfaceOp: 'append' })
@@ -478,7 +724,7 @@ export class ReactLoopAgent implements Agent {
           }
         }
       }
-      if (context !== undefined && !contextAdmitted) {
+      if (context !== undefined && !contextAdmitted && !resuming) {
         this.session.append('user/message', context, { surfaceOp: 'append' })
       }
       firstAttempt = false
@@ -506,7 +752,9 @@ export class ReactLoopAgent implements Agent {
         if (!started) throw error
         try {
           if (signal.aborted) {
-            const content = live.interruptedBlocks()
+            const cause = abortedCancelCause(signal)
+            const paused = cause?.kind === 'hook' && cause.reason === PAUSE_REASON
+            const content = paused ? [] : live.interruptedBlocks()
             if (content.length > 0) {
               live.settle('assistant/message', () => this.session.append('assistant/message', {
                 turn,

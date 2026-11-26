@@ -44,7 +44,7 @@ async function commandHarness(
   await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(TypertRegistry)
-  installSessionReadTestServices(ctx)
+  await installSessionReadTestServices(ctx)
   await ctx.sessionProjections.register(subagentIdentityProjectionDefinition)
   const sessionId = brandString<SessionId>('commands-session')
   const ancestor = Session.create(brandString<SessionId>('ancestor'))
@@ -91,6 +91,7 @@ async function commandHarness(
     id: session.id,
     options: { provider: 'fixture', model: 'fixture-model' },
     whenIdle: vi.fn(() => Promise.resolve()),
+    pause: () => false, resumePaused: () => false,
     runMaintenance: async () => { throw new Error('unexpected maintenance') },
     send: vi.fn(),
     inject: vi.fn(),

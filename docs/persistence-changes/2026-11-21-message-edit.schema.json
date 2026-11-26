@@ -1,0 +1,19 @@
+{
+  "formatVersion": 2,
+  "roots": [
+    {"key":"event:message/edit","kind":"event","event":"message/edit","surface":false,"digest":"9423ae4dcbf49c305ce7bcadd07dd9d270aac6566e41b9aaca1e2244a0b9e0aa"}
+  ],
+  "types": [],
+  "nodes": {
+    "038ed8a6dda78f26": {"kind":"object","properties":[{"name":"edits","type":"d52284c692b760ac","optional":false}],"indices":[]},
+    "0657d3ca5ac4e7bf": {"kind":"primitive","type":"number"},
+    "4cd48f3e5108bd6e": {"kind":"primitive","type":"string"},
+    "813c6ee3dff7b3f4": {"kind":"object","properties":[{"name":"deleted","type":"dacf3d5f3e4ff619","optional":false},{"name":"seq","type":"0657d3ca5ac4e7bf","optional":false}],"indices":[]},
+    "8ef5057e9c7a74db": {"kind":"object","properties":[{"name":"seq","type":"0657d3ca5ac4e7bf","optional":false},{"name":"text","type":"4cd48f3e5108bd6e","optional":false}],"indices":[]},
+    "9423ae4dcbf49c30": {"kind":"object","properties":[{"name":"data","type":"038ed8a6dda78f26","optional":false},{"name":"ignorable","type":"dacf3d5f3e4ff619","optional":true},{"name":"seq","type":"0657d3ca5ac4e7bf","optional":false},{"name":"time","type":"0657d3ca5ac4e7bf","optional":false},{"name":"type","type":"a5d48369149f4576","optional":false}],"indices":[]},
+    "a5d48369149f4576": {"kind":"literal","value":"message/edit"},
+    "d52284c692b760ac": {"kind":"array","element":"db44ea20704359e0"},
+    "dacf3d5f3e4ff619": {"kind":"literal","value":true},
+    "db44ea20704359e0": {"kind":"union","types":["813c6ee3dff7b3f4","8ef5057e9c7a74db"]}
+  }
+}

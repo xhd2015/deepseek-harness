@@ -1,0 +1,311 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/xhd2015/deepseek-harness/.specs/spec.schema.json",
+  "title": "deepseek-harness spec.json",
+  "description": "One capability of this branch. Lives at <checkout>/.specs/<capability>/spec.json; the root file at <checkout>/.specs/spec.json describes the branch itself. Format follows the eluc spec tree; unknown properties are preserved.",
+  "type": "object",
+  "required": [
+    "title"
+  ],
+  "properties": {
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[^\\r\\n]+$",
+      "description": "Required. One line, at most 200 characters; the tree row shows it."
+    },
+    "summary": {
+      "type": "string",
+      "maxLength": 2000,
+      "description": "One sentence the tree row and the project-page card can carry."
+    },
+    "order": {
+      "type": "integer",
+      "default": 0,
+      "description": "Sibling order, ascending. Ties break on title, then path."
+    },
+    "ui": {
+      "type": "object",
+      "description": "What the user sees and does, plus the rules the interface itself must keep. Empty when the capability has no surface.",
+      "properties": {
+        "description": {
+          "type": "string",
+          "maxLength": 8000,
+          "description": "Prose: the screen, the interaction, what the reader should expect."
+        },
+        "routes": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "description": "URLs this capability answers, e.g. /projects/eluc/specs."
+        },
+        "surfaces": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "description": "Screens, cards, dialogs and menu items this capability puts on screen."
+        },
+        "states": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "description": "States the surface has to render: empty, loading, error, disabled, denied."
+        },
+        "constraints": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              },
+              {
+                "type": "object",
+                "required": [
+                  "text"
+                ],
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2000
+                  },
+                  "level": {
+                    "type": "string",
+                    "enum": [
+                      "suggestion",
+                      "must",
+                      "must-not",
+                      "avoid"
+                    ],
+                    "description": "How strongly the rule binds. Absent means suggestion, which is why a suggestion is written as a plain string."
+                  },
+                  "source": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 300
+                  },
+                  "ref": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 300,
+                    "description": "Spec tree path this rule points at, same grammar as ?path=."
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          },
+          "description": "Rules about the interface: what it must show, must not do, should avoid."
+        }
+      },
+      "additionalProperties": true
+    },
+    "backend": {
+      "type": "object",
+      "description": "The server side: the endpoints this capability answers on and the rules it keeps while answering them.",
+      "properties": {
+        "apis": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "description": "Endpoints, one per entry: /api/orchestrator or GET /api/orchestrator. The method is optional; a reader must not invent one."
+        },
+        "constraints": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              },
+              {
+                "type": "object",
+                "required": [
+                  "text"
+                ],
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2000
+                  },
+                  "level": {
+                    "type": "string",
+                    "enum": [
+                      "suggestion",
+                      "must",
+                      "must-not",
+                      "avoid"
+                    ],
+                    "description": "How strongly the rule binds. Absent means suggestion, which is why a suggestion is written as a plain string."
+                  },
+                  "source": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 300
+                  },
+                  "ref": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 300,
+                    "description": "Spec tree path this rule points at, same grammar as ?path=."
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          },
+          "description": "Rules about the server: what it guarantees, what it must never do."
+        }
+      },
+      "additionalProperties": true
+    },
+    "data": {
+      "type": "object",
+      "description": "What the files on disk mean: storage, migration, retention and ownership. An object rather than a list so it can grow a second key later.",
+      "properties": {
+        "constraints": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              },
+              {
+                "type": "object",
+                "required": [
+                  "text"
+                ],
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2000
+                  },
+                  "level": {
+                    "type": "string",
+                    "enum": [
+                      "suggestion",
+                      "must",
+                      "must-not",
+                      "avoid"
+                    ],
+                    "description": "How strongly the rule binds. Absent means suggestion, which is why a suggestion is written as a plain string."
+                  },
+                  "source": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 300
+                  },
+                  "ref": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 300,
+                    "description": "Spec tree path this rule points at, same grammar as ?path=."
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          },
+          "description": "Rules about the stored data."
+        }
+      },
+      "additionalProperties": true
+    },
+    "links": {
+      "type": "object",
+      "description": "Pointers out of the spec. Ids and paths, not copies.",
+      "properties": {
+        "sessions": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "description": "Session ids that produced this spec."
+        },
+        "features": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "description": "Feature ids this capability belongs to."
+        },
+        "docs": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "description": "Repository paths or URLs."
+        }
+      },
+      "additionalProperties": true
+    },
+    "review": {
+      "type": "object",
+      "description": "Review state. Written by POST /api/projects/<name>/specs/review; an agent edit leaves it pending, or visible as drift when it edited an approved file.",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "approved",
+            "rejected"
+          ],
+          "default": "pending",
+          "description": "Absent means pending."
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 4000,
+          "description": "Required when rejecting: the note is the next instruction."
+        },
+        "by": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "user, agent, or a name. Defaults to user on review."
+        },
+        "approvedHash": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "sha256 over everything but the review block. Content that no longer hashes to this value counts as drift, whatever the status says."
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

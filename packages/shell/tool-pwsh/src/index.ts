@@ -103,6 +103,7 @@ interface PwshForegroundResult {
   stdout: { text: string; truncated: boolean; spillPath?: string }
   stderr: { text: string; truncated: boolean; spillPath?: string }
   sandbox?: { mode: string; denied: boolean; enforcement?: string; runnerFailed?: boolean }
+  escalationIgnored?: boolean
 }
 
 /* jscpd:ignore-start -- minimal mirror of dsh-tool-bash's validation and execute plumbing (Agent Note). */
@@ -134,7 +135,7 @@ function rejectUnadvertisedArgs(
   }
 }
 
-function validatePwshArgs(args: PwshToolArgs, advertised: AdvertisedArgs): void {
+function validatePwshArgs(args: PwshToolArgs, effectiveMode: SandboxMode | undefined, advertised: AdvertisedArgs): 'ignored' | undefined {
   if (args.command.trim().length === 0) {
     throw new ToolArgsError(['invalid command: expected a non-empty string'])
   }
@@ -145,7 +146,13 @@ function validatePwshArgs(args: PwshToolArgs, advertised: AdvertisedArgs): void 
     throw new ToolArgsError([`invalid timeoutMs: expected a positive number, got ${JSON.stringify(args.timeoutMs)}`])
   }
   rejectUnadvertisedArgs(args, advertised)
-  validateEscalationArgs(args.sandbox_permissions, args.justification)
+  // The escalation pairing (sandbox_permissions ⇔ justification, non-empty) is
+  // the shared rule both enforcing families validate identically.
+  if (args.sandbox_permissions !== undefined && args.sandbox_permissions === effectiveMode) return
+  const justification = args.sandbox_permissions === undefined && args.justification?.trim() === ''
+    ? undefined
+    : args.justification
+  return validateEscalationArgs(args.sandbox_permissions, justification, effectiveMode)
 }
 /* jscpd:ignore-end */
 
@@ -189,7 +196,7 @@ function resolveWorkdir(modelWorkdir: string | undefined, sessionCwd: string | u
 }
 
 /** Detach the executor DTO from readonly Service Definition types into plain JSON data. */
-function canonicalPwshResult(result: ShellRunResult, cwd: string): PwshForegroundResult {
+function canonicalPwshResult(result: ShellRunResult, cwd: string, escalationIgnored = false): PwshForegroundResult {
   const output = (stream: ShellRunResult['stdout']) => ({
     text: stream.text,
     truncated: stream.truncated,
@@ -214,6 +221,7 @@ function canonicalPwshResult(result: ShellRunResult, cwd: string): PwshForegroun
         ...result.sandbox.runnerFailed !== undefined ? { runnerFailed: result.sandbox.runnerFailed } : {},
       },
     } : {},
+    ...escalationIgnored ? { escalationIgnored: true } : {},
   }
 }
 
@@ -305,6 +313,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     order: ctx.systemPrompt.getSectionOrder('TOOL_PWSH'),
     text: 'Non-zero exits are reported as `[exit code: N]` markers; investigate failures before moving on. '
       + 'On Windows a killed process settles as `[exit code: 1]` without a signal marker; treat a bare exit 1 after an interruption as a termination, not a command failure.',
+    retirement: 'The pwsh tool is no longer available. Its guidance no longer applies.',
   })
 
   /**
@@ -527,27 +536,28 @@ export function apply(ctx: Context, config: Config = {}): void {
                     runnerFailed: { type: 'boolean' },
                   },
                 },
+                escalationIgnored: { type: 'boolean' },
               },
             },
           ],
         },
         /* jscpd:ignore-end */
-        render: (_args, value) => [{
+        render: (args, value) => [{
           type: 'text',
           text: value.kind === 'background'
             ? `started background job ${value.jobId}`
             : value.kind === 'promoted'
               ? renderPwshPromoted(value)
-              : renderPwshResult(value as RenderablePwshResult, escalationModes),
+              : renderPwshResult(value as RenderablePwshResult, escalationModes, args.sandbox_permissions),
         }],
         presentationMeta: (_args, value) => ({ cwd: value.cwd }),
       },
       /* jscpd:ignore-start -- the execute path mirrors dsh-tool-bash's by design (see the pwsh-tool-and-executor Agent Note). */
       async execute(args: PwshToolArgs, exec) {
-        validatePwshArgs(args, { escalation: escalationModes.length > 0, background: backgroundEnabled })
-        // Description is display metadata; workdir defaults to the caller's session.
         const standingPolicy = resolveSandboxPolicy(exec)
-        const approvedMode = args.sandbox_permissions !== undefined && args.justification !== undefined
+        const escalationIgnored = validatePwshArgs(args, standingPolicy?.mode, { escalation: escalationModes.length > 0, background: backgroundEnabled }) === 'ignored'
+        // Description is display metadata; workdir defaults to the caller's session.
+        const approvedMode = !escalationIgnored && args.sandbox_permissions !== undefined && args.justification !== undefined
           ? await approvePwshEscalation(args.sandbox_permissions, args.justification, exec, standingPolicy)
           : undefined
         const policy = approvedMode === undefined
@@ -594,7 +604,7 @@ export function apply(ctx: Context, config: Config = {}): void {
           throw launchFailure(error, exec.signal)
         }
         if (result.aborted) throw toolAborted()
-        return canonicalPwshResult(result, spec.workdir)
+        return canonicalPwshResult(result, spec.workdir, escalationIgnored)
       },
       /* jscpd:ignore-end */
       /* jscpd:ignore-start -- the background call card mirrors presentBashCall's by design (Agent Note). */

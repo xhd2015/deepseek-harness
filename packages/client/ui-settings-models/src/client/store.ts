@@ -34,6 +34,7 @@ export interface ProviderDirectoryEntry {
   readonly baseURLEnv?: readonly string[]
   readonly nativeAuth?: LlmNativeAuth
   readonly error?: string
+  readonly modelErrors?: Record<string, string>
 }
 
 /**
@@ -59,6 +60,7 @@ export function joinProviderDirectory(
     ...entry.baseURLEnv === undefined ? {} : { baseURLEnv: entry.baseURLEnv },
     ...entry.nativeAuth === undefined ? {} : { nativeAuth: entry.nativeAuth },
     ...entry.error === undefined ? {} : { error: entry.error },
+    ...entry.modelErrors === undefined ? {} : { modelErrors: entry.modelErrors },
   }))
   for (const provider of registered) {
     if (declared.has(provider.id)) continue
@@ -87,6 +89,12 @@ export interface ProviderRow {
   removable: boolean
   /** The credential reference the resolved profile names, when one does. */
   apiKeyEnv: string | undefined
+  /**
+   * Models this route's adapter refuses, keyed by model id: each is why a model
+   * the profile names cannot serve while its siblings still do. The card shows
+   * the text on that model's row, which is where the named field is edited.
+   */
+  modelErrors?: Record<string, string>
   /** Credential state for {@link apiKeyEnv}, once described. */
   credential: CredentialInfo | undefined
   /**
@@ -147,7 +155,7 @@ export function protocolChoices(
 }
 
 /**
- * The reasoning levels a hand-declared route's models may declare, read out of
+ * The reasoning levels a pi-ai route's models may declare, read out of
  * the owning namespace's own schema for the same reason as
  * {@link protocolChoices}: the levels the page offers and the keys the
  * adapter accepts in `reasoningEfforts` come from the same `Config`.
@@ -261,6 +269,7 @@ export class ModelsSettingsStore {
         configured,
         removable,
         apiKeyEnv: entry.provider === 'deepseek-account' ? undefined : apiKeyEnvOf(namespace, entry.settingsPath, this.schema),
+        ...entry.modelErrors === undefined ? {} : { modelErrors: entry.modelErrors },
         credential: undefined,
       }
     })

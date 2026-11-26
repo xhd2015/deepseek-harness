@@ -64,6 +64,7 @@ function agent(ctx: Context, cwd?: string): Agent {
     followup: () => {}, steer: () => {}, inject: () => {}, cancel() {},
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
+    pause: () => false, resumePaused: () => false,
   }
 }
 
@@ -257,7 +258,8 @@ describe('BashTerminalBackend startup rollback', () => {
 
   it('wraps confined argv, scrubs the environment, and returns initialized sessions', async () => {
     const ctx = new Context()
-    provideWorkingDirectoryFixture(ctx)
+    // The Agent's Session records no directory, so the directory service's default bounds it.
+    provideWorkingDirectoryFixture(ctx, resolve('/workspace'))
     await ctx.plugin(RecordingSandbox)
     await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(SandboxPolicyService, { mode: 'workspace-write', workspaceRoot: '/workspace' })
@@ -692,6 +694,7 @@ describe('terminal-bash plugin shape', () => {
       followup: () => {}, steer: () => {}, inject: () => {}, cancel() {},
       runMaintenance: task => task(new AbortController().signal),
       whenIdle: () => Promise.resolve(),
+      pause: () => false, resumePaused: () => false,
     }
     await ctx.agents.register(owner)
     const providerFiber = await registerStubLocalBackend(ctx, () => stubLocalSession())
@@ -744,6 +747,7 @@ describe('terminal-bash plugin shape', () => {
       followup: () => {}, steer: () => {}, inject: () => {}, cancel() {},
       runMaintenance: task => task(new AbortController().signal),
       whenIdle: () => Promise.resolve(),
+      pause: () => false, resumePaused: () => false,
     }
     await ctx.agents.register(owner)
     const gate = Promise.withResolvers<undefined>()

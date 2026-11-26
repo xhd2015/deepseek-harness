@@ -60,6 +60,7 @@ function standInAgent(id: SessionId, cwd: string): Omit<Agent, 'ctx'> {
     },
     send: () => {}, followup: () => {}, steer: () => {}, inject: () => {}, cancel: () => {},
     whenIdle: () => Promise.resolve(),
+    pause: () => false, resumePaused: () => false,
     runMaintenance: task => task(new AbortController().signal),
   }
 }
@@ -85,10 +86,10 @@ beforeEach(async ({ onTestFinished }) => {
   mkdirSync(deploymentRoot)
   writeFileSync(join(root, 'file.txt'), 'original\n')
   provideWorkingDirectoryFixture(ctx, root)
+  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(NativeToolExecutor)
-  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(SandboxPolicyService, { mode: 'workspace-write', workspaceRoot: deploymentRoot })
   await ctx.plugin(SandboxedFileSystem, { cwd: deploymentRoot })
   await ctx.plugin(FsObservationPolicy)
