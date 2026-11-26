@@ -30,6 +30,7 @@ async function fixture() {
       steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
       runMaintenance: task => task(new AbortController().signal),
       whenIdle: () => Promise.resolve(undefined),
+      pause: () => false, resumePaused: () => false,
     }
     const unregister = ctx.agents.register(agent)
     await unregister

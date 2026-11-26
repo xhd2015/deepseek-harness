@@ -61,6 +61,7 @@ function promptAgentFixture(fields: Pick<Agent, 'id' | 'followup'> & Partial<Pic
     cancel: () => {},
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
+    pause: () => false, resumePaused: () => false,
     ...fields,
   }
 }

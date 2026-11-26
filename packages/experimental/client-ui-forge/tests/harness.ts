@@ -420,6 +420,8 @@ export function testAgent(ctx: Context, session: Session): TestAgent {
     async whenIdle() {
       while (maintenance !== undefined) await maintenance.done
     },
+    pause: () => false,
+    resumePaused: () => false,
     runMaintenance(task) {
       if (maintenance !== undefined) throw new Error(`agent "${session.id}" already has active work`)
       const current: Maintenance = { abort: new AbortController(), latched: false, disposed: false, done: Promise.resolve() }

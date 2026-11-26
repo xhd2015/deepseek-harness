@@ -55,6 +55,7 @@ async function liveAgent(ctx: Context, session: Session): Promise<Agent> {
     cancel() {},
     runMaintenance: task => task(new AbortController().signal),
     whenIdle() { return Promise.resolve() },
+    pause: () => false, resumePaused: () => false,
   }
   await ctx.agents.register(agent)
   return agent

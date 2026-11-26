@@ -60,6 +60,7 @@ function standInAgent(id: SessionId, cwd: string): Omit<Agent, 'ctx'> {
     },
     send: () => {}, followup: () => {}, steer: () => {}, inject: () => {}, cancel: () => {},
     whenIdle: () => Promise.resolve(),
+    pause: () => false, resumePaused: () => false,
     runMaintenance: task => task(new AbortController().signal),
   }
 }

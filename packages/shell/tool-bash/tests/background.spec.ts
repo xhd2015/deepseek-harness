@@ -416,6 +416,7 @@ describe('foreground commands as jobs', () => {
       cancel: () => {},
       runMaintenance: task => task(new AbortController().signal),
       whenIdle: () => Promise.resolve(),
+      pause: () => false, resumePaused: () => false,
     }
     ctx.agents.register(owner)
     const result = await executeToolFixture(ctx, {
@@ -533,6 +534,7 @@ describe('owned background output', () => {
       cancel: () => {},
       runMaintenance: task => task(new AbortController().signal),
       whenIdle: () => Promise.resolve(),
+      pause: () => false, resumePaused: () => false,
     }
     ctx.agents.register(owner)
     await executeToolFixture(ctx, {

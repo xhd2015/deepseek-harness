@@ -24,5 +24,6 @@ export function agentFor(ctx: Context, id: string, options: { cwd?: string; suba
     send: () => {}, followup: () => {}, steer: () => {}, inject: () => {}, cancel() {},
     runMaintenance: job => job(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
+    pause: () => false, resumePaused: () => false,
   }
 }

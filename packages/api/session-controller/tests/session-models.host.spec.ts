@@ -143,6 +143,7 @@ async function harness(logged?: {
     ctx,
     inbox: createInboxStub(),
     whenIdle: vi.fn(() => Promise.resolve()),
+    pause: () => false, resumePaused: () => false,
     runMaintenance: async () => { throw new Error('unexpected maintenance') },
     send: vi.fn(),
     inject: vi.fn(),

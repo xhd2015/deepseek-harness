@@ -33,6 +33,7 @@ async function fakeAgent(ctx: Context, rawId: string): Promise<Agent> {
     followup: () => {}, steer: () => {}, inject: () => {}, cancel() {},
     runMaintenance: job => job(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
+    pause: () => false, resumePaused: () => false,
   }
   await ctx.agents.register(agent)
   return agent

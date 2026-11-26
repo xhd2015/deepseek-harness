@@ -227,6 +227,7 @@ describe('owned background output (pwsh)', () => {
       cancel: () => {},
       runMaintenance: task => task(new AbortController().signal),
       whenIdle: () => Promise.resolve(),
+      pause: () => false, resumePaused: () => false,
     }
     ctx.agents.register(owner)
     const scripted = observableProcess()
@@ -478,6 +479,7 @@ describe('foreground commands as jobs (pwsh)', () => {
       cancel: () => {},
       runMaintenance: task => task(new AbortController().signal),
       whenIdle: () => Promise.resolve(),
+      pause: () => false, resumePaused: () => false,
     }
     ctx.agents.register(owner)
     const scripted = runningExecution('')

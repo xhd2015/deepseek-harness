@@ -484,6 +484,7 @@ describe('dsh-tool-workflow', () => {
         inbox: createInboxStub(), status: 'idle', ctx,
         send: () => {}, followup: () => {}, steer: () => {}, inject: () => {}, cancel: () => {},
         runMaintenance: task => task(new AbortController().signal), whenIdle: () => Promise.resolve(),
+        pause: () => false, resumePaused: () => false,
       }
       await ctx.agents.register(parent)
       return { ctx, engine, parent, session }
@@ -715,6 +716,7 @@ describe('dsh-tool-workflow', () => {
         inbox: createInboxStub(), status: 'idle', ctx,
         send: () => {}, followup: () => {}, steer: () => {}, inject: () => {}, cancel: () => {},
         runMaintenance: task => task(new AbortController().signal), whenIdle: () => Promise.resolve(),
+        pause: () => false, resumePaused: () => false,
       }
       await ctx.agents.register(parent)
 

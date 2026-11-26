@@ -624,5 +624,9 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
   interface RemoteErrorDetailsMap {
     /** The named Session does not exist; produced by every layer that resolves a SessionId. */
     'session/not-found': { readonly sessionId: SessionId }
+    /** The Session has no live turn to suspend: already idle, or never started. */
+    'session/not-running': { readonly sessionId: SessionId }
+    /** Continue was asked for a Session whose newest turn did not end paused. */
+    'session/not-paused': { readonly sessionId: SessionId }
   }
 }

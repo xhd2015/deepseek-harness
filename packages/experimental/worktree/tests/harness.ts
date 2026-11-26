@@ -47,6 +47,7 @@ export function testAgent(ctx: Context, cwd: string, name = 'worktree-test'): Ag
     inbox: unsupportedInbox(),
     send() {}, followup() {}, steer() {}, inject() {}, cancel() {},
     whenIdle: async () => {}, runMaintenance: task => task(new AbortController().signal),
+    pause: () => false, resumePaused: () => false,
   }
   ctx.agents.register(agent)
   return agent

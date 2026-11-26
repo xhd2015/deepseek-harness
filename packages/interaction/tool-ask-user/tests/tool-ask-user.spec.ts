@@ -103,6 +103,7 @@ function stubAgent(id: string, delegationDepth = 0, origin?: 'subagent'): Agent 
     send() {}, followup() {}, steer() {}, inject() {}, cancel() {},
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
+    pause: () => false, resumePaused: () => false,
   }
   return agent
 }

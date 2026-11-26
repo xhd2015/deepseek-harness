@@ -85,6 +85,7 @@ async function uploadHarness(
     id: session.id,
     options,
     whenIdle: vi.fn(() => Promise.resolve()),
+    pause: () => false, resumePaused: () => false,
     runMaintenance: async () => { throw new Error('unexpected maintenance') },
     send: vi.fn(),
     inject: vi.fn(),

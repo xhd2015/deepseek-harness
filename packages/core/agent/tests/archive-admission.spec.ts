@@ -32,6 +32,7 @@ async function liveAgent(ctx: Context, rawId: string, initial: AgentStatus): Pro
     cancel: (cause, options) => { cancels.push([cause, options]) },
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
+    pause: () => false, resumePaused: () => false,
     cancels,
     setStatus: (next) => { status = next },
   }

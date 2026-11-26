@@ -91,6 +91,7 @@ async function commandHarness(
     id: session.id,
     options: { provider: 'fixture', model: 'fixture-model' },
     whenIdle: vi.fn(() => Promise.resolve()),
+    pause: () => false, resumePaused: () => false,
     runMaintenance: async () => { throw new Error('unexpected maintenance') },
     send: vi.fn(),
     inject: vi.fn(),

@@ -243,6 +243,7 @@ describe('JobController', () => {
       cancel: () => {},
       runMaintenance: task => task(new AbortController().signal),
       whenIdle: () => Promise.resolve(),
+      pause: () => false, resumePaused: () => false,
     }
     await ctx.agents.register(owner)
     return owner

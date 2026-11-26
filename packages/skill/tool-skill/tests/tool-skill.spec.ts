@@ -90,6 +90,7 @@ function agentForCwd(cwd: string): Agent {
     cancel() {},
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
+    pause: () => false, resumePaused: () => false,
   }
 }
 
@@ -109,6 +110,7 @@ function sessionAgent(session: Session, id = 'tool-skill-agent'): Agent {
     cancel() {},
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
+    pause: () => false, resumePaused: () => false,
   }
   return agent
 }
