@@ -42,6 +42,10 @@ import type {
   SessionAttachmentRequest,
   SessionAttachmentValue,
   SessionCancelRequest,
+  SessionPauseRequest,
+  SessionPauseValue,
+  SessionUnpauseRequest,
+  SessionUnpauseValue,
   SessionCancelValue,
   SessionControlFrame,
   SessionCreateRequest,
@@ -727,6 +731,26 @@ export class SessionController extends TypertRemoteService {
   @Remote('cancel')
   cancel(request: SessionCancelRequest): SessionCancelValue {
     return this.commands.cancel(request)
+  }
+
+  /**
+   * Suspend one live turn without ending the Session.
+   * @param request - Session whose turn is paused.
+   * @returns acknowledgement that the pause was admitted.
+   */
+  @Remote('pause')
+  pause(request: SessionPauseRequest): SessionPauseValue {
+    return this.commands.pause(request)
+  }
+
+  /**
+   * Continue one paused Session without admitting a new message.
+   * @param request - Session whose paused turn is continued.
+   * @returns acknowledgement that the continuation started.
+   */
+  @Remote('unpause')
+  unpause(request: SessionUnpauseRequest): Promise<SessionUnpauseValue> {
+    return this.commands.unpause(request)
   }
 
   /**

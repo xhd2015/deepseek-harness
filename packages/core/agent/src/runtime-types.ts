@@ -213,6 +213,22 @@ declare module './types.ts' {
     cancel(cause: AgentCancelCause, options?: CancelOptions): void
 
     /**
+   * Suspend the live turn without ending the session: the stream is aborted,
+   * the partial output is kept out of model-visible history, and the turn
+   * closes with the `paused` hook reason. Pending inbox work is kept.
+   * @returns whether a live turn was suspended.
+   */
+    pause(): boolean
+
+    /**
+   * Continue a paused session with no new input. The model sees the durable
+   * history as it stood before the stream was cut, and no user message is
+   * inserted for the continuation.
+   * @returns whether a paused session was resumed.
+   */
+    resumePaused(): boolean
+
+    /**
    * Resolve after the current whole-agent activity reaches quiescence. This
    * follows replacement work started before the observed driver retires,
    * but does not identify the settlement of any particular message.

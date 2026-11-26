@@ -65,7 +65,7 @@ type Phase =
     lastTurn: number
     wakeRequested: boolean
   }
-  | { kind: 'running'; abort: AbortController; turn: number; step: number; wakeRequested: boolean }
+  | { kind: 'running'; abort: AbortController; turn: number; step: number; wakeRequested: boolean; resume?: boolean }
 
 type StepEndReason = Extract<TurnEndReason, { kind: 'completed' | 'max-tokens' }>
 
@@ -115,6 +115,27 @@ function abortedCancelCause(signal: AbortSignal): AgentCancelCause | undefined {
   }
 }
 
+/** Hook reason recorded by {@link ReactLoopAgent.pause}. */
+const PAUSE_REASON = 'paused'
+
+/**
+ * Whether the newest durable turn ended paused. A later `turn/start` means the
+ * session was continued, so only a tail that is still the paused ending counts.
+ */
+function pausedAtTail(session: Session): boolean {
+  // oxlint-disable-next-line typescript/no-deprecated -- construction needs the durable tail once, before any projection exists.
+  const events = session.snapshotEvents()
+  for (let index = events.length - 1; index >= 0; index--) {
+    const event = events[index]!
+    if (event.type === 'turn/start') return false
+    if (event.type === 'turn/end') {
+      const reason = event.data.reason
+      return reason.kind === 'aborted' && reason.reason.kind === 'hook' && reason.reason.reason === PAUSE_REASON
+    }
+  }
+  return false
+}
+
 /** Drives one session through turn and step boundaries. */
 export class ReactLoopAgent implements Agent {
   readonly model: AgentModel
@@ -157,6 +178,8 @@ export class ReactLoopAgent implements Agent {
   private assistantAttemptCounter = 0
   /** Identities fully frozen by this loop; weak references do not retain replaced history. */
   private readonly frozenMessages = new WeakSet<Message>()
+  /** The newest turn ended paused, so Continue may start a turn with no new input. */
+  private paused = false
 
   constructor(
     private loopCtx: Context,
@@ -175,6 +198,9 @@ export class ReactLoopAgent implements Agent {
     this.inbox = new ReactLoopInbox(projections.inbox, session, this.dispatch)
     this.phase = { kind: 'idle', lastTurn }
     this.runtimeContext = new RuntimeContextProjection(this.ctx, session)
+    // Read the durable tail after parameter properties exist; a field
+    // initializer runs before `session` is assigned and cannot see it.
+    this.paused = pausedAtTail(this.session)
   }
 
   get status(): AgentStatus {
@@ -385,6 +411,31 @@ export class ReactLoopAgent implements Agent {
     return this.phase.kind === 'running' ? this.phase.step + 1 : 1
   }
 
+  /**
+   * Suspend the live turn without ending the session. The abort carries the
+   * `paused` hook reason, so the turn closes as an aborted hook that readers
+   * classify as paused; the inbox is kept for the next turn.
+   * @returns whether a live turn was suspended.
+   */
+  pause(): boolean {
+    if (this.phase.kind === 'idle') return false
+    this.cancel({ kind: 'hook', reason: PAUSE_REASON }, { keepInbox: true })
+    return true
+  }
+
+  /**
+   * Continue a paused session. The turn starts without claiming any inbox
+   * message, so the model sees the durable history exactly as it stood when
+   * the stream was cut — no placeholder and no new user message.
+   * @returns whether a paused session was resumed.
+   */
+  resumePaused(): boolean {
+    if (this.phase.kind !== 'idle' || !this.paused) return false
+    this.paused = false
+    this.wakeDriver(false, true)
+    return true
+  }
+
   cancel(cause: AgentCancelCause, options: CancelOptions = {}): void {
     try {
       if (!options.keepInbox) this.inbox.clear()
@@ -428,7 +479,7 @@ export class ReactLoopAgent implements Agent {
    * @param wakeAfterAbort - the {@link send} classification, captured before
    *   the inbox insertion so a reentrant cancel cannot reclassify it.
    */
-  private wakeDriver(wakeAfterAbort = false): void {
+  private wakeDriver(wakeAfterAbort = false, resume = false): void {
     if (this.lifetimeSignal.aborted) return
     if (this.phase.kind !== 'idle') {
       // Maintenance and aborted drivers cannot deliver the wake: latch it for
@@ -448,6 +499,7 @@ export class ReactLoopAgent implements Agent {
       turn: this.phase.lastTurn,
       step: 0,
       wakeRequested: false,
+      ...resume ? { resume: true } : {},
     })
     this.loopCtx.agents.withInitiator(this, () => this.kick()).then(driver.resolve, driver.reject)
   }
@@ -527,6 +579,7 @@ export class ReactLoopAgent implements Agent {
     const { signal } = phase.abort
     signal.throwIfAborted()
     const turn = phase.turn + 1
+    this.paused = false
     try {
       this.session.append('turn/start', { turn })
     } catch (error: unknown) {
@@ -550,7 +603,7 @@ export class ReactLoopAgent implements Agent {
           if (turnEnds && decision.messages.length === 0 && !this.hasInjectedPending()) break
           // A removed waking message or an enter decision rewritten to empty
           // still owns the initial turn boundary, but it spends no model call.
-          if (phase.step === 0 && decision.messages.length === 0 && !this.hasInjectedPending()) {
+          if (phase.step === 0 && decision.messages.length === 0 && !this.hasInjectedPending() && phase.resume !== true) {
             turnEnds = { kind: 'completed' }
             return false
           }
@@ -604,6 +657,7 @@ export class ReactLoopAgent implements Agent {
       // A cause is present exactly while the signal is aborted.
       const cause = abortedCancelCause(signal)
       if (cause !== undefined) {
+        if (cause.kind === 'hook' && cause.reason === PAUSE_REASON) this.paused = true
         turnEnds = { kind: 'aborted', reason: cause }
         throw error
       }
@@ -636,7 +690,10 @@ export class ReactLoopAgent implements Agent {
   private async step(decision: Extract<PreparedStep, { kind: 'enter' }>): Promise<StepEndReason | null> {
     /* v8 ignore next -- private callers establish the running phase before executing a step */
     if (this.phase.kind !== 'running') throw new Error(`agent "${this.id}": step outside running phase`)
-    const { turn, step, abort: { signal } } = this.phase
+    const { turn, step, abort: { signal }, resume: resuming = false } = this.phase
+    // A resumed turn already owns the durable runtime-context message from the
+    // turn it continues; admitting a second one would add model-visible input.
+    if (this.phase.kind === 'running') this.phase.resume = false
     signal.throwIfAborted()
 
     const { assembly } = decision
@@ -656,7 +713,7 @@ export class ReactLoopAgent implements Agent {
         this.session.append('system/message', { turn, step, message }, intent)
       }
       if (firstAttempt) {
-        for (const message of decision.messages) {
+        for (const message of resuming ? [] : decision.messages) {
           if (message.source.kind === 'runtime-context') {
             if (context !== undefined && !contextAdmitted) {
               this.session.append('user/message', context, { surfaceOp: 'append' })
@@ -667,7 +724,7 @@ export class ReactLoopAgent implements Agent {
           }
         }
       }
-      if (context !== undefined && !contextAdmitted) {
+      if (context !== undefined && !contextAdmitted && !resuming) {
         this.session.append('user/message', context, { surfaceOp: 'append' })
       }
       firstAttempt = false
@@ -695,7 +752,9 @@ export class ReactLoopAgent implements Agent {
         if (!started) throw error
         try {
           if (signal.aborted) {
-            const content = live.interruptedBlocks()
+            const cause = abortedCancelCause(signal)
+            const paused = cause?.kind === 'hook' && cause.reason === PAUSE_REASON
+            const content = paused ? [] : live.interruptedBlocks()
             if (content.length > 0) {
               live.settle('assistant/message', () => this.session.append('assistant/message', {
                 turn,

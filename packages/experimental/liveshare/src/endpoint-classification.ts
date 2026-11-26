@@ -129,6 +129,8 @@ export const VIEWER_ENDPOINT_CLASSES = {
   'session/refreshModelCatalog': 'owner-only', // a forced provider round-trip is not a viewer action
   'session/openWorkspacePath': 'owner-only', // owner opens a Workspace path
   'session/search': 'owner-only', // owner searches across Sessions
+  'session/pause': 'owner-only', // owner suspends a live turn
+  'session/unpause': 'owner-only', // owner continues a paused turn
   'session/selectDefaultModel': 'owner-only', // owner saves the deployment default model
   'session/selectModel': 'owner-only', // owner selects a Session model
   'session/setThinkingCapAutoContinue': 'owner-only', // owner sets the Session auto-continue policy

@@ -595,6 +595,26 @@ export interface SessionCancelValue {
   readonly accepted: true
 }
 
+/** Pause request for one live Session. */
+export interface SessionPauseRequest {
+  readonly sessionId: SessionId
+}
+
+/** Receipt after a pause was admitted to the live Agent. */
+export interface SessionPauseValue {
+  readonly accepted: true
+}
+
+/** Continue request for one paused Session. */
+export interface SessionUnpauseRequest {
+  readonly sessionId: SessionId
+}
+
+/** Receipt after a paused Session was continued. */
+export interface SessionUnpauseValue {
+  readonly accepted: true
+}
+
 /** Request to open one path prepared by a Session-aware caller on the Host desktop. */
 export interface SessionOpenWorkspacePathRequest {
   /** File-manager navigation when requested; omission uses the default application. */

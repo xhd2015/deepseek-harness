@@ -43,6 +43,10 @@ import type {
   SessionAttachmentRequest,
   SessionAttachmentValue,
   SessionCancelRequest,
+  SessionPauseRequest,
+  SessionPauseValue,
+  SessionUnpauseRequest,
+  SessionUnpauseValue,
   SessionCancelValue,
   SessionCreateRequest,
   SessionCreateValue,
@@ -811,6 +815,40 @@ export class SessionCommandController {
       throw apiSessionSubagentOwnershipError(request.sessionId)
     }
     agent.cancel({ kind: 'user' }, { keepInbox: true })
+    return { accepted: true }
+  }
+
+  /**
+   * Suspend one live ordinary Agent without dropping pending inbox work.
+   * @param request - Session whose active turn is paused.
+   * @returns acknowledgement that the pause was admitted.
+   */
+  pause(request: SessionPauseRequest): SessionPauseValue {
+    const agent = this.ctx.agents.get(request.sessionId)
+    if (agent === undefined) {
+      throw new RemoteError('session/not-found', `session "${request.sessionId}" not found (not attached)`, { sessionId: request.sessionId })
+    }
+    if (!agent.pause()) {
+      throw new RemoteError('session/not-running', `session "${request.sessionId}" has no live turn to pause`, { sessionId: request.sessionId })
+    }
+    return { accepted: true }
+  }
+
+  /**
+   * Continue one paused ordinary Agent without admitting a new message.
+   * @param request - Session whose paused turn is continued.
+   * @returns acknowledgement that the continuation started.
+   */
+  async unpause(request: SessionUnpauseRequest): Promise<SessionUnpauseValue> {
+    // Resolving may open the stored session, which is what makes Continue work
+    // after a daemon restart: the pause is read back from the log tail.
+    const agent = await this.resolveAgent(request.sessionId)
+    // Continue may race the pause that is still unwinding its stream; wait for
+    // the turn boundary before opening the continuation.
+    await agent.whenIdle()
+    if (!agent.resumePaused()) {
+      throw new RemoteError('session/not-paused', `session "${request.sessionId}" is not paused`, { sessionId: request.sessionId })
+    }
     return { accepted: true }
   }
 
